@@ -27,6 +27,30 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
             auth = false,
         )
 
+    fun loginWithPassword(email: String, password: String, installId: String, deviceName: String): JSONObject =
+        send(
+            "POST",
+            "/api/auth/password/login",
+            JSONObject()
+                .put("email", email)
+                .put("password", password)
+                .put("client", "android")
+                .put("platform", "android")
+                .put("installId", installId)
+                .put("deviceName", deviceName),
+            auth = false,
+        )
+
+    fun getPasswordStatus(): JSONObject = send("GET", "/api/me/password")
+
+    fun setPassword(password: String, confirmPassword: String, currentPassword: String? = null): JSONObject {
+        val body = JSONObject()
+            .put("password", password)
+            .put("confirmPassword", confirmPassword)
+        if (!currentPassword.isNullOrEmpty()) body.put("currentPassword", currentPassword)
+        return send("PUT", "/api/me/password", body)
+    }
+
     fun ingest(events: JSONArray, deviceName: String): JSONObject =
         send("POST", "/api/ingest", JSONObject().put("events", events).put("deviceName", deviceName))
 
@@ -64,17 +88,61 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
         proposedEnd: String,
         reason: String,
         officeLocationId: String?,
+        issue: String = "wrong_times",
+        remove: Boolean = false,
     ): JSONObject {
         val body = JSONObject()
+            .put("day", dayKey)
             .put("dayKey", dayKey)
-            .put("proposedStart", proposedStart)
-            .put("proposedEnd", proposedEnd)
+            .put("issue", issue)
             .put("reason", reason)
-        if (!officeLocationId.isNullOrBlank()) body.put("officeLocationId", officeLocationId)
+        if (remove) {
+            body.put("requested", JSONObject().put("remove", true))
+        } else {
+            body.put("proposedStart", proposedStart)
+            body.put("proposedEnd", proposedEnd)
+            val requested = JSONObject().put("in_at", proposedStart).put("out_at", proposedEnd)
+            if (!officeLocationId.isNullOrBlank()) {
+                requested.put("office_id", officeLocationId)
+                body.put("officeLocationId", officeLocationId)
+            }
+            body.put("requested", requested)
+        }
         return send("POST", "/api/me/corrections", body)
     }
 
+    fun listCorrections(month: String? = null): JSONObject {
+        val q = if (month.isNullOrBlank()) "" else "?month=${enc(month)}"
+        return send("GET", "/api/me/corrections$q")
+    }
+
+    fun cancelCorrection(id: String): JSONObject =
+        send("POST", "/api/me/corrections", JSONObject().put("action", "cancel").put("id", id))
+
+    fun previewCorrection(
+        day: String,
+        officeId: String? = null,
+        inAt: String? = null,
+        outAt: String? = null,
+        remove: Boolean = false,
+    ): JSONObject {
+        val parts = mutableListOf("day=${enc(day)}")
+        if (remove) parts += "remove=1"
+        if (!officeId.isNullOrBlank()) parts += "office_id=${enc(officeId)}"
+        if (!inAt.isNullOrBlank()) parts += "in_at=${enc(inAt)}"
+        if (!outAt.isNullOrBlank()) parts += "out_at=${enc(outAt)}"
+        return send("GET", "/api/me/corrections/preview?${parts.joinToString("&")}")
+    }
+
     fun adminUsers(): JSONObject = send("GET", "/api/admin/users")
+
+    /** Active non-admin users including test accounts, for View as. */
+    fun adminUsersForViewAs(q: String? = null): JSONObject {
+        val parts = mutableListOf("includeTest=1", "status=active", "role=user")
+        if (!q.isNullOrBlank()) parts += "q=${enc(q)}"
+        return send("GET", "/api/admin/users?${parts.joinToString("&")}")
+    }
+
     fun adminSeedDummies(): JSONObject = send("POST", "/api/admin/users", JSONObject().put("seedDummies", true))
     fun adminCreateUser(email: String, name: String?, role: String, isDummy: Boolean): JSONObject =
         send(
@@ -93,13 +161,35 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
         return send("POST", "/api/admin/users", body)
     }
 
+    fun startViewAs(userId: String): JSONObject =
+        send("POST", "/api/admin/view-as", JSONObject().put("userId", userId))
+
+    /** Must be called with the admin device token, not the view-as JWT. */
+    fun endViewAs(sessionId: String?, adminToken: String): JSONObject {
+        val body = JSONObject()
+        if (!sessionId.isNullOrBlank()) body.put("sessionId", sessionId)
+        return send("POST", "/api/admin/view-as/end", body, auth = true, tokenOverride = adminToken)
+    }
+
+    fun getProfile(): JSONObject = send("GET", "/api/me/profile")
+    fun patchProfile(body: JSONObject): JSONObject = send("PATCH", "/api/me/profile", body)
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun send(method: String, path: String, body: JSONObject? = null, auth: Boolean = true): JSONObject {
+    private fun send(
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+        auth: Boolean = true,
+        tokenOverride: String? = null,
+    ): JSONObject {
         val conn = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             setRequestProperty("Accept", "application/json")
-            if (auth) tokenProvider()?.let { setRequestProperty("Authorization", "Bearer $it") }
+            if (auth) {
+                val tok = tokenOverride ?: tokenProvider()
+                tok?.let { setRequestProperty("Authorization", "Bearer $it") }
+            }
             connectTimeout = 20000
             readTimeout = 30000
         }

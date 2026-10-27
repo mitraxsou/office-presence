@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { resolveActor, unauthorized } from "@/lib/actor";
+import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
 
 export async function GET(request: Request) {
   const actor = await resolveActor(request);
@@ -14,6 +14,8 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
+  const blocked = rejectIfReadonlyViewAs(actor);
+  if (blocked) return blocked;
   const body = await request.json().catch(() => ({}));
   const share = body.sharePresenceWithPeers === true;
   if (share && body.consent !== true) {

@@ -88,7 +88,7 @@ class ReportsActivity : AppCompatActivity() {
         val points = data.optInt("monthPoints")
         val target = data.optInt("pointsTarget").coerceAtLeast(1)
         val visitDays = data.optInt("monthVisitDays")
-        val summary = Ui.card(content, "$points / $target points", "$visitDays visit day${if (visitDays == 1) "" else "s"} this month")
+        val summary = Ui.card(content, "$points / $target days", "$visitDays visit day${if (visitDays == 1) "" else "s"} this month")
         if (data.optBoolean("targetMet")) {
             summary.addView(Ui.text(this, "Goal met", 14f, bold = true).apply {
                 setTextColor(getColor(R.color.pwc_orange))
@@ -224,8 +224,10 @@ class ReportsActivity : AppCompatActivity() {
         val detail = Ui.card(
             content,
             sel,
-            if (day != null && day.optInt("points") > 0) "+${day.optInt("points")} point${if (day.optInt("points") == 1) "" else "s"}"
-            else "No visit",
+            if (day != null && day.optInt("points") > 0) {
+                val n = day.optInt("points")
+                if (n == 1) "Counts as 1 day" else "Counts as $n days"
+            } else "No visit",
         )
         if (day != null && day.has("firstIn")) {
             detail.addView(Ui.text(this, "First in  ${Ui.fmtTime(day.optString("firstIn").takeIf { it != "null" }, tz)}", 14f).apply {
@@ -236,7 +238,7 @@ class ReportsActivity : AppCompatActivity() {
             detail.addView(
                 Ui.text(
                     this,
-                    "Points from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
+                    "Days from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
                     14f,
                     muted = true,
                 ),
@@ -254,17 +256,17 @@ class ReportsActivity : AppCompatActivity() {
                 }
             }
         } else if (day != null) {
-            // calendar-only row without intervals: fetch full month again already has days page; show points only
+            // calendar-only row without intervals: fetch full month again already has days page; show days only
             detail.addView(
                 Ui.text(
                     this,
-                    "Points from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
+                    "Days from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
                     14f,
                     muted = true,
                 ).apply { setPadding(0, Ui.dp(context, 8), 0, 0) },
             )
         }
-        Ui.button(detail, "Request correction") { showCorrectionDialog(sel, tz) }
+        Ui.button(detail, "Request a correction") { showCorrectionDialog(sel, tz) }
     }
 
     private fun showCorrectionDialog(dayKey: String, tz: String) {
@@ -274,12 +276,12 @@ class ReportsActivity : AppCompatActivity() {
             setPadding(p, p, p, 0)
         }
         val inEt = EditText(this).apply {
-            hint = "Check-in (HH:mm)"
+            hint = "In (HH:mm)"
             setText("09:30")
             inputType = InputType.TYPE_CLASS_DATETIME
         }
         val outEt = EditText(this).apply {
-            hint = "Check-out (HH:mm)"
+            hint = "Out (HH:mm)"
             setText("17:30")
             inputType = InputType.TYPE_CLASS_DATETIME
         }
@@ -287,7 +289,11 @@ class ReportsActivity : AppCompatActivity() {
             hint = "Reason"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
         }
-        val names = offices.map { "${it.displayName} (${it.pointsPerVisitDay} pt)" }.ifEmpty { listOf("No offices") }
+        val names = offices.map {
+            val n = it.pointsPerVisitDay
+            val days = if (n == 1) "1 day" else "$n days"
+            "${it.displayName} (Counts as $days)"
+        }.ifEmpty { listOf("No offices") }
         val spinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@ReportsActivity, android.R.layout.simple_spinner_dropdown_item, names)
         }
@@ -297,7 +303,7 @@ class ReportsActivity : AppCompatActivity() {
         box.addView(reasonEt)
         AlertDialog.Builder(this)
             .setTitle("Correct $dayKey")
-            .setMessage("Admin must approve before points change.")
+            .setMessage("Admin must approve before days change.")
             .setView(box)
             .setPositiveButton("Send") { _, _ ->
                 val reason = reasonEt.text.toString().trim()
@@ -307,11 +313,11 @@ class ReportsActivity : AppCompatActivity() {
                 }
                 val officeId = offices.getOrNull(spinner.selectedItemPosition)?.id
                 val startIso = localToIso(dayKey, inEt.text.toString().trim(), tz) ?: run {
-                    Snackbar.make(root, "Use HH:mm for check-in", Snackbar.LENGTH_LONG).show()
+                    Snackbar.make(root, "Use HH:mm for In", Snackbar.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
                 var endIso = localToIso(dayKey, outEt.text.toString().trim(), tz) ?: run {
-                    Snackbar.make(root, "Use HH:mm for check-out", Snackbar.LENGTH_LONG).show()
+                    Snackbar.make(root, "Use HH:mm for Out", Snackbar.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
                 if (java.time.Instant.parse(endIso).isBefore(java.time.Instant.parse(startIso)) ||

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Office Presence tokens for XML views. Night values in values-night/colors.xml -->
+<resources>
+    <color name="op_accent">#FD5108</color>
+    <color name="op_accent_hover">#E04A07</color>
+    <color name="op_accent_wash">#26FD5108</color>
+    <color name="op_on_accent">#1A1A1A</color>
+    <color name="op_ok">#2ECC71</color>
+    <color name="op_ok_wash">#292ECC71</color>
+    <color name="op_bg">#F4F4F4</color>
+    <color name="op_surface">#FFFFFF</color>
+    <color name="op_sunk">#ECECEC</color>
+    <color name="op_line">#1A1A1A1A</color>
+    <color name="op_ink">#1A1A1A</color>
+    <color name="op_ink_2">#5E5E5E</color>
+    <color name="op_ink_3">#8C8C8C</color>
+</resources>

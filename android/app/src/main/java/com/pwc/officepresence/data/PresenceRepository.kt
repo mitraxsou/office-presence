@@ -91,6 +91,7 @@ class PresenceRepository(private val context: Context) {
 
     fun uploadPendingOnly(): Boolean {
         if (prefs.token == null) return false
+        if (prefs.isViewAsReadonly) return false
         return try {
             uploadQueue(api) == null
         } catch (_: Exception) {
@@ -100,6 +101,8 @@ class PresenceRepository(private val context: Context) {
 
     fun uploadAndSync(): SyncState {
         if (prefs.token == null) return cached("Signed out", ok = false, unauthorized = true)
+        // Read-only view-as: fetch the viewed user's data, do not upload from this phone.
+        if (prefs.isViewAsReadonly) return syncOnly()
         return try {
             val client = api
             val err = uploadQueue(client)
@@ -158,7 +161,15 @@ class PresenceRepository(private val context: Context) {
             prefs.developerMode = u.optBoolean("developerMode", false)
             prefs.sharePresenceWithPeers = u.optBoolean("sharePresenceWithPeers", false)
             prefs.role = u.optString("role", "user")
+            u.optString("name", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
+            u.optString("email", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.email = it }
             u.optString("timezone", "").takeIf { it.isNotBlank() }?.let { prefs.timezone = it }
+            u.optString("firstName", "").takeIf { it != "null" }?.let { prefs.firstName = it }
+            u.optString("lastName", "").takeIf { it != "null" }?.let { prefs.lastName = it }
+            u.optString("preferredName", "").takeIf { it != "null" }?.let { prefs.preferredName = it }
+            u.optString("colleagueDisplayMode", "").takeIf { it.isNotBlank() && it != "null" }
+                ?.let { prefs.colleagueDisplayMode = it }
+            u.optString("displayName", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
         }
         sync.optJSONObject("device")?.let { d -> d.optString("id", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it } }
         sync.optJSONObject("prefs")?.let { applyPrefs(it) }
@@ -170,6 +181,10 @@ class PresenceRepository(private val context: Context) {
             }
         }
         applyStatus(sync)
+        prefs.lastSyncAtMs = System.currentTimeMillis()
+        if (prefs.cachedInOffice && !prefs.cachedOfficeName.isBlank()) {
+            prefs.lastOfficeName = prefs.cachedOfficeName
+        }
         return cached()
     }
 
@@ -180,6 +195,18 @@ class PresenceRepository(private val context: Context) {
         prefs.notifyOfficeLeave = if (p.has("notifyOfficeLeave")) p.optBoolean("notifyOfficeLeave", true) else combined
         prefs.notifyGoalMet = p.optBoolean("notifyGoalMet", true)
         prefs.notifyDailySummary = p.optBoolean("notifyDailySummary", true)
+        if (p.has("notifyCorrections")) prefs.notifyCorrections = p.optBoolean("notifyCorrections", true)
+        if (p.has("notifyTrackingProblems")) {
+            prefs.notifyTrackingProblems = p.optBoolean("notifyTrackingProblems", true)
+        }
+        if (p.has("quietHoursStart")) {
+            val s = p.optString("quietHoursStart", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            prefs.quietHoursStart = s
+        }
+        if (p.has("quietHoursEnd")) {
+            val e = p.optString("quietHoursEnd", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            prefs.quietHoursEnd = e
+        }
         prefs.notificationToneId = p.optString("notificationToneId", "default")
         prefs.toneEnterId = p.optString("toneEnterId", prefs.toneEnterId.ifBlank { "chime" })
         prefs.toneLeaveId = p.optString("toneLeaveId", prefs.toneLeaveId.ifBlank { "soft" })
@@ -188,11 +215,42 @@ class PresenceRepository(private val context: Context) {
         prefs.launchSoundEnabled = p.optBoolean("launchSoundEnabled", false)
     }
 
+    fun applyProfile(profile: JSONObject) {
+        profile.optString("firstName", "").takeIf { it != "null" }?.let { prefs.firstName = it }
+        profile.optString("lastName", "").takeIf { it != "null" }?.let { prefs.lastName = it }
+        profile.optString("preferredName", "").takeIf { it != "null" }?.let { prefs.preferredName = it }
+        profile.optString("colleagueDisplayMode", "").takeIf { it.isNotBlank() && it != "null" }
+            ?.let { prefs.colleagueDisplayMode = it }
+        profile.optString("displayName", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
+            ?: profile.optString("name", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
+        profile.optString("email", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.email = it }
+    }
+
+    /**
+     * End view-as on the server (admin token) and restore the admin device token locally.
+     * Call from UI after End, and on app restart / sign out.
+     */
+    fun endViewAsSession(): Boolean {
+        val adminTok = prefs.viewAsAdminToken ?: return false
+        val sessionId = prefs.viewAsSessionId
+        return try {
+            val res = api.endViewAs(sessionId, adminTok)
+            prefs.clearViewAsLocal()
+            res.ok()
+        } catch (_: Exception) {
+            prefs.clearViewAsLocal()
+            false
+        }
+    }
+
     /**
      * One-shot recovery: match the current fix to an office, record enter/exit,
      * sync, and notify. Not a standing manual check-in control.
      */
     fun forceDetect(lat: Double, lng: Double, accuracy: Double): SyncState {
+        if (prefs.isViewAsReadonly) {
+            return cached("Not available while viewing as ${prefs.viewAsTargetName.ifBlank { "another user" }}", ok = false)
+        }
         val rules = prefs.rules()
         val offices = prefs.offices()
         val matched = VisitCalculator.matchNearestOffice(

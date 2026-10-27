@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only for the SplashScreen API and notifications. Compose screens use ui.theme, never these. -->
+<resources>
+    <color name="op_accent">#FD5108</color>            <!-- notification accent (setColor), splash icon background -->
+    <color name="op_splash_bg">#F4F4F4</color>         <!-- windowSplashScreenBackground -->
+    <color name="op_status_bar">#F4F4F4</color>
+</resources>

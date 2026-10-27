@@ -7,6 +7,7 @@ export type PresenceRules = {
   fenceRadiusMeters: number;
   sampleIntervalMinutes?: number;
   gapSeconds?: number;
+  correctionWindowDays?: number;
 };
 
 export type PresenceEventInput = {
@@ -404,10 +405,10 @@ export function computeVisits(args: {
   const pointsByOffice = new Map<string, number>();
   for (const o of pointOffices) if (o.id) pointsByOffice.set(o.id, o.pointsPerVisitDay ?? 1);
   for (const v of visits) {
-    if (v.source !== "admin" || !v.pointsAwarded) {
-      v.pointsAwarded =
-        pointsByOffice.get(v.officeLocationId ?? "") ?? (v.pointsAwarded && v.pointsAwarded > 0 ? v.pointsAwarded : 1);
-    }
+    // Admin visits keep an explicit pointsAwarded, including 0 (do not count day).
+    if (v.source === "admin") continue;
+    v.pointsAwarded =
+      pointsByOffice.get(v.officeLocationId ?? "") ?? (v.pointsAwarded && v.pointsAwarded > 0 ? v.pointsAwarded : 1);
   }
 
   const totalHours = visits.reduce((sum, v) => sum + v.hours, 0);
@@ -464,9 +465,11 @@ export function computeDayPoints(
         : splitAtLocalMidnights(start, end, timezone);
     for (const seg of segs) {
       const pts =
-        v.pointsAwarded && v.pointsAwarded > 0
-          ? v.pointsAwarded
-          : pointsByOffice.get(v.officeLocationId ?? "") ?? 1;
+        v.source === "admin"
+          ? v.pointsAwarded ?? 0
+          : v.pointsAwarded && v.pointsAwarded > 0
+            ? v.pointsAwarded
+            : pointsByOffice.get(v.officeLocationId ?? "") ?? 1;
       const cur = byDay.get(seg.dayKey) ?? {
         firstIn: seg.startMs,
         lastOut: seg.endMs,
@@ -506,4 +509,5 @@ export const DEFAULT_RULES: PresenceRules = {
   timezone: "Asia/Kolkata",
   fenceRadiusMeters: 100,
   sampleIntervalMinutes: 5,
+  correctionWindowDays: 5,
 };

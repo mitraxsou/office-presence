@@ -16,6 +16,7 @@ import {
   type DayPointsResult,
 } from "./visit-calculator";
 import { sendTeamsNotification, type TeamsPayload } from "./notifications";
+import { buildDayOfficesPayload } from "./office-day";
 
 export function monthKeyInTz(date: Date, timezone: string) {
   return dayKeyInTz(date, timezone).slice(0, 7);
@@ -32,7 +33,23 @@ export function monthBounds(timezone: string, monthKey?: string) {
 
 export type DayDetail = DayPointsResult & {
   officeName: string | null;
-  intervals: Array<{ startAt: string; endAt: string; hours: number; officeName: string | null; source: string }>;
+  intervals: Array<{
+    startAt: string;
+    endAt: string;
+    hours: number;
+    officeName: string | null;
+    officeId: string | null;
+    source: string;
+  }>;
+  /** SPEC 13 / corrections-api day detail shape (additive). */
+  offices: Array<{
+    office_id: string | null;
+    name: string;
+    minutes: number;
+    visits: Array<{ in_at: string; out_at: string; minutes: number }>;
+  }>;
+  travel_minutes: number;
+  total_minutes: number;
 };
 
 async function officeNameResolver(userId: string) {
@@ -60,7 +77,12 @@ async function computeForRange(userId: string, monthKey?: string) {
       orderBy: { recordedAt: "asc" },
     }),
     prisma.visit.findMany({
-      where: { userId, source: "admin", startAt: { lt: end }, endAt: { gte: start } },
+      where: {
+        userId,
+        source: { in: ["admin", "correction"] },
+        startAt: { lt: end },
+        endAt: { gte: start },
+      },
     }),
     prisma.visitExclusion.findMany({
       where: { userId, startAt: { lt: end }, endAt: { gte: start } },
@@ -107,19 +129,27 @@ function attachDetails(
   timezone: string,
   nameOf: (id: string | null | undefined) => string | null,
 ): DayDetail[] {
-  return days.map((d) => ({
-    ...d,
-    officeName: nameOf(d.officeLocationId),
-    intervals: visits
+  return days.map((d) => {
+    const intervals = visits
       .filter((v) => dayKeyInTz(new Date(v.startAt), timezone) === d.dayKey)
       .map((v) => ({
         startAt: v.startAt,
         endAt: v.endAt,
         hours: v.hours,
         officeName: nameOf(v.officeLocationId),
+        officeId: v.officeLocationId ?? null,
         source: v.source,
-      })),
-  }));
+      }));
+    const payload = buildDayOfficesPayload(d.dayKey, d.points, d.hours, intervals);
+    return {
+      ...d,
+      officeName: nameOf(d.officeLocationId),
+      intervals,
+      offices: payload.offices,
+      travel_minutes: payload.travel_minutes,
+      total_minutes: payload.total_minutes,
+    };
+  });
 }
 
 /** Read-only month view for reports and calendars. Does not write visits or status. */
@@ -288,7 +318,7 @@ async function queueAlerts(a: {
     await enqueueAlert(a.userId, "points_met", a.monthKey, {
       ...base,
       type: "hours_met",
-      message: `Goal met: ${a.summary.points} / ${a.summary.target} office points this month.`,
+      message: `Goal met: ${a.summary.points} / ${a.summary.target} days this month.`,
     });
   }
   if (!a.summary.targetMet && prefs?.notifyDailySummary !== false && localHour(a.timezone) >= 9) {
@@ -296,7 +326,7 @@ async function queueAlerts(a: {
       ...base,
       type: "custom",
       message:
-        `Office points: ${a.summary.points} / ${a.summary.target} this month, ${a.summary.remaining} to go. ` +
+        `Office days: ${a.summary.points} / ${a.summary.target} this month, ${a.summary.remaining} to go. ` +
         `Hours today ${a.hoursToday.toFixed(1)} (FYI, advised ${a.dayHours}).`,
     });
   }

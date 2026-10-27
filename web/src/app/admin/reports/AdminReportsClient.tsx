@@ -1,178 +1,231 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { fmtDateTime, fmtHours, fmtTime } from "@/lib/format";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Row = { id: string; email: string; name: string | null; monthPoints: number; monthVisitDays: number; hoursToday: number; met: boolean; lastDeviceName: string | null };
-type Compliance = {
-  pointsTarget: number;
-  metCount: number;
-  totalUsers: number;
-  pendingCorrections: number;
-  pendingOffices: number;
-  users: Row[];
-  pagination: { page: number; pageSize: number; total: number };
-};
-type Correction = {
+type Row = {
   id: string;
-  dayKey: string;
-  proposedStart: string;
-  proposedEnd: string;
-  reason: string;
+  email: string;
+  name: string | null;
+  monthPoints: number;
+  monthVisitDays: number;
+  hoursToday: number;
   officeName: string | null;
-  createdAt: string;
-  status: string;
-  reviewNote: string | null;
-  user: { email: string; name: string | null };
+  officeLocationId: string | null;
+  met?: boolean;
 };
 
-function SkeletonRows({ cols }: { cols: number }) {
-  return (
-    <>
-      {[0, 1, 2].map((i) => (
-        <tr key={i}>
-          {Array.from({ length: cols }).map((_, j) => (
-            <td key={j}><span className="skeleton" style={{ height: 16 }} /></td>
-          ))}
-        </tr>
-      ))}
-    </>
-  );
+type OfficeOpt = { id: string; name: string };
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
-function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
+function shiftMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function currentMonthKey(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function MiniDays({ current, target }: { current: number; target: number }) {
+  const pct = Math.min(100, Math.round((Math.max(0, current) / Math.max(1, target)) * 100));
   return (
-    <div className="pager">
-      <span className="help">Page {page} of {pages}</span>
-      <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>Prev</button>
-      <button className="btn btn-secondary btn-sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+    <div className="op-mini">
+      <div className="op-mini-track" aria-hidden>
+        <div className="op-mini-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="op-mini-label">
+        {current} / {target}
+      </span>
     </div>
   );
 }
 
-export default function AdminReportsClient() {
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState<Compliance | null>(null);
-  const [cStatus, setCStatus] = useState<"pending" | "approved" | "rejected">("pending");
-  const [cPage, setCPage] = useState(1);
-  const [corr, setCorr] = useState<{ requests: Correction[]; pagination: { page: number; pageSize: number; total: number } } | null>(null);
-  const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+export default function AdminReportsClient({
+  offices = [],
+  initialMonth,
+}: {
+  offices?: OfficeOpt[];
+  initialMonth?: string;
+}) {
+  const [month, setMonth] = useState(initialMonth || currentMonthKey());
+  const [office, setOffice] = useState("");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [pointsTarget, setPointsTarget] = useState(8);
+  const [loading, setLoading] = useState(true);
 
-  const loadCompliance = useCallback(async () => {
-    setData(null);
-    const res = await fetch(`/api/admin/reports?page=${page}`, { cache: "no-store" });
-    if (res.ok) setData(await res.json());
-  }, [page]);
-  const loadCorrections = useCallback(async () => {
-    setCorr(null);
-    const res = await fetch(`/api/admin/corrections?status=${cStatus}&page=${cPage}`, { cache: "no-store" });
-    if (res.ok) setCorr(await res.json());
-  }, [cStatus, cPage]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    const sp = new URLSearchParams();
+    if (office) sp.set("office", office);
+    const qs = sp.toString();
+    const res = await fetch(`/api/admin/status${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+    if (res.ok) {
+      const j = await res.json();
+      setPointsTarget(j.pointsTarget ?? 8);
+      setRows(
+        (j.users ?? []).map((u: Row) => ({
+          ...u,
+          met: u.monthPoints >= (j.pointsTarget ?? 8),
+        })),
+      );
+    }
+    setLoading(false);
+  }, [office]);
 
-  useEffect(() => { loadCompliance(); }, [loadCompliance]);
-  useEffect(() => { loadCorrections(); }, [loadCorrections]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  async function decide(c: Correction, decision: "approve" | "reject") {
-    const reviewNote = window.prompt(decision === "approve" ? "Note (optional)" : "Why reject?") ?? "";
-    if (decision === "reject" && !reviewNote) return;
-    const res = await fetch("/api/admin/corrections", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: c.id, decision, reviewNote }),
-    });
-    setMsg(res.ok ? { kind: "ok", text: `Correction ${decision}d` } : { kind: "error", text: "Review failed" });
-    loadCorrections();
-    loadCompliance();
-  }
+  const sorted = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) => b.monthPoints - a.monthPoints || (a.name || a.email).localeCompare(b.name || b.email),
+      ),
+    [rows],
+  );
+
+  const stats = useMemo(() => {
+    const people = sorted.length;
+    const goalMet = sorted.filter((u) => u.monthPoints >= pointsTarget).length;
+    return {
+      people,
+      goalMet,
+      below: people - goalMet,
+      target: pointsTarget,
+    };
+  }, [sorted, pointsTarget]);
+
+  const exportHref = `/api/admin/export?kind=reports&month=${encodeURIComponent(month)}${
+    office ? `&office=${encodeURIComponent(office)}` : ""
+  }`;
 
   return (
-    <>
-      <div className="card card-brand">
-        <span className="card-title">Admin</span>
+    <div>
+      <div className="op-whead">
         <h1>Reports</h1>
-        {data ? (
-          <div className="stat-grid">
-            <div className="stat"><span className="stat-label">Met {data.pointsTarget} points</span><span className="stat-value">{data.metCount} / {data.totalUsers}</span></div>
-            <div className="stat"><span className="stat-label">Corrections waiting</span><span className="stat-value">{data.pendingCorrections}</span></div>
-            <div className="stat"><span className="stat-label">Office suggestions</span><span className="stat-value"><a href="/admin/offices">{data.pendingOffices}</a></span></div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="op-seg" role="group" aria-label="Month">
+            <button type="button" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month">
+              ‹
+            </button>
+            <span style={{ padding: "0 12px", font: "var(--op-text-label)", fontWeight: 600 }}>{monthLabel(month)}</span>
+            <button type="button" onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Next month">
+              ›
+            </button>
           </div>
-        ) : (
-          <span className="skeleton" style={{ height: 70, marginTop: 12 }} />
-        )}
-      </div>
-
-      <div className="card">
-        <h2>Points compliance (this month)</h2>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Person</th><th>Points</th><th>Visit days</th><th>Hours today (FYI)</th><th>Last device</th></tr></thead>
-            <tbody>
-              {!data ? (
-                <SkeletonRows cols={5} />
-              ) : data.users.length === 0 ? (
-                <tr><td colSpan={5} className="muted">No users yet.</td></tr>
-              ) : (
-                data.users.map((u) => (
-                  <tr key={u.id}>
-                    <td><a href={`/admin/users/${u.id}`}>{u.name ?? u.email}</a><div className="muted">{u.email}</div></td>
-                    <td className={u.met ? "ok" : undefined}>{u.monthPoints} / {data.pointsTarget}</td>
-                    <td>{u.monthVisitDays}</td>
-                    <td>{fmtHours(u.hoursToday)}</td>
-                    <td>{u.lastDeviceName ?? "-"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {data ? <Pager {...data.pagination} onPage={setPage} /> : null}
-      </div>
-
-      <div className="card">
-        <div className="row-between">
-          <h2 style={{ margin: 0 }}>Correction inbox</h2>
-          <select value={cStatus} onChange={(e) => { setCStatus(e.target.value as typeof cStatus); setCPage(1); }} style={{ width: "auto", margin: 0 }} aria-label="Correction status">
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
+          <select
+            className="op-sel"
+            value={office}
+            onChange={(e) => setOffice(e.target.value)}
+            aria-label="Office filter"
+          >
+            <option value="">All offices</option>
+            {offices.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
           </select>
+          <a className="btn btn-primary btn-sm" href={exportHref}>
+            Export CSV
+          </a>
         </div>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Person</th><th>Day</th><th>Proposed</th><th>Office</th><th>Reason</th><th></th></tr></thead>
-            <tbody>
-              {!corr ? (
-                <SkeletonRows cols={6} />
-              ) : corr.requests.length === 0 ? (
-                <tr><td colSpan={6} className="muted">Nothing here.</td></tr>
-              ) : (
-                corr.requests.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.user.name ?? c.user.email}<div className="muted">{fmtDateTime(c.createdAt)}</div></td>
-                    <td>{c.dayKey}</td>
-                    <td>{fmtTime(c.proposedStart)} - {fmtTime(c.proposedEnd)}</td>
-                    <td>{c.officeName ?? "-"}</td>
-                    <td>{c.reason}{c.reviewNote ? <div className="muted">Note: {c.reviewNote}</div> : null}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {c.status === "pending" ? (
-                        <>
-                          <button className="btn btn-primary btn-sm" onClick={() => decide(c, "approve")}>Approve</button>{" "}
-                          <button className="btn btn-danger btn-sm" onClick={() => decide(c, "reject")}>Reject</button>
-                        </>
+      </div>
+
+      <div className="op-strip op-strip-inline">
+        <div>
+          <div className="n">{loading ? "-" : stats.people}</div>
+          <div className="l">People</div>
+        </div>
+        <div>
+          <div className="n">{loading ? "-" : stats.goalMet}</div>
+          <div className="l">Goal met</div>
+        </div>
+        <div>
+          <div className="n">{loading ? "-" : stats.below}</div>
+          <div className="l">Below target</div>
+        </div>
+        <div>
+          <div className="n">{stats.target}</div>
+          <div className="l">Target days</div>
+        </div>
+      </div>
+
+      <div className="op-tbl">
+        <table>
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th>Office</th>
+              <th className="r">Visits</th>
+              <th>Days counted</th>
+              <th>Month</th>
+              <th className="r">
+                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                  Hours <span className="op-badge fyi">FYI</span>
+                </span>
+              </th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i}>
+                  <td colSpan={7}>
+                    <span className="op-sk" style={{ width: "100%", height: 16 }} />
+                  </td>
+                </tr>
+              ))
+            ) : sorted.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="muted">
+                  No people yet.
+                </td>
+              </tr>
+            ) : (
+              sorted.map((u) => {
+                const met = u.monthPoints >= pointsTarget;
+                const toGo = Math.max(0, pointsTarget - u.monthPoints);
+                return (
+                  <tr key={u.id}>
+                    <td className="person-name">{u.name ?? u.email}</td>
+                    <td>{u.officeName ?? "-"}</td>
+                    <td className="r">{u.monthVisitDays}</td>
+                    <td>
+                      <MiniDays current={u.monthPoints} target={pointsTarget} />
+                    </td>
+                    <td>
+                      {met ? (
+                        <span className="op-badge goal">Goal met</span>
                       ) : (
-                        <span className="badge">{c.status}</span>
+                        <span className="muted">{toGo} to go</span>
                       )}
                     </td>
+                    <td className="r muted">{Math.round(u.hoursToday)} h</td>
+                    <td className="r">
+                      <a className="btn btn-secondary btn-sm" href={`/admin/people/${u.id}`}>
+                        View visits
+                      </a>
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {corr ? <Pager {...corr.pagination} onPage={setCPage} /> : null}
+                );
+              })
+            )}
+          </tbody>
+        </table>
       </div>
-      {msg ? <p className={`status-msg ${msg.kind}`}>{msg.text}</p> : null}
-    </>
+    </div>
   );
 }

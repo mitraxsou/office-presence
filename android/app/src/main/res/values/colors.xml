@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="pwc_orange">#FD5108</color>
-    <color name="pwc_orange_dark">#C43E06</color>
-    <color name="pwc_orange_container">#FFE8DE</color>
-    <color name="surface">#F4F4F4</color>
-    <color name="surface_dim">#EAEAEA</color>
-    <color name="surface_container">#FFFFFF</color>
-    <color name="on_surface">#1C1B1A</color>
-    <color name="on_surface_variant">#4F453F</color>
-    <color name="outline">#81746C</color>
-    <color name="status_in">#1B7A4E</color>
-    <color name="status_in_container">#D4F0E2</color>
-    <color name="status_out">#6B6B6B</color>
-    <color name="status_out_container">#EBEBEB</color>
+    <!-- Handoff aliases used by existing layouts -->
+    <color name="pwc_orange">@color/op_accent</color>
+    <color name="pwc_orange_dark">@color/op_accent_hover</color>
+    <color name="pwc_orange_container">@color/op_accent_wash</color>
+    <color name="surface">@color/op_bg</color>
+    <color name="surface_dim">@color/op_sunk</color>
+    <color name="surface_container">@color/op_surface</color>
+    <color name="on_surface">@color/op_ink</color>
+    <color name="on_surface_variant">@color/op_ink_2</color>
+    <color name="outline">@color/op_ink_3</color>
+    <color name="status_in">@color/op_ok</color>
+    <color name="status_in_container">@color/op_ok_wash</color>
+    <color name="status_out">@color/op_ink_3</color>
+    <color name="status_out_container">@color/op_sunk</color>
     <color name="white">#FFFFFF</color>
-    <color name="ic_launcher_background">#FD5108</color>
+    <color name="ic_launcher_background">@color/op_accent</color>
 </resources>

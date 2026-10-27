@@ -1,0 +1,4 @@
+.row { display: flex; align-items: center; justify-content: space-between; gap: var(--op-space-3); padding: var(--op-space-4) 0; border-top: 1px solid var(--op-line); }
+.label { display: flex; align-items: center; gap: 8px; font: var(--op-text-label); color: var(--op-ink); }
+.caption { font: var(--op-text-meta); color: var(--op-ink-2); margin-top: 2px; }
+.value { font-size: 17px; font-weight: 500; color: var(--op-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }

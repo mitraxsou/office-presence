@@ -10,12 +10,38 @@ export async function GET(request: Request) {
   const { user, device } = actor;
 
   const s = await recomputeUserPresence(user.id);
-  const [visits, offices, prefs] = await Promise.all([
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const [visits, offices, prefs, decided] = await Promise.all([
     prisma.visit.findMany({ where: { userId: user.id }, orderBy: { startAt: "desc" }, take: 60 }),
     officesForUser(user.id),
     prisma.userNotificationPrefs.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} }),
+    prisma.visitCorrectionRequest.findMany({
+      where: {
+        userId: user.id,
+        status: { in: ["approved", "rejected"] },
+        reviewedAt: { gte: since },
+      },
+      orderBy: { reviewedAt: "desc" },
+      take: 40,
+    }),
   ]);
   const first = offices[0] ?? null;
+
+  const correctionDecisions = decided.map((r) => ({
+    id: r.id,
+    dayKey: r.dayKey,
+    status: r.status,
+    reviewNote: r.reviewNote,
+    reviewedAt: r.reviewedAt?.toISOString() ?? null,
+    effect: {
+      summary:
+        r.status === "approved"
+          ? "Approved - day totals updated"
+          : r.reviewNote
+            ? `Not approved: ${r.reviewNote}`
+            : "Not approved",
+    },
+  }));
 
   return NextResponse.json({
     user: {
@@ -62,5 +88,6 @@ export async function GET(request: Request) {
       pointsAwarded: v.pointsAwarded,
       editedByAdmin: v.source === "admin" || Boolean(v.editedBy),
     })),
+    correctionDecisions,
   });
 }

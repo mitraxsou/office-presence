@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { authenticateDeviceToken } from "@/lib/otp";
 import { prisma } from "@/lib/db";
+import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
+import { parseQuietHours } from "@/lib/users-admin";
 
 const TONE_KEYS = ["default", "chime", "pulse", "soft"] as const;
 
@@ -10,27 +10,23 @@ function tone(v: unknown, fallback: string) {
   return (TONE_KEYS as readonly string[]).includes(s) ? s : fallback;
 }
 
-async function userId(request: Request) {
-  const session = await getSession();
-  if (session) return session.id;
-  const u = await authenticateDeviceToken(request.headers.get("authorization"));
-  return u?.id ?? null;
-}
-
 export async function GET(request: Request) {
-  const id = await userId(request);
-  if (!id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await resolveActor(request);
+  if (!actor) return unauthorized();
   const prefs = await prisma.userNotificationPrefs.upsert({
-    where: { userId: id },
-    create: { userId: id },
+    where: { userId: actor.user.id },
+    create: { userId: actor.user.id },
     update: {},
   });
   return NextResponse.json({ prefs });
 }
 
 export async function PATCH(request: Request) {
-  const id = await userId(request);
-  if (!id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await resolveActor(request);
+  if (!actor) return unauthorized();
+  const blocked = rejectIfReadonlyViewAs(actor);
+  if (blocked) return blocked;
+
   const body = await request.json();
   const enter =
     body.notifyOfficeEnter != null
@@ -44,15 +40,29 @@ export async function PATCH(request: Request) {
       : body.notifyOfficeDetected != null
         ? !!body.notifyOfficeDetected
         : undefined;
+
+  const quietStart = parseQuietHours(body.quietHoursStart);
+  const quietEnd = parseQuietHours(body.quietHoursEnd);
+  if (body.quietHoursStart !== undefined && quietStart === undefined) {
+    return NextResponse.json({ error: "quietHoursStart must be HH:MM" }, { status: 400 });
+  }
+  if (body.quietHoursEnd !== undefined && quietEnd === undefined) {
+    return NextResponse.json({ error: "quietHoursEnd must be HH:MM" }, { status: 400 });
+  }
+
   const prefs = await prisma.userNotificationPrefs.upsert({
-    where: { userId: id },
+    where: { userId: actor.user.id },
     create: {
-      userId: id,
+      userId: actor.user.id,
       notifyOfficeDetected: body.notifyOfficeDetected ?? true,
       notifyOfficeEnter: enter ?? true,
       notifyOfficeLeave: leave ?? true,
       notifyGoalMet: body.notifyGoalMet ?? true,
       notifyDailySummary: body.notifyDailySummary ?? true,
+      notifyCorrections: body.notifyCorrections ?? true,
+      notifyTrackingProblems: body.notifyTrackingProblems ?? true,
+      quietHoursStart: quietStart ?? null,
+      quietHoursEnd: quietEnd ?? null,
       notificationToneId: tone(body.notificationToneId, "default"),
       toneEnterId: tone(body.toneEnterId, "chime"),
       toneLeaveId: tone(body.toneLeaveId, "soft"),
@@ -67,6 +77,12 @@ export async function PATCH(request: Request) {
       ...(leave != null ? { notifyOfficeLeave: leave } : {}),
       ...(body.notifyGoalMet != null ? { notifyGoalMet: !!body.notifyGoalMet } : {}),
       ...(body.notifyDailySummary != null ? { notifyDailySummary: !!body.notifyDailySummary } : {}),
+      ...(body.notifyCorrections != null ? { notifyCorrections: !!body.notifyCorrections } : {}),
+      ...(body.notifyTrackingProblems != null
+        ? { notifyTrackingProblems: !!body.notifyTrackingProblems }
+        : {}),
+      ...(body.quietHoursStart !== undefined ? { quietHoursStart: quietStart ?? null } : {}),
+      ...(body.quietHoursEnd !== undefined ? { quietHoursEnd: quietEnd ?? null } : {}),
       ...(body.notificationToneId != null ? { notificationToneId: tone(body.notificationToneId, "default") } : {}),
       ...(body.toneEnterId != null ? { toneEnterId: tone(body.toneEnterId, "chime") } : {}),
       ...(body.toneLeaveId != null ? { toneLeaveId: tone(body.toneLeaveId, "soft") } : {}),

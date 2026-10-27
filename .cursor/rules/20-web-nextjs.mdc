@@ -1,0 +1,17 @@
+---
+description: Web rules. Next.js 15 App Router, React 19, plain CSS custom properties, no Tailwind.
+globs: **/*.tsx,**/*.ts,**/*.css
+alwaysApply: false
+---
+
+# Web (Next.js 15, React 19, plain CSS)
+
+- Styling is plain CSS only: global `tokens.css` and `globals.css`, and CSS Modules (`*.module.css`) per component. Do not add Tailwind, CSS-in-JS, or a UI kit.
+- All colors, radii, spacing, and type come from `--op-*` variables in `tokens.css`. Merge `docs/design/web/tokens.css` into the existing file; keep current variable names working by aliasing them to `--op-*`.
+- Keyframes used by a CSS Module are defined in that module (modules rename animation names).
+- Theme: class `dark` or `light` on `<html>` from the `op-theme` cookie, read in `app/layout.tsx` with `await cookies()`. No cookie means system. See `docs/design/web/app/*.example.*`.
+- Default to Server Components. Add `"use client"` only for interactive parts (drawers, filters, forms). Use Server Actions for mutations such as theme, sharing, and corrections.
+- Shared components: `DaysMeter`, `StatusBadge`, `FyiTag`, `CorrectedTag`, `HoursFyi` (reference in `docs/design/web/components/`). Pages do not restyle them.
+- Layout: left rail 248 px, content max 1120 px. Responsive rules in SPEC section 16 (bottom bar under 720 px, icon rail 720 to 1099 px). Employee rail: My month, Colleagues, Settings. Admin adds Roster, Corrections (pending count), Offices, Reports, Rules. `/` redirects admins to `/admin/roster`, others to `/month`.
+- Drawers (day detail, correction review) are URL state, for example `?day=2026-10-14` or `?request=<id>`, so they can be linked and closed with Esc and Back.
+- Tables use real `<table>` elements. Status is never color alone: always a badge with a label.

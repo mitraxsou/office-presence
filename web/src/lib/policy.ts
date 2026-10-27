@@ -1,12 +1,16 @@
 import { prisma } from "./db";
 import { DEFAULT_RULES, type PresenceRules } from "./visit-calculator";
 
-export async function getPolicy(): Promise<PresenceRules> {
-  const row = await prisma.policy.upsert({
-    where: { id: 1 },
-    create: { id: 1 },
-    update: {},
-  });
+function toRules(row: {
+  gapMinutes: number;
+  dayHours: number;
+  monthlyDaysTarget: number;
+  monthlyPointsTarget: number;
+  timezone: string;
+  fenceRadiusMeters: number;
+  sampleIntervalMinutes: number;
+  correctionWindowDays?: number;
+}): PresenceRules {
   return {
     gapMinutes: row.gapMinutes,
     dayHours: row.dayHours,
@@ -15,7 +19,17 @@ export async function getPolicy(): Promise<PresenceRules> {
     timezone: row.timezone,
     fenceRadiusMeters: row.fenceRadiusMeters,
     sampleIntervalMinutes: row.sampleIntervalMinutes,
+    correctionWindowDays: row.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
   };
+}
+
+export async function getPolicy(): Promise<PresenceRules> {
+  const row = await prisma.policy.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {},
+  });
+  return toRules(row);
 }
 
 export async function updatePolicy(
@@ -33,6 +47,7 @@ export async function updatePolicy(
       fenceRadiusMeters: input.fenceRadiusMeters ?? DEFAULT_RULES.fenceRadiusMeters,
       sampleIntervalMinutes:
         input.sampleIntervalMinutes ?? DEFAULT_RULES.sampleIntervalMinutes ?? 5,
+      correctionWindowDays: input.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
     },
     update: {
       ...(input.gapMinutes != null ? { gapMinutes: input.gapMinutes } : {}),
@@ -50,15 +65,10 @@ export async function updatePolicy(
       ...(input.sampleIntervalMinutes != null
         ? { sampleIntervalMinutes: input.sampleIntervalMinutes }
         : {}),
+      ...(input.correctionWindowDays != null
+        ? { correctionWindowDays: input.correctionWindowDays }
+        : {}),
     },
   });
-  return {
-    gapMinutes: row.gapMinutes,
-    dayHours: row.dayHours,
-    monthlyDaysTarget: row.monthlyDaysTarget,
-    monthlyPointsTarget: row.monthlyPointsTarget,
-    timezone: row.timezone,
-    fenceRadiusMeters: row.fenceRadiusMeters,
-    sampleIntervalMinutes: row.sampleIntervalMinutes,
-  };
+  return toRules(row);
 }

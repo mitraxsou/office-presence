@@ -1,0 +1,19 @@
+---
+description: Android rules. Jetpack Compose with Material 3, theme in com.pwc.officepresence.ui.theme.
+globs: **/*.kt,**/*.kts,**/res/**/*.xml
+alwaysApply: false
+---
+
+# Android (Compose, Material 3)
+
+- All new and rebuilt screens are Compose. Do not restyle remaining XML screens; rebuild them in Compose when their task comes up, then delete the XML layout.
+- Theme lives in `com.pwc.officepresence.ui.theme` (`Color.kt`, `Theme.kt`). Merge from `docs/design/android/theme/`, keep existing public names working.
+- Never enable dynamic color. Brand colors must not come from the wallpaper.
+- Read colors from `MaterialTheme.colorScheme` or `OpTheme.palette` (ink, ink2, ink3, sunk, line). Use `OpColor.Accent` and `OpColor.Ok` only for their allowed uses.
+- Type from `MaterialTheme.typography`: displayLarge is the status word, displayMedium is the days number. Do not add other ExtraBold text.
+- Use shared components from `ui/components` (`StatusHero`, `DaysMeter`, `HoursFyiRow`, `StatusBadge`, `OpPrimaryButton`, `OpSecondaryButton`, `OpBottomBar`). Reference: `docs/design/android/components/OpComponents.kt`. Screens do not restyle them.
+- Navigation: Navigation Compose with the bottom bar Today, Month, Colleagues, You. Remove the toolbar overflow menu. Settings, Devices, Correction requests are routes under You. Developer route stays, reached only by tapping Version 7 times.
+- Edge to edge: `Scaffold` with the bottom bar, respect `WindowInsets` so content clears the status bar and gesture bar.
+- UI only reads state from existing ViewModels. Add new ViewModel fields only for UI formatting, not new data sources.
+- `res/values/colors.xml` is only for the SplashScreen API and notification accent. Never use it from Compose.
+- Strings go in `strings.xml`, no em or en dash. Add `@Preview` for light and dark on each new component and screen.

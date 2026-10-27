@@ -106,3 +106,33 @@ export async function PATCH(request: Request) {
   });
   return NextResponse.json({ office });
 }
+
+/** Soft delete: set status inactive. Never hard-delete office rows. */
+export async function DELETE(request: Request) {
+  let admin;
+  try { admin = await requireAdmin(); } catch (res) { return res as Response; }
+  const body = await request.json().catch(() => ({}));
+  const sp = new URL(request.url).searchParams;
+  const id = String(body.id ?? sp.get("id") ?? "");
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const before = await prisma.officeLocation.findUnique({ where: { id } });
+  if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (before.status === "inactive") {
+    return NextResponse.json({ office: before });
+  }
+  const office = await prisma.officeLocation.update({
+    where: { id },
+    data: { status: "inactive" },
+  });
+  await prisma.auditLog.create({
+    data: {
+      actorId: admin.id,
+      action: "office.deactivate",
+      targetType: "OfficeLocation",
+      targetId: id,
+      beforeJson: before,
+      afterJson: office,
+    },
+  });
+  return NextResponse.json({ office });
+}

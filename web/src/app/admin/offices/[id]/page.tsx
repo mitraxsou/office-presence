@@ -1,13 +1,14 @@
 import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import Nav from "@/components/Nav";
+import AppShell from "@/components/AppShell";
+import { countsAs } from "@/lib/days-format";
 import OfficeDetailMap from "./OfficeDetailMap";
 
 export default async function OfficeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (session.role !== "admin") redirect("/me");
+  if (session.role !== "admin") redirect("/month");
   const { id } = await params;
   const office = await prisma.officeLocation.findUnique({ where: { id }, include: { createdBy: { select: { email: true } } } });
   if (!office) notFound();
@@ -18,8 +19,7 @@ export default async function OfficeDetailPage({ params }: { params: Promise<{ i
     }),
   ]);
   return (
-    <main>
-      <Nav role="admin" active="/admin/offices" />
+    <AppShell role="admin" active="/admin/offices">
       <div className="card card-brand">
         <span className="card-title">Office</span>
         <h1>{office.name}</h1>
@@ -28,7 +28,7 @@ export default async function OfficeDetailPage({ params }: { params: Promise<{ i
       <div className="card">
         <OfficeDetailMap lat={office.latitude} lng={office.longitude} radiusMeters={office.radiusMeters} label={office.name} />
         <div className="stat-grid">
-          <div className="stat"><span className="stat-label">Points per visit day</span><span className="stat-value">{office.pointsPerVisitDay}</span></div>
+          <div className="stat"><span className="stat-label">Counts as</span><span className="stat-value">{countsAs(office.pointsPerVisitDay)}</span></div>
           <div className="stat"><span className="stat-label">Radius</span><span className="stat-value">{office.radiusMeters} m</span></div>
           <div className="stat"><span className="stat-label">In now</span><span className="stat-value">{inNow}</span></div>
           <div className="stat"><span className="stat-label">Events (30 days)</span><span className="stat-value">{events30d}</span></div>
@@ -38,6 +38,6 @@ export default async function OfficeDetailPage({ params }: { params: Promise<{ i
           <a href="/admin/offices">Back to offices</a>
         </p>
       </div>
-    </main>
+    </AppShell>
   );
 }

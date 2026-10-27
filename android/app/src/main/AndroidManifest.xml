@@ -30,6 +30,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".ui.ShellActivity" android:exported="false" />
         <activity android:name=".ui.MainActivity" android:exported="false" />
         <activity android:name=".ui.ReportsActivity" android:exported="false" />
         <activity android:name=".ui.AdminActivity" android:exported="false" />

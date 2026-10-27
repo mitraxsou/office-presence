@@ -1,0 +1,11 @@
+.badge { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: var(--op-radius-pill); font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--op-ink); }
+.small { height: 24px; font-size: 12px; padding: 0 10px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.in { background: var(--op-ok-wash); } .in .dot { background: var(--op-ok); }
+.out { background: var(--op-sunk); color: var(--op-ink-2); } .out .dot { background: var(--op-ink-3); }
+.goalMet { background: var(--op-ok); color: var(--op-on-accent); }
+.noRecentSync, .pending { background: var(--op-accent-wash); } .noRecentSync .dot, .pending .dot { background: var(--op-accent); }
+.approved { background: var(--op-sunk); }
+.notApproved, .cancelled { background: var(--op-sunk); color: var(--op-ink-2); }
+.fyi { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--op-line-strong); font-size: 11px; font-weight: 600; color: var(--op-ink-2); }
+.corrected { border-color: var(--op-accent); color: var(--op-ink); }

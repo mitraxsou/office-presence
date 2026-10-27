@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { resolveActor, unauthorized } from "@/lib/actor";
+import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
 import { cleanDeviceLabel } from "@/lib/otp";
 
 export async function GET(request: Request) {
@@ -19,6 +19,8 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
+  const blocked = rejectIfReadonlyViewAs(actor);
+  if (blocked) return blocked;
   const body = await request.json().catch(() => ({}));
   const id = String(body.id ?? actor.device?.id ?? "");
   const label = cleanDeviceLabel(body.label);
@@ -32,6 +34,8 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
+  const blocked = rejectIfReadonlyViewAs(actor);
+  if (blocked) return blocked;
   const body = await request.json().catch(() => ({}));
   const id = String(body.id ?? new URL(request.url).searchParams.get("id") ?? "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

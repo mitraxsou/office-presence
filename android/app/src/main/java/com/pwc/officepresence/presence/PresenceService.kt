@@ -24,7 +24,7 @@ import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.EventLog
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.notify.Notifier
-import com.pwc.officepresence.ui.MainActivity
+import com.pwc.officepresence.ui.ShellActivity
 import java.time.Instant
 import kotlin.concurrent.thread
 
@@ -166,7 +166,7 @@ class PresenceService : Service() {
 
     private fun buildNotification(text: String): Notification {
         val launch = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
+            this, 0, Intent(this, ShellActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, "presence")
@@ -181,6 +181,9 @@ class PresenceService : Service() {
     companion object {
         const val NOTIF_ID = 42
         fun start(context: Context) {
+            val prefs = AppPrefs(context)
+            // Real-user view-as: pause tracking on this phone.
+            if (prefs.isViewAsReadonly) return
             val i = Intent(context, PresenceService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }

@@ -117,7 +117,7 @@ class DeveloperActivity : AppCompatActivity() {
             simulated = true,
             officeId = office?.id,
         )
-        status.text = "Injected simulated $type (does not count toward points)"
+        status.text = "Injected simulated $type (does not count toward days)"
     }
 
     private fun suggestHere() {

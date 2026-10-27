@@ -17,6 +17,7 @@ enum VisitSource {
   auto
   manual
   admin
+  correction
 }
 
 enum EventType {
@@ -46,21 +47,41 @@ enum CorrectionStatus {
   pending
   approved
   rejected
+  cancelled
+}
+
+enum CorrectionIssue {
+  missing_visit
+  wrong_times
+  wrong_office
+  should_not_count
 }
 
 model User {
   id                      String                   @id @default(cuid())
   email                   String                   @unique
   name                    String?
+  firstName               String?
+  lastName                String?
+  preferredName           String?
+  /** first_last | preferred_last | preferred_only */
+  colleagueDisplayMode    String                   @default("first_last")
+  homeOfficeId            String?
   role                    Role                     @default(user)
   timezone                String                   @default("Asia/Kolkata")
   developerMode           Boolean                  @default(false)
   sharePresenceWithPeers  Boolean                  @default(false)
   sharePresenceConsentAt  DateTime?
-  /** Demo accounts for peer-board testing. Safe to delete. */
+  /** Demo / test accounts. Keep in sync with isTestAccount. */
   isDummy                 Boolean                  @default(false)
+  /** Alias of isDummy for the Users admin UI. */
+  isTestAccount           Boolean                  @default(false)
+  deactivatedAt           DateTime?
+  /** bcrypt hash; null means password sign-in is not set up yet. */
+  passwordHash            String?
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
+  homeOffice              OfficeLocation?          @relation("UserHomeOffice", fields: [homeOfficeId], references: [id], onDelete: SetNull)
   otpCodes                OtpCode[]
   deviceTokens            DeviceToken[]
   events                  PresenceEvent[]
@@ -75,6 +96,29 @@ model User {
   correctionReviews       VisitCorrectionRequest[] @relation("CorrectionReviewer")
   officesCreated          OfficeLocation[]         @relation("OfficeCreator")
   officesApproved         OfficeLocation[]         @relation("OfficeApprover")
+  viewAsAsAdmin           ViewAsSession[]          @relation("ViewAsAdmin")
+  viewAsAsTarget          ViewAsSession[]          @relation("ViewAsTarget")
+
+  @@index([homeOfficeId])
+  @@index([deactivatedAt])
+}
+
+model ViewAsSession {
+  id           String    @id @default(cuid())
+  adminId      String
+  targetUserId String
+  /** readonly | full */
+  mode         String
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  admin        User      @relation("ViewAsAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  target       User      @relation("ViewAsTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, endedAt])
+  @@index([targetUserId])
+  @@index([expiresAt])
 }
 
 model OtpCode {
@@ -117,6 +161,7 @@ model Policy {
   timezone              String   @default("Asia/Kolkata")
   fenceRadiusMeters     Float    @default(100)
   sampleIntervalMinutes Int      @default(5)
+  correctionWindowDays  Int      @default(5)
   updatedAt             DateTime @updatedAt
 }
 
@@ -139,6 +184,7 @@ model OfficeLocation {
   aliases           UserOfficeAlias[]
   events            PresenceEvent[]
   statuses          CurrentStatus[]
+  homeUsers         User[]            @relation("UserHomeOffice")
 
   @@index([status])
 }
@@ -157,23 +203,28 @@ model UserOfficeAlias {
 }
 
 model UserNotificationPrefs {
-  userId                String   @id
+  userId                     String   @id
   /** Legacy: true if either enter or leave is on. Prefer notifyOfficeEnter / notifyOfficeLeave. */
-  notifyOfficeDetected  Boolean  @default(true)
-  notifyOfficeEnter     Boolean  @default(true)
-  notifyOfficeLeave     Boolean  @default(true)
-  notifyGoalMet         Boolean  @default(true)
-  notifyDailySummary    Boolean  @default(true)
+  notifyOfficeDetected       Boolean  @default(true)
+  notifyOfficeEnter          Boolean  @default(true)
+  notifyOfficeLeave          Boolean  @default(true)
+  notifyGoalMet              Boolean  @default(true)
+  notifyDailySummary         Boolean  @default(true)
+  notifyCorrections          Boolean  @default(true)
+  notifyTrackingProblems     Boolean  @default(true)
+  /** "22:00" style local time; null means quiet hours off. */
+  quietHoursStart            String?
+  quietHoursEnd              String?
   /** Legacy single tone; kept as fallback when a per-kind tone is unset. */
-  notificationToneId    String   @default("default")
-  toneEnterId           String   @default("chime")
-  toneLeaveId           String   @default("soft")
-  toneGoalId            String   @default("pulse")
-  toneSummaryId         String   @default("default")
-  launchSoundEnabled    Boolean  @default(false)
-  launchSoundId         String   @default("default")
-  updatedAt             DateTime @updatedAt
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationToneId         String   @default("default")
+  toneEnterId                String   @default("chime")
+  toneLeaveId                String   @default("soft")
+  toneGoalId                 String   @default("pulse")
+  toneSummaryId              String   @default("default")
+  launchSoundEnabled         Boolean  @default(false)
+  launchSoundId              String   @default("default")
+  updatedAt                  DateTime @updatedAt
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model PresenceEvent {
@@ -210,11 +261,13 @@ model Visit {
   editedBy         String?
   officeLocationId String?
   pointsAwarded    Int             @default(0)
+  correctionId     String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, startAt])
+  @@index([correctionId])
 }
 
 model VisitExclusion {
@@ -230,21 +283,25 @@ model VisitExclusion {
 }
 
 model VisitCorrectionRequest {
-  id           String           @id @default(cuid())
-  userId       String
-  dayKey       String
-  proposedStart DateTime
-  proposedEnd   DateTime
+  id               String           @id @default(cuid())
+  userId           String
+  dayKey           String
+  issue            CorrectionIssue?
+  proposedStart    DateTime
+  proposedEnd      DateTime
   officeLocationId String?
-  reason       String
-  status       CorrectionStatus @default(pending)
-  reviewedById String?
-  reviewedAt   DateTime?
-  reviewNote   String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  user         User             @relation("CorrectionRequester", fields: [userId], references: [id], onDelete: Cascade)
-  reviewedBy   User?            @relation("CorrectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reason           String
+  recorded         Json?
+  requested        Json?
+  applied          Json?
+  status           CorrectionStatus @default(pending)
+  reviewedById     String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  user             User             @relation("CorrectionRequester", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy       User?            @relation("CorrectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([userId, dayKey])

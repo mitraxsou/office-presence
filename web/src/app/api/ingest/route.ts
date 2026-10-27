@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { authenticateDevice, cleanDeviceLabel } from "@/lib/otp";
+import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
+import { cleanDeviceLabel } from "@/lib/otp";
 import { recomputeUserPresence } from "@/lib/presence";
 import { listActiveOffices } from "@/lib/offices";
 import { getPolicy } from "@/lib/policy";
@@ -27,11 +28,11 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const auth = await authenticateDevice(request.headers.get("authorization"));
-  if (!auth) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const { user, device } = auth;
+  const actor = await resolveActor(request);
+  if (!actor) return unauthorized();
+  const blocked = rejectIfReadonlyViewAs(actor);
+  if (blocked) return blocked;
+  const { user, device } = actor;
   let json: unknown;
   try {
     json = await request.json();
@@ -44,10 +45,10 @@ export async function POST(request: Request) {
   }
 
   const bodyLabel = cleanDeviceLabel(parsed.data.deviceName);
-  if (bodyLabel && bodyLabel !== device.label) {
+  if (device && bodyLabel && bodyLabel !== device.label) {
     await prisma.deviceToken.update({ where: { id: device.id }, data: { label: bodyLabel } });
   }
-  const deviceName = bodyLabel ?? device.label ?? null;
+  const deviceName = bodyLabel ?? device?.label ?? (actor.viewAs ? "View as" : null);
 
   const [offices, rules] = await Promise.all([listActiveOffices(), getPolicy()]);
   const activeIds = new Set(offices.map((o) => o.id));
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
           wifiBssid: ev.wifiBssid ?? null,
           simulated: ev.simulated ?? false,
           clientEventId: ev.clientEventId ?? null,
-          deviceTokenId: device.id,
+          deviceTokenId: device?.id ?? null,
           deviceName: cleanDeviceLabel(ev.deviceName) ?? deviceName,
           officeLocationId,
         },

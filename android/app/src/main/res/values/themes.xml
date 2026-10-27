@@ -1,47 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.OfficePresence" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/pwc_orange</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryContainer">@color/pwc_orange_container</item>
-        <item name="colorOnPrimaryContainer">@color/pwc_orange_dark</item>
-        <item name="colorSecondary">@color/pwc_orange</item>
-        <item name="colorOnSecondary">@color/white</item>
-        <item name="android:colorBackground">@color/surface</item>
-        <item name="colorSurface">@color/surface</item>
-        <item name="colorSurfaceContainer">@color/surface_container</item>
-        <item name="colorOnSurface">@color/on_surface</item>
-        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
-        <item name="colorOutline">@color/outline</item>
-        <item name="android:statusBarColor">@color/surface</item>
-        <item name="android:navigationBarColor">@color/surface</item>
-        <item name="android:windowBackground">@color/surface</item>
+        <item name="colorPrimary">@color/op_accent</item>
+        <item name="colorOnPrimary">@color/op_on_accent</item>
+        <item name="colorPrimaryContainer">@color/op_accent_wash</item>
+        <item name="colorOnPrimaryContainer">@color/op_on_accent</item>
+        <item name="colorSecondary">@color/op_accent</item>
+        <item name="colorOnSecondary">@color/op_on_accent</item>
+        <item name="android:colorBackground">@color/op_bg</item>
+        <item name="colorSurface">@color/op_surface</item>
+        <item name="colorSurfaceContainer">@color/op_surface</item>
+        <item name="colorOnSurface">@color/op_ink</item>
+        <item name="colorOnSurfaceVariant">@color/op_ink_2</item>
+        <item name="colorOutline">@color/op_ink_3</item>
+        <item name="android:statusBarColor">@color/op_bg</item>
+        <item name="android:navigationBarColor">@color/op_surface</item>
+        <item name="android:windowBackground">@color/op_bg</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="materialButtonStyle">@style/Widget.OfficePresence.Button</item>
     </style>
 
     <style name="Theme.OfficePresence.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/surface</item>
+        <item name="windowSplashScreenBackground">@color/op_bg</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_animated</item>
         <item name="windowSplashScreenAnimationDuration">1000</item>
         <item name="postSplashScreenTheme">@style/Theme.OfficePresence</item>
     </style>
 
     <style name="Widget.OfficePresence.Button" parent="Widget.Material3.Button">
-        <item name="android:minHeight">52dp</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">999dp</item>
+        <item name="backgroundTint">@color/op_accent</item>
+        <item name="android:textColor">@color/op_on_accent</item>
         <item name="android:stateListAnimator">@animator/press_scale</item>
     </style>
 
     <style name="Widget.OfficePresence.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
-        <item name="android:minHeight">52dp</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">999dp</item>
         <item name="android:stateListAnimator">@animator/press_scale</item>
     </style>
 
     <style name="Widget.OfficePresence.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="android:minHeight">52dp</item>
-        <item name="cornerRadius">12dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">999dp</item>
     </style>
 
     <style name="TextAppearance.OfficePresence.CardTitle" parent="TextAppearance.Material3.TitleMedium">

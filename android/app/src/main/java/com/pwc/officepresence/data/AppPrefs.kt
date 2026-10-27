@@ -36,6 +36,35 @@ class AppPrefs(context: Context) {
         get() = prefs.getString("email", null)
         set(v) = putStr("email", v)
 
+    var displayName: String
+        get() = str("displayName", "")
+        set(v) = putStr("displayName", v)
+
+    var firstName: String
+        get() = str("firstName", "")
+        set(v) = putStr("firstName", v)
+
+    var lastName: String
+        get() = str("lastName", "")
+        set(v) = putStr("lastName", v)
+
+    var preferredName: String
+        get() = str("preferredName", "")
+        set(v) = putStr("preferredName", v)
+
+    /** first_last | preferred_last | preferred_only */
+    var colleagueDisplayMode: String
+        get() = str("colleagueDisplayMode", "first_last")
+        set(v) = putStr("colleagueDisplayMode", v)
+
+    var lastSyncAtMs: Long
+        get() = prefs.getLong("lastSyncAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastSyncAtMs", v).apply()
+
+    var lastOfficeName: String
+        get() = str("lastOfficeName", "")
+        set(v) = putStr("lastOfficeName", v)
+
     var deviceId: String?
         get() = prefs.getString("deviceId", null)
         set(v) = putStr("deviceId", v)
@@ -132,9 +161,38 @@ class AppPrefs(context: Context) {
         get() = bool("notifyDailySummary", true)
         set(v) = putBool("notifyDailySummary", v)
 
+    var notifyCorrections: Boolean
+        get() = bool("notifyCorrections", true)
+        set(v) = putBool("notifyCorrections", v)
+
+    var notifyTrackingProblems: Boolean
+        get() = bool("notifyTrackingProblems", true)
+        set(v) = putBool("notifyTrackingProblems", v)
+
+    /** HH:MM or empty when quiet hours are off. */
+    var quietHoursStart: String
+        get() = str("quietHoursStart", "")
+        set(v) = putStr("quietHoursStart", v)
+
+    var quietHoursEnd: String
+        get() = str("quietHoursEnd", "")
+        set(v) = putStr("quietHoursEnd", v)
+
+    val quietHoursEnabled: Boolean
+        get() = quietHoursStart.isNotBlank() && quietHoursEnd.isNotBlank()
+
     var notificationToneId: String
         get() = str("notificationToneId", "default")
         set(v) = putStr("notificationToneId", v)
+
+    /** Per-channel system ringtone URI (empty = channel default / built-in tone). */
+    fun channelSoundUri(channelId: String): String = str("channelSoundUri_$channelId", "")
+
+    fun setChannelSoundUri(channelId: String, uri: String) = putStr("channelSoundUri_$channelId", uri)
+
+    fun channelSoundTitle(channelId: String): String = str("channelSoundTitle_$channelId", "")
+
+    fun setChannelSoundTitle(channelId: String, title: String) = putStr("channelSoundTitle_$channelId", title)
 
     var toneEnterId: String
         get() = str("toneEnterId", "chime")
@@ -205,6 +263,98 @@ class AppPrefs(context: Context) {
         get() = str("geofenceStatus", "")
         set(v) = putStr("geofenceStatus", v)
 
+    // View as another user (admin). Admin device token is stored so End can restore it.
+    var viewAsSessionId: String?
+        get() = prefs.getString("viewAsSessionId", null)
+        set(v) = putStr("viewAsSessionId", v)
+
+    /** readonly | full */
+    var viewAsMode: String
+        get() = str("viewAsMode", "")
+        set(v) = putStr("viewAsMode", v)
+
+    var viewAsTargetName: String
+        get() = str("viewAsTargetName", "")
+        set(v) = putStr("viewAsTargetName", v)
+
+    var viewAsTargetEmail: String
+        get() = str("viewAsTargetEmail", "")
+        set(v) = putStr("viewAsTargetEmail", v)
+
+    var viewAsExpiresAtMs: Long
+        get() = prefs.getLong("viewAsExpiresAtMs", 0L)
+        set(v) = prefs.edit().putLong("viewAsExpiresAtMs", v).apply()
+
+    /** Admin device token kept while view-as JWT is in [token]. */
+    var viewAsAdminToken: String?
+        get() = prefs.getString("viewAsAdminToken", null)
+        set(v) = putStr("viewAsAdminToken", v)
+
+    val isViewAsActive: Boolean
+        get() = !viewAsSessionId.isNullOrBlank() &&
+            !viewAsAdminToken.isNullOrBlank() &&
+            viewAsExpiresAtMs > System.currentTimeMillis()
+
+    val isViewAsReadonly: Boolean
+        get() = isViewAsActive && viewAsMode == "readonly"
+
+    val isViewAsFull: Boolean
+        get() = isViewAsActive && viewAsMode == "full"
+
+    fun minutesLeftInViewAs(nowMs: Long = System.currentTimeMillis()): Int {
+        if (!isViewAsActive) return 0
+        return ((viewAsExpiresAtMs - nowMs) / 60_000L).toInt().coerceAtLeast(0)
+    }
+
+    fun beginViewAs(
+        sessionId: String,
+        mode: String,
+        targetName: String,
+        targetEmail: String,
+        expiresAtMs: Long,
+        viewAsToken: String,
+    ) {
+        val adminTok = token ?: return
+        prefs.edit()
+            .putString("viewAsAdminToken", adminTok)
+            .putString("viewAsSessionId", sessionId)
+            .putString("viewAsMode", mode)
+            .putString("viewAsTargetName", targetName)
+            .putString("viewAsTargetEmail", targetEmail)
+            .putLong("viewAsExpiresAtMs", expiresAtMs)
+            .putLong("viewAsStartedAtMs", System.currentTimeMillis())
+            .putString("token", viewAsToken)
+            .apply()
+    }
+
+    var viewAsStartedAtMs: Long
+        get() = prefs.getLong("viewAsStartedAtMs", 0L)
+        set(v) = prefs.edit().putLong("viewAsStartedAtMs", v).apply()
+
+    /** Minutes already spent in the current view-as session. */
+    fun minutesSpentInViewAs(nowMs: Long = System.currentTimeMillis()): Int {
+        val started = viewAsStartedAtMs
+        if (started <= 0L) return 0
+        return ((nowMs - started) / 60_000L).toInt().coerceAtLeast(0)
+    }
+
+    /** Restore admin token locally after End (or restart / sign out). */
+    fun clearViewAsLocal() {
+        val adminTok = viewAsAdminToken
+        prefs.edit()
+            .remove("viewAsSessionId")
+            .remove("viewAsMode")
+            .remove("viewAsTargetName")
+            .remove("viewAsTargetEmail")
+            .remove("viewAsExpiresAtMs")
+            .remove("viewAsStartedAtMs")
+            .remove("viewAsAdminToken")
+            .apply()
+        if (!adminTok.isNullOrBlank()) {
+            token = adminTok
+        }
+    }
+
     fun clearSession() {
         prefs.edit()
             .remove("token")
@@ -212,6 +362,13 @@ class AppPrefs(context: Context) {
             .remove("fastTest")
             .remove("developerMode")
             .remove("officesJson")
+            .remove("viewAsSessionId")
+            .remove("viewAsMode")
+            .remove("viewAsTargetName")
+            .remove("viewAsTargetEmail")
+            .remove("viewAsExpiresAtMs")
+            .remove("viewAsStartedAtMs")
+            .remove("viewAsAdminToken")
             .apply()
     }
 

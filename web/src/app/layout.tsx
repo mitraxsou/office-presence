@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import "./tokens.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Office Presence",
-  description: "Office visit points and presence for PwC teams",
+  description: "Office days and presence for PwC teams",
 };
 
 export const viewport: Viewport = {
@@ -13,7 +14,7 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBoot = `try{var t=localStorage.getItem("op-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
+const themeBoot = `try{var t=localStorage.getItem("op-theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;document.documentElement.classList.add(t)}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

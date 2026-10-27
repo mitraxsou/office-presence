@@ -1,0 +1,15 @@
+/* Keyframes live here because CSS Modules rename animation names per file. */
+@keyframes fill { from { width: 0; } }
+.meter { display: block; }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--op-space-3); }
+.number { font: var(--op-text-number); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--op-ink); }
+.lg .number { font-size: 72px; }
+.md .number { font-size: 44px; }
+.den { font: var(--op-text-body); font-size: 18px; font-weight: 500; color: var(--op-ink-2); margin-left: 6px; }
+.toGo { font-size: 15px; font-weight: 600; color: var(--op-ink-2); padding-bottom: 6px; }
+.track { margin-top: 14px; height: 10px; border-radius: var(--op-radius-pill); background: var(--op-sunk); box-shadow: inset 0 0 0 1px var(--op-line); overflow: hidden; }
+.track > i { display: block; height: 100%; border-radius: inherit; background: var(--op-accent); animation: fill var(--op-motion-fill) 120ms both; }
+.caption { margin: 10px 0 0; font: var(--op-text-meta); color: var(--op-ink-2); }
+.inline { display: flex; align-items: center; gap: 10px; }
+.inline .track { margin-top: 0; }
+.inlineValue { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }

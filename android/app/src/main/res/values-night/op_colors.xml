@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="op_bg">#1A1A1A</color>
+    <color name="op_surface">#2D2D2D</color>
+    <color name="op_sunk">#242424</color>
+    <color name="op_line">#1AFFFFFF</color>
+    <color name="op_ink">#F4F4F4</color>
+    <color name="op_ink_2">#B3B3B3</color>
+    <color name="op_ink_3">#808080</color>
+</resources>
