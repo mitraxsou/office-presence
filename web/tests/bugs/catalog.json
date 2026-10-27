@@ -1,0 +1,29 @@
+{
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "title": "No em dash or en dash in repo",
+      "test": "BUG-001-no-em-dash-in-repo.test.ts"
+    },
+    {
+      "id": "BUG-002",
+      "title": "Simulated events never count",
+      "test": "BUG-002-simulated-never-counts.test.ts"
+    },
+    {
+      "id": "BUG-003",
+      "title": "Tests must not use production DATABASE_URL",
+      "test": "BUG-003-no-prod-db-in-tests.test.ts"
+    },
+    {
+      "id": "BUG-004",
+      "title": "Migrations match schema.prisma and copy the legacy fence",
+      "test": "BUG-004-migrations-match-schema.test.ts"
+    },
+    {
+      "id": "BUG-005",
+      "title": "Local build never runs prisma migrate deploy",
+      "test": "BUG-005-local-build-never-migrates.test.ts"
+    }
+  ]
+}

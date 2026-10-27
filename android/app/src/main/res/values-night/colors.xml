@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pwc_orange">#FD5108</color>
+    <color name="pwc_orange_dark">#FF8A55</color>
+    <color name="pwc_orange_container">#5A2208</color>
+    <color name="surface">#1A1A1A</color>
+    <color name="surface_dim">#121212</color>
+    <color name="surface_container">#2D2D2D</color>
+    <color name="on_surface">#F5EDE8</color>
+    <color name="on_surface_variant">#D1C4BC</color>
+    <color name="outline">#9C8E86</color>
+    <color name="status_in">#6FDBA3</color>
+    <color name="status_in_container">#1A3D2C</color>
+    <color name="status_out">#B0B0B0</color>
+    <color name="status_out_container">#333333</color>
+    <color name="white">#FFFFFF</color>
+    <color name="ic_launcher_background">#FD5108</color>
+</resources>

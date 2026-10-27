@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Mock locations: Play Services fused location accepts mock GPS when
+      Developer options -> Select mock location app is set. Debug builds are
+      debuggable so OEMs allow mock injection into this process.
+    -->
+    <application android:debuggable="true" />
+</manifest>

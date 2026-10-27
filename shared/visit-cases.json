@@ -1,0 +1,515 @@
+{
+  "defaults": {
+    "gapMinutes": 15,
+    "dayHours": 5,
+    "monthlyDaysTarget": 8,
+    "timezone": "Asia/Kolkata",
+    "fenceRadiusMeters": 100,
+    "sampleIntervalMinutes": 5
+  },
+  "cases": [
+    {
+      "id": "single-continuous-visit",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "exit",
+          "at": "2026-10-27T09:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 1,
+        "totalHours": 5,
+        "dayMet": true
+      }
+    },
+    {
+      "id": "gap-ends-visit",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:10:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:40:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "exit",
+          "at": "2026-10-27T05:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 0.5,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "weak-fix-ignored",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 250,
+          "simulated": false
+        },
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:05:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 250,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 0,
+        "totalHours": 0,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "simulated-never-counts",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": true
+        },
+        {
+          "type": "exit",
+          "at": "2026-10-27T10:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": true
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 0,
+        "totalHours": 0,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "admin-visit-wins",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "exit",
+          "at": "2026-10-27T05:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [
+        {
+          "startAt": "2026-10-27T03:30:00.000Z",
+          "endAt": "2026-10-27T08:30:00.000Z",
+          "source": "admin"
+        }
+      ],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 1,
+        "totalHours": 5,
+        "dayMet": true
+      }
+    },
+    {
+      "id": "exclusion-blocks-period",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "exit",
+          "at": "2026-10-27T10:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [
+        {
+          "startAt": "2026-10-27T04:00:00.000Z",
+          "endAt": "2026-10-27T10:00:00.000Z"
+        }
+      ],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 0,
+        "totalHours": 0,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "fast-test-15s-gap",
+      "rules": {
+        "gapMinutes": 0,
+        "gapSeconds": 15,
+        "dayHours": 0.033333,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "enter",
+          "at": "2026-10-27T04:00:00.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:00:10.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        },
+        {
+          "type": "sample",
+          "at": "2026-10-27T04:00:40.000Z",
+          "lat": 12.97,
+          "lng": 77.59,
+          "accuracyMeters": 20,
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 0.002778,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "manual-check-out-closes",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        {
+          "type": "check_in",
+          "at": "2026-10-27T04:00:00.000Z",
+          "simulated": false
+        },
+        {
+          "type": "check_out",
+          "at": "2026-10-27T06:00:00.000Z",
+          "simulated": false
+        }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": {
+        "lat": 12.97,
+        "lng": 77.59,
+        "radiusMeters": 100
+      },
+      "expected": {
+        "visitCount": 1,
+        "totalHours": 2,
+        "dayMet": false
+      }
+    },
+    {
+      "id": "overnight-splits-at-local-midnight",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "check_in", "at": "2026-10-27T04:30:00.000Z", "simulated": false },
+        { "type": "check_out", "at": "2026-10-27T19:30:00.000Z", "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 15,
+        "dayMet": true,
+        "visitDays": 2,
+        "totalPoints": 2,
+        "targetMet": false,
+        "dayKeys": ["2026-10-27", "2026-10-28"],
+        "dayHours": [14, 1]
+      }
+    },
+    {
+      "id": "short-hours-still-a-visit-day",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "enter", "at": "2026-10-27T04:00:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T04:30:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "offices": [
+        { "id": "kolkata", "lat": 22.57, "lng": 88.36, "radiusMeters": 100, "pointsPerVisitDay": 1 }
+      ],
+      "expected": {
+        "visitCount": 1,
+        "totalHours": 0.5,
+        "dayMet": false,
+        "visitDays": 1,
+        "totalPoints": 1,
+        "targetMet": false
+      }
+    },
+    {
+      "id": "pune-two-visit-days-meet-target",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "enter", "at": "2026-10-26T04:00:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-26T05:00:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false },
+        { "type": "enter", "at": "2026-10-27T04:00:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T04:20:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "offices": [
+        { "id": "pune", "lat": 18.52, "lng": 73.85, "radiusMeters": 100, "pointsPerVisitDay": 4 },
+        { "id": "kolkata", "lat": 22.57, "lng": 88.36, "radiusMeters": 100, "pointsPerVisitDay": 1 }
+      ],
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 1.333333,
+        "dayMet": false,
+        "visitDays": 2,
+        "totalPoints": 8,
+        "targetMet": true
+      }
+    },
+    {
+      "id": "two-offices-same-day-highest-once",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "enter", "at": "2026-10-27T04:00:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T05:00:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "enter", "at": "2026-10-27T08:00:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T09:00:00.000Z", "lat": 18.52, "lng": 73.85, "accuracyMeters": 20, "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "offices": [
+        { "id": "pune", "lat": 18.52, "lng": 73.85, "radiusMeters": 100, "pointsPerVisitDay": 4 },
+        { "id": "kolkata", "lat": 22.57, "lng": 88.36, "radiusMeters": 100, "pointsPerVisitDay": 1 }
+      ],
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 2,
+        "dayMet": false,
+        "visitDays": 1,
+        "totalPoints": 4,
+        "targetMet": false
+      }
+    },
+    {
+      "id": "two-phones-latest-evidence-wins-no-double-points",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "enter", "at": "2026-10-27T04:00:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "sample", "at": "2026-10-27T04:05:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T04:20:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "sample", "at": "2026-10-27T04:25:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false },
+        { "type": "exit", "at": "2026-10-27T05:00:00.000Z", "lat": 22.57, "lng": 88.36, "accuracyMeters": 20, "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "offices": [
+        { "id": "kolkata", "lat": 22.57, "lng": 88.36, "radiusMeters": 100, "pointsPerVisitDay": 1 }
+      ],
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 0.916667,
+        "dayMet": false,
+        "visitDays": 1,
+        "totalPoints": 1,
+        "targetMet": false
+      }
+    }
+  ]
+}

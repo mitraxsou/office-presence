@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  user
+  admin
+}
+
+enum VisitSource {
+  auto
+  manual
+  admin
+}
+
+enum EventType {
+  enter
+  sample
+  exit
+  check_in
+  check_out
+}
+
+enum AlertType {
+  login_otp
+  hours_started
+  hours_met
+  points_met
+  daily_summary
+}
+
+enum OfficeStatus {
+  active
+  pending
+  rejected
+  inactive
+}
+
+enum CorrectionStatus {
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id                      String                   @id @default(cuid())
+  email                   String                   @unique
+  name                    String?
+  role                    Role                     @default(user)
+  timezone                String                   @default("Asia/Kolkata")
+  developerMode           Boolean                  @default(false)
+  sharePresenceWithPeers  Boolean                  @default(false)
+  sharePresenceConsentAt  DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  otpCodes                OtpCode[]
+  deviceTokens            DeviceToken[]
+  events                  PresenceEvent[]
+  visits                  Visit[]
+  exclusions              VisitExclusion[]
+  status                  CurrentStatus?
+  alerts                  PendingAlert[]
+  auditLogs               AuditLog[]               @relation("AuditActor")
+  notificationPrefs       UserNotificationPrefs?
+  officeAliases           UserOfficeAlias[]
+  correctionRequests      VisitCorrectionRequest[] @relation("CorrectionRequester")
+  correctionReviews       VisitCorrectionRequest[] @relation("CorrectionReviewer")
+  officesCreated          OfficeLocation[]         @relation("OfficeCreator")
+  officesApproved         OfficeLocation[]         @relation("OfficeApprover")
+}
+
+model OtpCode {
+  id        String    @id @default(cuid())
+  userId    String?
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, createdAt])
+}
+
+model DeviceToken {
+  id          String          @id @default(cuid())
+  userId      String
+  tokenHash   String
+  tokenPrefix String
+  installId   String?
+  label       String?
+  platform    String          @default("android")
+  lastSeenAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events      PresenceEvent[]
+
+  @@index([tokenPrefix])
+  @@index([userId])
+}
+
+model Policy {
+  id                    Int      @id @default(1)
+  gapMinutes            Int      @default(15)
+  dayHours              Float    @default(5)
+  monthlyDaysTarget     Int      @default(8)
+  monthlyPointsTarget   Int      @default(8)
+  timezone              String   @default("Asia/Kolkata")
+  fenceRadiusMeters     Float    @default(100)
+  sampleIntervalMinutes Int      @default(5)
+  updatedAt             DateTime @updatedAt
+}
+
+model OfficeLocation {
+  id                String            @id @default(cuid())
+  name              String
+  latitude          Float
+  longitude         Float
+  radiusMeters      Float             @default(100)
+  pointsPerVisitDay Int               @default(1)
+  addressLabel      String?
+  status            OfficeStatus      @default(active)
+  createdByUserId   String?
+  approvedByAdminId String?
+  approvedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  createdBy         User?             @relation("OfficeCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedBy        User?             @relation("OfficeApprover", fields: [approvedByAdminId], references: [id], onDelete: SetNull)
+  aliases           UserOfficeAlias[]
+  events            PresenceEvent[]
+  statuses          CurrentStatus[]
+
+  @@index([status])
+}
+
+model UserOfficeAlias {
+  id               String         @id @default(cuid())
+  userId           String
+  officeLocationId String
+  displayName      String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  office           OfficeLocation @relation(fields: [officeLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, officeLocationId])
+}
+
+model UserNotificationPrefs {
+  userId                String   @id
+  notifyOfficeDetected  Boolean  @default(true)
+  notifyGoalMet         Boolean  @default(true)
+  notifyDailySummary    Boolean  @default(true)
+  notificationToneId    String   @default("default")
+  launchSoundEnabled    Boolean  @default(false)
+  launchSoundId         String   @default("default")
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PresenceEvent {
+  id               String          @id @default(cuid())
+  userId           String
+  type             EventType
+  recordedAt       DateTime
+  latitude         Float?
+  longitude        Float?
+  accuracyMeters   Float?
+  wifiSsid         String?
+  wifiBssid        String?
+  simulated        Boolean         @default(false)
+  clientEventId    String?
+  deviceTokenId    String?
+  deviceName       String?
+  officeLocationId String?
+  createdAt        DateTime        @default(now())
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceToken      DeviceToken?    @relation(fields: [deviceTokenId], references: [id], onDelete: SetNull)
+  office           OfficeLocation? @relation(fields: [officeLocationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, clientEventId])
+  @@index([userId, recordedAt])
+}
+
+model Visit {
+  id               String          @id @default(cuid())
+  userId           String
+  startAt          DateTime
+  endAt            DateTime?
+  source           VisitSource     @default(auto)
+  reason           String?
+  editedBy         String?
+  officeLocationId String?
+  pointsAwarded    Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt])
+}
+
+model VisitExclusion {
+  id        String   @id @default(cuid())
+  userId    String
+  startAt   DateTime
+  endAt     DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt])
+}
+
+model VisitCorrectionRequest {
+  id           String           @id @default(cuid())
+  userId       String
+  dayKey       String
+  proposedStart DateTime
+  proposedEnd   DateTime
+  officeLocationId String?
+  reason       String
+  status       CorrectionStatus @default(pending)
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  user         User             @relation("CorrectionRequester", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?            @relation("CorrectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, dayKey])
+}
+
+model CurrentStatus {
+  userId           String          @id
+  inOffice         Boolean         @default(false)
+  sinceAt          DateTime?
+  hoursToday       Float           @default(0)
+  pointsToday      Int             @default(0)
+  monthPoints      Int             @default(0)
+  monthVisitDays   Int             @default(0)
+  monthDays        Int             @default(0)
+  officeLocationId String?
+  officeName       String?
+  lastDeviceName   String?
+  lastEvidenceAt   DateTime?
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  office           OfficeLocation? @relation(fields: [officeLocationId], references: [id], onDelete: SetNull)
+}
+
+model PendingAlert {
+  id        String    @id @default(cuid())
+  userId    String
+  type      AlertType
+  dayKey    String
+  payload   Json
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, dayKey])
+  @@index([sentAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  beforeJson Json?
+  afterJson  Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+}

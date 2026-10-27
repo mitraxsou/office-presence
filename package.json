@@ -1,0 +1,13 @@
+{
+  "name": "office-presence",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "npm run test --prefix web",
+    "test:bugs": "npm run test:bugs --prefix web",
+    "test:android": "cd android && gradlew.bat test --console=plain",
+    "test:all": "npm run test --prefix web && npm run test:bugs --prefix web && npm run build --prefix web",
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web"
+  }
+}

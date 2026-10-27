@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <group
+                android:name="ring"
+                android:pivotX="52"
+                android:pivotY="56"
+                android:scaleX="0.6"
+                android:scaleY="0.6">
+                <path
+                    android:fillColor="#00000000"
+                    android:strokeColor="#FD5108"
+                    android:strokeWidth="5"
+                    android:pathData="M52,40 A16,16 0 1,1 51.99,40 Z" />
+            </group>
+            <group
+                android:name="dot"
+                android:pivotX="52"
+                android:pivotY="56"
+                android:scaleX="0"
+                android:scaleY="0">
+                <path
+                    android:fillColor="#FD5108"
+                    android:pathData="M52,49 A7,7 0 1,1 51.99,49 Z" />
+            </group>
+            <path
+                android:name="pulse"
+                android:fillColor="#00000000"
+                android:strokeColor="#FD5108"
+                android:strokeAlpha="0"
+                android:strokeWidth="4.5"
+                android:strokeLineCap="round"
+                android:pathData="M64,33 A24,24 0 0,1 75,44" />
+        </vector>
+    </aapt:attr>
+    <target android:name="ring">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:duration="450" android:valueFrom="0.6" android:valueTo="1" android:interpolator="@android:interpolator/decelerate_cubic" />
+                <objectAnimator android:propertyName="scaleY" android:duration="450" android:valueFrom="0.6" android:valueTo="1" android:interpolator="@android:interpolator/decelerate_cubic" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="dot">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:startOffset="200" android:duration="350" android:valueFrom="0" android:valueTo="1" android:interpolator="@android:interpolator/overshoot" />
+                <objectAnimator android:propertyName="scaleY" android:startOffset="200" android:duration="350" android:valueFrom="0" android:valueTo="1" android:interpolator="@android:interpolator/overshoot" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="pulse">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="strokeAlpha" android:startOffset="500" android:duration="500" android:valueFrom="0" android:valueTo="1" />
+        </aapt:attr>
+    </target>
+</animated-vector>

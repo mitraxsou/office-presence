@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Office Presence</string>
+    <string name="login_subtitle">Sign in with your PwC email. A code arrives in Teams.</string>
+    <string name="send_code">Send Teams code</string>
+    <string name="verify_code">Verify and continue</string>
+    <string name="email_hint">you@pwc.com</string>
+    <string name="code_hint">6-digit Teams code</string>
+    <string name="status_in">In</string>
+    <string name="status_out">Out</string>
+    <string name="check_in">Check in</string>
+    <string name="check_out">Check out</string>
+    <string name="sync_now">Sync now</string>
+    <string name="permissions">Grant permissions</string>
+    <string name="settings">Settings</string>
+    <string name="peers">Colleagues in office</string>
+    <string name="developer">Developer settings</string>
+    <string name="month_points">Office points this month</string>
+    <string name="offices_title">Offices</string>
+    <string name="recent_activity">Recent activity</string>
+    <string name="no_offices">No offices yet. Your admin adds them on the web, or suggest one in developer settings.</string>
+    <string name="test_rules_on">Test mode: 15 second gap</string>
+    <string name="policy_title">Rules</string>
+    <string name="policy_readonly">Set by your admin. Read-only on the phone.</string>
+    <string name="peer_consent">Share my presence with colleagues who also opted in. Shared: In or Out, since when, and the office name. Not shared: live GPS, coordinates, hours, or points. You can turn this off at any time.</string>
+    <string name="multi_phone_help">Using more than one phone? Sign in on each. The latest location from any of your phones wins, and a day counts once no matter how many phones saw it.</string>
+    <string name="mock_location_help">Mock GPS: enable Developer options, select your mock location app, set coordinates inside an office radius, then jump outside it. Samples and geofence should flip In and Out.</string>
+</resources>
