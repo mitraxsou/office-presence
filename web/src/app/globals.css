@@ -470,6 +470,40 @@ tbody tr:hover {
 .toggle-row input[type="checkbox"] { width: 22px; height: 22px; min-height: 22px; margin: 0; accent-color: var(--pwc-orange); }
 .pager { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; margin-top: 0.75rem; }
 .map { height: 320px; border-radius: 8px; border: 1px solid var(--border); margin: 0.5rem 0 1rem; z-index: 0; }
+.search-results {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--surface);
+}
+.search-group {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.search-hit:last-child { border-bottom: none; }
+.search-hit:hover, .search-hit:focus-visible { background: rgba(253, 81, 8, 0.08); outline: none; }
+.search-hit strong { font-size: 0.95rem; }
 .help { font-size: 0.88rem; color: var(--muted); }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 1rem; }
 

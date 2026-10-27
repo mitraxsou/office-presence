@@ -5,6 +5,7 @@ import com.pwc.officepresence.BuildConfig
 import com.pwc.officepresence.notify.Notifier
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
+import com.pwc.officepresence.presence.VisitCalculator
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
@@ -173,10 +174,54 @@ class PresenceRepository(private val context: Context) {
     }
 
     fun applyPrefs(p: JSONObject) {
-        prefs.notifyOfficeDetected = p.optBoolean("notifyOfficeDetected", true)
+        val combined = p.optBoolean("notifyOfficeDetected", true)
+        prefs.notifyOfficeDetected = combined
+        prefs.notifyOfficeEnter = if (p.has("notifyOfficeEnter")) p.optBoolean("notifyOfficeEnter", true) else combined
+        prefs.notifyOfficeLeave = if (p.has("notifyOfficeLeave")) p.optBoolean("notifyOfficeLeave", true) else combined
         prefs.notifyGoalMet = p.optBoolean("notifyGoalMet", true)
         prefs.notifyDailySummary = p.optBoolean("notifyDailySummary", true)
         prefs.notificationToneId = p.optString("notificationToneId", "default")
+        prefs.toneEnterId = p.optString("toneEnterId", prefs.toneEnterId.ifBlank { "chime" })
+        prefs.toneLeaveId = p.optString("toneLeaveId", prefs.toneLeaveId.ifBlank { "soft" })
+        prefs.toneGoalId = p.optString("toneGoalId", prefs.toneGoalId.ifBlank { "pulse" })
+        prefs.toneSummaryId = p.optString("toneSummaryId", prefs.toneSummaryId.ifBlank { "default" })
         prefs.launchSoundEnabled = p.optBoolean("launchSoundEnabled", false)
+    }
+
+    /**
+     * One-shot recovery: match the current fix to an office, record enter/exit,
+     * sync, and notify. Not a standing manual check-in control.
+     */
+    fun forceDetect(lat: Double, lng: Double, accuracy: Double): SyncState {
+        val rules = prefs.rules()
+        val offices = prefs.offices()
+        val matched = VisitCalculator.matchNearestOffice(
+            lat, lng, accuracy, offices.map { it.toFence() }, rules,
+        )
+        val prevId = prefs.lastSampleOfficeId
+        if (matched != null) {
+            recordLocal(
+                type = if (prevId == matched.id) "sample" else "enter",
+                lat = lat,
+                lng = lng,
+                accuracy = accuracy,
+                officeId = matched.id,
+            )
+            val o = offices.firstOrNull { it.id == matched.id }
+            if (prevId != matched.id && o != null) {
+                Notifier.officeEntered(context, o.displayName, o.pointsPerVisitDay, force = true)
+            }
+            prefs.lastSampleOfficeId = matched.id ?: ""
+            PresenceService.start(context)
+        } else {
+            recordLocal(type = if (prevId.isNotEmpty()) "exit" else "sample", lat = lat, lng = lng, accuracy = accuracy)
+            if (prevId.isNotEmpty()) {
+                val o = offices.firstOrNull { it.id == prevId }
+                Notifier.officeLeft(context, o?.displayName ?: prefs.cachedOfficeName.ifBlank { "office" }, force = true)
+                prefs.lastSampleOfficeId = ""
+                PresenceService.stop(context)
+            }
+        }
+        return uploadAndSync()
     }
 }

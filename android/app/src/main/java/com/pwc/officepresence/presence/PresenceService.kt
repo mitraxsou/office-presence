@@ -23,6 +23,7 @@ import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.EventLog
 import com.pwc.officepresence.data.PresenceRepository
+import com.pwc.officepresence.notify.Notifier
 import com.pwc.officepresence.ui.MainActivity
 import java.time.Instant
 import kotlin.concurrent.thread
@@ -80,7 +81,7 @@ class PresenceService : Service() {
         val weak = loc.accuracy > rules.fenceRadiusMeters
         val wifi = currentWifi()
         val isMock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else @Suppress("DEPRECATION") loc.isFromMockProvider
-        val office = VisitCalculator.matchNearestOffice(
+        val office = if (weak) null else VisitCalculator.matchNearestOffice(
             loc.latitude, loc.longitude, loc.accuracy.toDouble(),
             prefs.offices().map { it.toFence() }, rules,
         )
@@ -95,11 +96,34 @@ class PresenceService : Service() {
             simulated = false,
             officeId = office?.id,
         )
+        maybeAlertOnSampleTransition(office)
         val nm = getSystemService(NotificationManager::class.java)
         val mockTag = if (isMock) " mock" else ""
         val text = if (weak) "Weak fix ${loc.accuracy.toInt()}m (not counted)$mockTag"
-        else "Sample ${loc.accuracy.toInt()}m$mockTag"
+        else if (office != null) "Inside ${prefs.offices().firstOrNull { it.id == office.id }?.displayName ?: "office"} ${loc.accuracy.toInt()}m$mockTag"
+        else "Outside office ${loc.accuracy.toInt()}m$mockTag"
         nm.notify(NOTIF_ID, buildNotification(text))
+    }
+
+    /** When OEM geofence never fires, sample enter/leave still posts a heads-up (debounced). */
+    private fun maybeAlertOnSampleTransition(office: OfficeFenceInput?) {
+        val prev = prefs.lastSampleOfficeId
+        val next = office?.id.orEmpty()
+        if (prev == next) return
+        val offices = prefs.offices().associateBy { it.id }
+        if (prev.isEmpty() && next.isNotEmpty()) {
+            val o = offices[next]
+            if (o != null) Notifier.officeEntered(this, o.displayName, o.pointsPerVisitDay)
+        } else if (prev.isNotEmpty() && next.isEmpty()) {
+            val o = offices[prev]
+            Notifier.officeLeft(this, o?.displayName ?: prefs.cachedOfficeName.ifBlank { "office" })
+        } else if (prev.isNotEmpty() && next.isNotEmpty() && prev != next) {
+            val left = offices[prev]
+            val entered = offices[next]
+            Notifier.officeLeft(this, left?.displayName ?: "office")
+            if (entered != null) Notifier.officeEntered(this, entered.displayName, entered.pointsPerVisitDay, force = true)
+        }
+        prefs.lastSampleOfficeId = next
     }
 
     private fun currentWifi(): Pair<String?, String?> {

@@ -19,3 +19,15 @@ export async function resolveActor(request: Request): Promise<Actor | null> {
 export function unauthorized() {
   return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
+
+export function forbidden() {
+  return Response.json({ error: "Forbidden" }, { status: 403 });
+}
+
+/** Session cookie or phone Bearer token; must be role admin. */
+export async function requireAdminActor(request: Request): Promise<Actor | Response> {
+  const actor = await resolveActor(request);
+  if (!actor) return unauthorized();
+  if (actor.user.role !== "admin") return forbidden();
+  return actor;
+}

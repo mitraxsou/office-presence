@@ -16,9 +16,10 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       email: true,
+      isDummy: true,
       status: { select: { inOffice: true, sinceAt: true, officeLocationId: true, office: { select: { name: true } } } },
     },
-    orderBy: { email: "asc" },
+    orderBy: [{ isDummy: "desc" }, { email: "asc" }],
   });
   return NextResponse.json({
     optedIn: true,
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
       id: p.id,
       name: p.name ?? p.email.split("@")[0],
       email: p.email,
+      isDummy: p.isDummy,
       inOffice: p.status?.inOffice ?? false,
       sinceAt: p.status?.inOffice ? p.status?.sinceAt?.toISOString() ?? null : null,
       officeName: p.status?.inOffice ? p.status?.office?.name ?? null : null,

@@ -1,7 +1,9 @@
 package com.pwc.officepresence.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +16,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
@@ -31,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var repo: PresenceRepository
     private lateinit var prefs: AppPrefs
     private lateinit var statusChip: Chip
+    private lateinit var trackingChip: Chip
     private lateinit var emailText: TextView
     private lateinit var officeNameText: TextView
     private lateinit var officeDetailText: TextView
@@ -38,12 +44,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pointsMeter: LinearProgressIndicator
     private lateinit var pointsDetailText: TextView
     private lateinit var hoursText: TextView
-    private lateinit var officesList: TextView
     private lateinit var eventList: TextView
     private lateinit var banner: TextView
     private lateinit var versionText: TextView
     private lateinit var toolbar: MaterialToolbar
     private lateinit var swipe: SwipeRefreshLayout
+    private lateinit var forceDetectBtn: MaterialButton
     private lateinit var root: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.root)
         statusChip = findViewById(R.id.statusChip)
+        trackingChip = findViewById(R.id.trackingChip)
         emailText = findViewById(R.id.emailText)
         officeNameText = findViewById(R.id.officeNameText)
         officeDetailText = findViewById(R.id.officeDetailText)
@@ -66,10 +73,10 @@ class MainActivity : AppCompatActivity() {
         pointsMeter = findViewById(R.id.pointsMeter)
         pointsDetailText = findViewById(R.id.pointsDetailText)
         hoursText = findViewById(R.id.hoursText)
-        officesList = findViewById(R.id.officesList)
         eventList = findViewById(R.id.eventList)
         banner = findViewById(R.id.banner)
         versionText = findViewById(R.id.versionText)
+        forceDetectBtn = findViewById(R.id.forceDetectBtn)
         swipe = findViewById(R.id.swipe)
         swipe.setColorSchemeResources(R.color.pwc_orange)
         swipe.setOnRefreshListener { syncNow() }
@@ -77,8 +84,10 @@ class MainActivity : AppCompatActivity() {
         toolbar = findViewById(R.id.toolbar)
         toolbar.setOnMenuItemClickListener {
             when (it.itemId) {
+                R.id.action_reports -> startActivity(Intent(this, ReportsActivity::class.java))
                 R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
                 R.id.action_peers -> startActivity(Intent(this, PeersActivity::class.java))
+                R.id.action_admin -> startActivity(Intent(this, AdminActivity::class.java))
                 R.id.action_developer -> startActivity(Intent(this, DeveloperActivity::class.java))
                 else -> return@setOnMenuItemClickListener false
             }
@@ -89,32 +98,27 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
+        findViewById<MaterialButton>(R.id.reportsBtn).setOnClickListener {
+            startActivity(Intent(this, ReportsActivity::class.java))
+        }
         findViewById<MaterialButton>(R.id.permissionsBtn).setOnClickListener { requestAllPermissions() }
-        findViewById<MaterialButton>(R.id.checkIn).setOnClickListener { manual("check_in") }
-        findViewById<MaterialButton>(R.id.checkOut).setOnClickListener { manual("check_out") }
-        findViewById<MaterialButton>(R.id.syncBtn).setOnClickListener { syncNow() }
+        forceDetectBtn.setOnClickListener { forceDetectNow() }
+        trackingChip.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Tracking")
+                .setMessage(buildTrackingDetail())
+                .setPositiveButton("OK", null)
+                .show()
+        }
         render(repo.cached())
         syncNow()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::root.isInitialized) render(repo.cached())
-    }
-
-    private fun manual(type: String) {
-        thread {
-            val state = repo.recordManual(type)
-            runOnUiThread {
-                render(state)
-                val label = if (type == "check_in") "Checked in" else "Checked out"
-                val body = if (state.ok) {
-                    "$label. Web status: ${if (state.inOffice) "In" else "Out"}"
-                } else {
-                    state.message ?: "Could not sync"
-                }
-                Snackbar.make(root, body, Snackbar.LENGTH_LONG).show()
-            }
+        if (::root.isInitialized) {
+            GeofenceHelper.registerAll(this, prefs.offices())
+            render(repo.cached())
         }
     }
 
@@ -122,7 +126,10 @@ class MainActivity : AppCompatActivity() {
         swipe.isRefreshing = true
         thread {
             val state = repo.uploadAndSync()
-            if (state.ok) DailySummaryWorker.schedule(this)
+            if (state.ok) {
+                DailySummaryWorker.schedule(this)
+                GeofenceHelper.registerAll(this, prefs.offices())
+            }
             runOnUiThread {
                 swipe.isRefreshing = false
                 render(state)
@@ -137,13 +144,56 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun forceDetectNow() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Snackbar.make(root, "Grant location first", Snackbar.LENGTH_LONG).show()
+            requestAllPermissions()
+            return
+        }
+        forceDetectBtn.isEnabled = false
+        forceDetectBtn.text = "Detecting..."
+        val cts = CancellationTokenSource()
+        LocationServices.getFusedLocationProviderClient(this)
+            .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
+            .addOnSuccessListener { loc ->
+                if (loc == null) {
+                    forceDetectBtn.isEnabled = true
+                    forceDetectBtn.text = getString(R.string.force_detect)
+                    Snackbar.make(root, "No location fix", Snackbar.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                thread {
+                    val state = repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble())
+                    runOnUiThread {
+                        forceDetectBtn.isEnabled = true
+                        forceDetectBtn.text = getString(R.string.force_detect)
+                        render(state)
+                        val msg = when {
+                            !state.ok -> state.message ?: "Detect failed"
+                            state.inOffice -> "In ${state.officeName ?: "office"}"
+                            else -> "Outside office"
+                        }
+                        Snackbar.make(root, msg, Snackbar.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .addOnFailureListener {
+                forceDetectBtn.isEnabled = true
+                forceDetectBtn.text = getString(R.string.force_detect)
+                Snackbar.make(root, "Location failed", Snackbar.LENGTH_LONG).show()
+            }
+    }
+
     private fun render(state: PresenceRepository.SyncState) {
         val tz = prefs.timezone
         banner.visibility = if (prefs.fastTest && prefs.developerMode) View.VISIBLE else View.GONE
         emailText.text = prefs.email ?: ""
         toolbar.menu.findItem(R.id.action_developer)?.isVisible = prefs.developerMode
-        versionText.text = if (prefs.developerMode) "v${BuildConfig.VERSION_NAME}  long-press for developer settings"
-        else "v${BuildConfig.VERSION_NAME}"
+        toolbar.menu.findItem(R.id.action_admin)?.isVisible = prefs.role == "admin"
+        versionText.text = "v${BuildConfig.VERSION_NAME}"
 
         if (state.inOffice) {
             statusChip.text = getString(R.string.status_in)
@@ -160,41 +210,57 @@ class MainActivity : AppCompatActivity() {
         officeNameText.text = when {
             state.inOffice && state.officeName != null -> state.officeName
             state.inOffice -> "In office"
-            else -> "Not in an office"
+            else -> "Away"
         }
         officeDetailText.text = buildString {
-            if (state.inOffice && state.sinceAt != null) append("Since ${Ui.fmtTime(state.sinceAt, tz)}")
+            if (state.inOffice && state.sinceAt != null) append(Ui.fmtTime(state.sinceAt, tz))
             if (state.inOffice && current != null) {
-                if (isNotEmpty()) append("  -  ")
-                append("${current.pointsPerVisitDay} pt${if (current.pointsPerVisitDay == 1) "" else "s"} per visit day")
-                current.addressLabel?.let { append("\n").append(it) }
+                if (isNotEmpty()) append(" - ")
+                append("${current.pointsPerVisitDay} pt")
             }
         }
         officeDetailText.visibility = if (officeDetailText.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
         val target = state.pointsTarget.coerceAtLeast(1)
-        pointsText.text = "${state.monthPoints} / $target points"
+        pointsText.text = "${state.monthPoints} / $target"
         pointsMeter.setProgressCompat(((state.monthPoints * 100) / target).coerceIn(0, 100), true)
-        pointsDetailText.text = if (state.targetMet) {
-            "Goal met. ${state.monthVisitDays} visit day${if (state.monthVisitDays == 1) "" else "s"} this month."
-        } else {
-            val left = (target - state.monthPoints).coerceAtLeast(0)
-            "$left to go. ${state.monthVisitDays} visit day${if (state.monthVisitDays == 1) "" else "s"} this month."
-        }
-        hoursText.text = "Hours today ${"%.1f".format(state.hoursToday)} (FYI, advised ${"%.0f".format(prefs.dayHours)}h)"
+        pointsDetailText.text = if (state.targetMet) "Goal met"
+        else "${(target - state.monthPoints).coerceAtLeast(0)} left - ${state.monthVisitDays} days"
+        hoursText.text = "Hours ${"%.1f".format(state.hoursToday)} (FYI)"
 
-        officesList.text = if (offices.isEmpty()) getString(R.string.no_offices) else offices.joinToString("\n") { o ->
-            val alias = if (o.alias != null) " (${o.adminName})" else ""
-            val addr = o.addressLabel?.let { "\n   $it" } ?: ""
-            "${o.displayName}$alias  -  ${o.pointsPerVisitDay} pt$addr"
-        }
-        eventList.text = repo.log().recent(15).joinToString("\n").ifBlank { "No events yet" }
+        trackingChip.text = compactTracking()
+        eventList.text = repo.log().recent(6).joinToString("\n").ifBlank { "" }
     }
+
+    private fun compactTracking(): String {
+        val fence = prefs.geofenceStatus
+        return when {
+            fence.contains("failed", ignoreCase = true) || fence.contains("missing", ignoreCase = true) ->
+                "Tracking issue · tap for details"
+            fence.contains("Watching", ignoreCase = true) -> fence
+            prefs.offices().isEmpty() -> "No offices yet"
+            else -> "Geofence · tap for details"
+        }
+    }
+
+    private fun buildTrackingDetail(): String = buildString {
+        appendLine(prefs.geofenceStatus.ifBlank { "Geofences not registered yet." })
+        appendLine()
+        appendLine("Presence is automatic. Use Force detect if status looks wrong.")
+        if (Build.VERSION.SDK_INT >= 33) {
+            val ok = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (!ok) appendLine("Notification permission is off.")
+        }
+        val fine = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!fine) appendLine("Location permission is off.")
+    }.trim()
 
     private fun requestAllPermissions() {
         AlertDialog.Builder(this)
             .setTitle("Permissions")
-            .setMessage("Office Presence needs location all the time, notifications, and a battery exemption so visits close when you leave.")
+            .setMessage("Location (all the time), notifications, and battery exemption keep visits accurate.")
             .setPositiveButton("Continue") { _, _ ->
                 val need = mutableListOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -209,6 +275,7 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         GeofenceHelper.registerAll(this, prefs.offices())
+        if (::trackingChip.isInitialized) trackingChip.text = compactTracking()
         if (requestCode == 100 && Build.VERSION.SDK_INT >= 29) {
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 101,

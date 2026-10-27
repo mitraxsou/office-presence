@@ -8,12 +8,13 @@
     <string name="code_hint">6-digit Teams code</string>
     <string name="status_in">In</string>
     <string name="status_out">Out</string>
-    <string name="check_in">Check in</string>
-    <string name="check_out">Check out</string>
     <string name="sync_now">Sync now</string>
-    <string name="permissions">Grant permissions</string>
+    <string name="force_detect">Force detect</string>
+    <string name="permissions">Permissions</string>
     <string name="settings">Settings</string>
-    <string name="peers">Colleagues in office</string>
+    <string name="reports">Month</string>
+    <string name="admin">Admin</string>
+    <string name="peers">Colleagues</string>
     <string name="developer">Developer settings</string>
     <string name="month_points">Office points this month</string>
     <string name="offices_title">Offices</string>

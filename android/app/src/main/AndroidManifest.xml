@@ -31,6 +31,8 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.MainActivity" android:exported="false" />
+        <activity android:name=".ui.ReportsActivity" android:exported="false" />
+        <activity android:name=".ui.AdminActivity" android:exported="false" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" />
         <activity android:name=".ui.PeersActivity" android:exported="false" />
         <activity android:name=".ui.DeveloperActivity" android:exported="false" />

@@ -76,7 +76,8 @@ class PeersActivity : AppCompatActivity() {
         inNow.forEach { p ->
             val office = p.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"
             val since = Ui.fmtTime(p.optString("sinceAt").takeIf { it != "null" }, prefs.timezone)
-            box.addView(Ui.text(this, p.optString("name"), 15f, bold = true).apply { setPadding(0, Ui.dp(context, 10), 0, 0) })
+            val demo = if (p.optBoolean("isDummy")) " (demo)" else ""
+            box.addView(Ui.text(this, p.optString("name") + demo, 15f, bold = true).apply { setPadding(0, Ui.dp(context, 10), 0, 0) })
             box.addView(Ui.text(this, "$office${if (since.isNotBlank()) "  -  since $since" else ""}", 13f, muted = true))
         }
         val out = peers.filter { !it.optBoolean("inOffice") }

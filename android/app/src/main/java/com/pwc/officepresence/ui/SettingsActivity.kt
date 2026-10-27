@@ -48,6 +48,30 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    private fun tonePicker(parent: LinearLayout, label: String, current: String, onPick: (String) -> Unit) {
+        val btn = Ui.button(
+            parent,
+            "$label: ${Notifier.TONES[current] ?: current}",
+            com.google.android.material.R.attr.materialButtonOutlinedStyle,
+        ) {}
+        btn.setOnClickListener {
+            val ids = Notifier.TONES.keys.toList()
+            AlertDialog.Builder(this)
+                .setTitle(label)
+                .setSingleChoiceItems(
+                    Notifier.TONES.values.toTypedArray(),
+                    ids.indexOf(current).coerceAtLeast(0),
+                ) { d, i ->
+                    Notifier.previewTone(this, ids[i])
+                    onPick(ids[i])
+                    btn.text = "$label: ${Notifier.TONES[ids[i]]}"
+                    d.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
     private fun build() {
         val appearance = Ui.card(content, "Appearance")
         val themes = listOf("system" to "Follow system", "light" to "Light", "dark" to "Dark")
@@ -63,53 +87,79 @@ class SettingsActivity : AppCompatActivity() {
                 .show()
         }
 
-        val notif = Ui.card(content, "Notifications", "Never louder than your phone: Do Not Disturb and silent mode are respected.")
-        Ui.switch(notif, "Office detected", prefs.notifyOfficeDetected) { _, c ->
-            prefs.notifyOfficeDetected = c
-            patchPrefs(JSONObject().put("notifyOfficeDetected", c))
+        val notif = Ui.card(content, "Notifications")
+        Ui.switch(notif, "Office enter alert", prefs.notifyOfficeEnter) { _, c ->
+            prefs.notifyOfficeEnter = c
+            prefs.notifyOfficeDetected = c || prefs.notifyOfficeLeave
+            patchPrefs(JSONObject().put("notifyOfficeEnter", c))
         }
-        Ui.switch(notif, "Monthly points goal met", prefs.notifyGoalMet) { _, c ->
+        tonePicker(notif, "Enter tone", prefs.toneEnterId) { id ->
+            prefs.toneEnterId = id
+            patchPrefs(JSONObject().put("toneEnterId", id))
+        }
+        Ui.switch(notif, "Office leave alert", prefs.notifyOfficeLeave) { _, c ->
+            prefs.notifyOfficeLeave = c
+            prefs.notifyOfficeDetected = c || prefs.notifyOfficeEnter
+            patchPrefs(JSONObject().put("notifyOfficeLeave", c))
+        }
+        tonePicker(notif, "Leave tone", prefs.toneLeaveId) { id ->
+            prefs.toneLeaveId = id
+            patchPrefs(JSONObject().put("toneLeaveId", id))
+        }
+        Ui.switch(notif, "Goal met", prefs.notifyGoalMet) { _, c ->
             prefs.notifyGoalMet = c
             patchPrefs(JSONObject().put("notifyGoalMet", c))
         }
-        Ui.switch(notif, "Morning summary (9:00, only if goal not met)", prefs.notifyDailySummary) { _, c ->
+        tonePicker(notif, "Goal tone", prefs.toneGoalId) { id ->
+            prefs.toneGoalId = id
+            patchPrefs(JSONObject().put("toneGoalId", id))
+        }
+        Ui.switch(notif, "Morning summary", prefs.notifyDailySummary) { _, c ->
             prefs.notifyDailySummary = c
             if (c) DailySummaryWorker.schedule(this) else DailySummaryWorker.cancel(this)
             patchPrefs(JSONObject().put("notifyDailySummary", c))
         }
-        val toneBtn = Ui.button(notif, "Tone: ${Notifier.TONES[prefs.notificationToneId] ?: "System default"}", com.google.android.material.R.attr.materialButtonOutlinedStyle) {}
-        toneBtn.setOnClickListener {
-            val ids = Notifier.TONES.keys.toList()
-            AlertDialog.Builder(this)
-                .setTitle("Notification tone")
-                .setSingleChoiceItems(Notifier.TONES.values.toTypedArray(), ids.indexOf(prefs.notificationToneId).coerceAtLeast(0)) { _, i ->
-                    Notifier.previewTone(this, ids[i])
-                    prefs.notificationToneId = ids[i]
-                    toneBtn.text = "Tone: ${Notifier.TONES[ids[i]]}"
-                    patchPrefs(JSONObject().put("notificationToneId", ids[i]))
-                }
-                .setPositiveButton("Done", null)
-                .show()
+        tonePicker(notif, "Summary tone", prefs.toneSummaryId) { id ->
+            prefs.toneSummaryId = id
+            patchPrefs(JSONObject().put("toneSummaryId", id))
         }
-        Ui.switch(notif, "Play a short sound when the app opens", prefs.launchSoundEnabled) { _, c ->
+        Ui.switch(notif, "Launch sound", prefs.launchSoundEnabled) { _, c ->
             prefs.launchSoundEnabled = c
             patchPrefs(JSONObject().put("launchSoundEnabled", c))
         }
+        Ui.textButton(notif, "How notifications work") {
+            AlertDialog.Builder(this)
+                .setTitle("Notifications")
+                .setMessage(
+                    "Turn enter and leave on or off separately, each with its own tone " +
+                        "(or Silent for a banner only). Morning summary skips once your monthly points goal is met. " +
+                        "Sounds never bypass Do Not Disturb.",
+                )
+                .setPositiveButton("OK", null)
+                .show()
+        }
 
-        aliasesBox = Ui.card(content, "My office names", "Rename an office for yourself only. Admin names stay the same for everyone else.")
+        aliasesBox = Ui.card(content, "Office names")
         renderAliases()
 
-        devicesBox = Ui.card(content, "My devices", getString(R.string.multi_phone_help))
+        devicesBox = Ui.card(content, "Devices")
         devicesBox.addView(Ui.text(this, "Loading...", 14f, muted = true))
 
-        val peers = Ui.card(content, "Share presence with colleagues", getString(R.string.peer_consent))
+        val peers = Ui.card(content, "Colleagues")
         peerSwitch = Ui.switch(peers, "Share my presence", prefs.sharePresenceWithPeers) { s, c -> onPeerToggle(s, c) }
-        Ui.textButton(peers, "See colleagues in office") { startActivity(Intent(this, PeersActivity::class.java)) }
+        Ui.textButton(peers, "Open colleagues") { startActivity(Intent(this, PeersActivity::class.java)) }
+        Ui.textButton(peers, "What is shared?") {
+            AlertDialog.Builder(this)
+                .setTitle("Sharing")
+                .setMessage(getString(R.string.peer_consent))
+                .setPositiveButton("OK", null)
+                .show()
+        }
 
-        policyBox = Ui.card(content, getString(R.string.policy_title), getString(R.string.policy_readonly))
+        policyBox = Ui.card(content, getString(R.string.policy_title))
         renderPolicy()
 
-        val dev = Ui.card(content, "Developer", "Adds test tools: 15 second test gap, mock GPS notes, and suggesting a new office.")
+        val dev = Ui.card(content, "Developer")
         devSwitch = Ui.switch(dev, "Developer mode", prefs.developerMode) { s, c -> onDevToggle(s, c) }
         if (prefs.developerMode) {
             Ui.textButton(dev, getString(R.string.developer)) { startActivity(Intent(this, DeveloperActivity::class.java)) }
@@ -132,21 +182,29 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun clearAfterTitle(box: LinearLayout) {
+        while (box.childCount > 1) box.removeViewAt(box.childCount - 1)
+    }
+
     private fun renderPolicy() {
-        policyBox.removeViews(2, (policyBox.childCount - 2).coerceAtLeast(0))
+        clearAfterTitle(policyBox)
         val text = buildString {
-            appendLine("Monthly goal: ${prefs.monthlyPointsTarget} points")
-            appendLine("Any time in an office counts as a visit day. Each day earns the highest points of the offices you visited, once.")
-            appendLine("Hours are FYI only (advised ${"%.0f".format(prefs.dayHours)}h).")
-            appendLine("Visit gap: ${prefs.gapMinutes} minutes")
-            appendLine("Timezone: ${prefs.timezone}")
-            append("Sample interval: ${prefs.sampleIntervalMinutes} minutes")
+            appendLine("${prefs.monthlyPointsTarget} points / month")
+            appendLine("Gap ${prefs.gapMinutes}m - ${prefs.timezone}")
+            append("Hours FYI (advised ${"%.0f".format(prefs.dayHours)}h)")
         }
         policyBox.addView(Ui.text(this, text, 14f).apply { setPadding(0, Ui.dp(context, 8), 0, 0) })
+        Ui.textButton(policyBox, "How points work") {
+            AlertDialog.Builder(this)
+                .setTitle("Points")
+                .setMessage("Any time in an office that calendar day is a visit day. Points come from the highest points-per-day office you visited. Hours never fail the month.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private fun renderAliases() {
-        aliasesBox.removeViews(2, (aliasesBox.childCount - 2).coerceAtLeast(0))
+        clearAfterTitle(aliasesBox)
         val offices = prefs.offices()
         if (offices.isEmpty()) {
             aliasesBox.addView(Ui.text(this, getString(R.string.no_offices), 14f, muted = true))
@@ -182,7 +240,14 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun renderDevices(list: List<JSONObject>?) {
-        devicesBox.removeViews(2, (devicesBox.childCount - 2).coerceAtLeast(0))
+        clearAfterTitle(devicesBox)
+        Ui.textButton(devicesBox, "How multi-phone works") {
+            AlertDialog.Builder(this)
+                .setTitle("Devices")
+                .setMessage(getString(R.string.multi_phone_help))
+                .setPositiveButton("OK", null)
+                .show()
+        }
         if (list == null) {
             devicesBox.addView(Ui.text(this, "Could not load devices.", 14f, muted = true))
             return
@@ -324,8 +389,27 @@ class SettingsActivity : AppCompatActivity() {
     private fun patchPrefs(patch: JSONObject) {
         thread {
             val res = runCatching { repo.api.patchNotificationPrefs(patch) }.getOrNull()
-            if (res?.ok() != true) runOnUiThread { toast("Saved on this phone. Server sync failed.") }
+            if (res?.ok() == true) {
+                res.optJSONObject("prefs")?.let { applyPrefsFromServer(it) }
+            } else {
+                runOnUiThread { toast("Saved on this phone. Server sync failed.") }
+            }
         }
+    }
+
+    private fun applyPrefsFromServer(p: JSONObject) {
+        prefs.notifyOfficeEnter = if (p.has("notifyOfficeEnter")) p.optBoolean("notifyOfficeEnter", true)
+        else p.optBoolean("notifyOfficeDetected", true)
+        prefs.notifyOfficeLeave = if (p.has("notifyOfficeLeave")) p.optBoolean("notifyOfficeLeave", true)
+        else p.optBoolean("notifyOfficeDetected", true)
+        prefs.notifyOfficeDetected = p.optBoolean("notifyOfficeDetected", prefs.notifyOfficeEnter || prefs.notifyOfficeLeave)
+        prefs.notifyGoalMet = p.optBoolean("notifyGoalMet", prefs.notifyGoalMet)
+        prefs.notifyDailySummary = p.optBoolean("notifyDailySummary", prefs.notifyDailySummary)
+        if (p.has("toneEnterId")) prefs.toneEnterId = p.optString("toneEnterId", prefs.toneEnterId)
+        if (p.has("toneLeaveId")) prefs.toneLeaveId = p.optString("toneLeaveId", prefs.toneLeaveId)
+        if (p.has("toneGoalId")) prefs.toneGoalId = p.optString("toneGoalId", prefs.toneGoalId)
+        if (p.has("toneSummaryId")) prefs.toneSummaryId = p.optString("toneSummaryId", prefs.toneSummaryId)
+        prefs.launchSoundEnabled = p.optBoolean("launchSoundEnabled", prefs.launchSoundEnabled)
     }
 
     private fun loadDevices() {

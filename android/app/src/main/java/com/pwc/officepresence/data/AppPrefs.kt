@@ -116,6 +116,14 @@ class AppPrefs(context: Context) {
         get() = bool("notifyOfficeDetected", true)
         set(v) = putBool("notifyOfficeDetected", v)
 
+    var notifyOfficeEnter: Boolean
+        get() = bool("notifyOfficeEnter", true)
+        set(v) = putBool("notifyOfficeEnter", v)
+
+    var notifyOfficeLeave: Boolean
+        get() = bool("notifyOfficeLeave", true)
+        set(v) = putBool("notifyOfficeLeave", v)
+
     var notifyGoalMet: Boolean
         get() = bool("notifyGoalMet", true)
         set(v) = putBool("notifyGoalMet", v)
@@ -127,6 +135,22 @@ class AppPrefs(context: Context) {
     var notificationToneId: String
         get() = str("notificationToneId", "default")
         set(v) = putStr("notificationToneId", v)
+
+    var toneEnterId: String
+        get() = str("toneEnterId", "chime")
+        set(v) = putStr("toneEnterId", v)
+
+    var toneLeaveId: String
+        get() = str("toneLeaveId", "soft")
+        set(v) = putStr("toneLeaveId", v)
+
+    var toneGoalId: String
+        get() = str("toneGoalId", "pulse")
+        set(v) = putStr("toneGoalId", v)
+
+    var toneSummaryId: String
+        get() = str("toneSummaryId", "default")
+        set(v) = putStr("toneSummaryId", v)
 
     var launchSoundEnabled: Boolean
         get() = bool("launchSoundEnabled", false)
@@ -165,6 +189,21 @@ class AppPrefs(context: Context) {
     var goalNotifiedMonth: String
         get() = str("goalNotifiedMonth", "")
         set(v) = putStr("goalNotifiedMonth", v)
+
+    /** Last enter/leave heads-up time (epoch ms). Used to debounce geofence + sample alerts. */
+    var lastPresenceAlertAtMs: Long
+        get() = prefs.getLong("lastPresenceAlertAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastPresenceAlertAtMs", v).apply()
+
+    /** Last office id from a sample (empty when outside). */
+    var lastSampleOfficeId: String
+        get() = str("lastSampleOfficeId", "")
+        set(v) = putStr("lastSampleOfficeId", v)
+
+    /** Human-readable geofence registration status for the home screen. */
+    var geofenceStatus: String
+        get() = str("geofenceStatus", "")
+        set(v) = putStr("geofenceStatus", v)
 
     fun clearSession() {
         prefs.edit()

@@ -57,6 +57,8 @@ model User {
   developerMode           Boolean                  @default(false)
   sharePresenceWithPeers  Boolean                  @default(false)
   sharePresenceConsentAt  DateTime?
+  /** Demo accounts for peer-board testing. Safe to delete. */
+  isDummy                 Boolean                  @default(false)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   otpCodes                OtpCode[]
@@ -156,10 +158,18 @@ model UserOfficeAlias {
 
 model UserNotificationPrefs {
   userId                String   @id
+  /** Legacy: true if either enter or leave is on. Prefer notifyOfficeEnter / notifyOfficeLeave. */
   notifyOfficeDetected  Boolean  @default(true)
+  notifyOfficeEnter     Boolean  @default(true)
+  notifyOfficeLeave     Boolean  @default(true)
   notifyGoalMet         Boolean  @default(true)
   notifyDailySummary    Boolean  @default(true)
+  /** Legacy single tone; kept as fallback when a per-kind tone is unset. */
   notificationToneId    String   @default("default")
+  toneEnterId           String   @default("chime")
+  toneLeaveId           String   @default("soft")
+  toneGoalId            String   @default("pulse")
+  toneSummaryId         String   @default("default")
   launchSoundEnabled    Boolean  @default(false)
   launchSoundId         String   @default("default")
   updatedAt             DateTime @updatedAt

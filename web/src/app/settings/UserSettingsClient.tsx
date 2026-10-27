@@ -5,9 +5,15 @@ import { fmtDateTime } from "@/lib/format";
 
 type Prefs = {
   notifyOfficeDetected: boolean;
+  notifyOfficeEnter?: boolean;
+  notifyOfficeLeave?: boolean;
   notifyGoalMet: boolean;
   notifyDailySummary: boolean;
   notificationToneId: string;
+  toneEnterId?: string;
+  toneLeaveId?: string;
+  toneGoalId?: string;
+  toneSummaryId?: string;
   launchSoundEnabled: boolean;
   launchSoundId: string;
 };
@@ -136,17 +142,27 @@ export default function UserSettingsClient({
           <span className="skeleton" style={{ height: 120 }} />
         ) : (
           <>
-            <Toggle label="Office detected" hint="When a phone sees you enter an office" checked={prefs.notifyOfficeDetected} onChange={(v) => patchPrefs({ notifyOfficeDetected: v })} />
+            <Toggle
+              label="Office enter alert"
+              hint="Heads-up when the phone enters an office"
+              checked={prefs.notifyOfficeEnter ?? prefs.notifyOfficeDetected}
+              onChange={(v) => patchPrefs({ notifyOfficeEnter: v })}
+            />
+            <Toggle
+              label="Office leave alert"
+              hint="Heads-up when the phone leaves an office"
+              checked={prefs.notifyOfficeLeave ?? prefs.notifyOfficeDetected}
+              onChange={(v) => patchPrefs({ notifyOfficeLeave: v })}
+            />
             <Toggle label="Points goal met" hint="Once a month when you reach the target" checked={prefs.notifyGoalMet} onChange={(v) => patchPrefs({ notifyGoalMet: v })} />
             <Toggle label="Daily summary" hint="Morning points so far and remaining. Skipped once the goal is met." checked={prefs.notifyDailySummary} onChange={(v) => patchPrefs({ notifyDailySummary: v })} />
             <Toggle label="Launch sound on phone" hint="Short tone on cold start. Respects Do Not Disturb." checked={prefs.launchSoundEnabled} onChange={(v) => patchPrefs({ launchSoundEnabled: v })} />
-            <label htmlFor="tone" style={{ display: "block", marginTop: "0.75rem" }}>Phone notification tone</label>
-            <select id="tone" value={prefs.notificationToneId} onChange={(e) => patchPrefs({ notificationToneId: e.target.value })}>
-              <option value="default">System default</option>
-              <option value="chime">Chime</option>
-              <option value="pulse">Pulse</option>
-              <option value="soft">Soft</option>
-            </select>
+            <div className="grid-2" style={{ marginTop: "0.75rem" }}>
+              <ToneSelect label="Enter tone" value={prefs.toneEnterId ?? prefs.notificationToneId} onChange={(v) => patchPrefs({ toneEnterId: v })} />
+              <ToneSelect label="Leave tone" value={prefs.toneLeaveId ?? prefs.notificationToneId} onChange={(v) => patchPrefs({ toneLeaveId: v })} />
+              <ToneSelect label="Goal tone" value={prefs.toneGoalId ?? "pulse"} onChange={(v) => patchPrefs({ toneGoalId: v })} />
+              <ToneSelect label="Summary tone" value={prefs.toneSummaryId ?? "default"} onChange={(v) => patchPrefs({ toneSummaryId: v })} />
+            </div>
           </>
         )}
       </div>
@@ -220,6 +236,21 @@ export default function UserSettingsClient({
 
       {msg ? <p className={`status-msg ${msg.kind}`}>{msg.text}</p> : null}
     </>
+  );
+}
+
+function ToneSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label>{label}</label>
+      <select value={value || "default"} onChange={(e) => onChange(e.target.value)}>
+        <option value="default">System default</option>
+        <option value="chime">Chime</option>
+        <option value="pulse">Pulse</option>
+        <option value="soft">Soft</option>
+        <option value="silent">Silent (banner only)</option>
+      </select>
+    </div>
   );
 }
 

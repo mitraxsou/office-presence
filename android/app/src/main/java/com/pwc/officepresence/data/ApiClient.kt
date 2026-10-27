@@ -53,6 +53,46 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
     fun setAlias(officeId: String, displayName: String): JSONObject =
         send("PUT", "/api/me/aliases", JSONObject().put("officeLocationId", officeId).put("displayName", displayName))
 
+    fun reports(month: String? = null): JSONObject {
+        val q = if (month.isNullOrBlank()) "" else "?month=${enc(month)}"
+        return send("GET", "/api/me/reports$q")
+    }
+
+    fun submitCorrection(
+        dayKey: String,
+        proposedStart: String,
+        proposedEnd: String,
+        reason: String,
+        officeLocationId: String?,
+    ): JSONObject {
+        val body = JSONObject()
+            .put("dayKey", dayKey)
+            .put("proposedStart", proposedStart)
+            .put("proposedEnd", proposedEnd)
+            .put("reason", reason)
+        if (!officeLocationId.isNullOrBlank()) body.put("officeLocationId", officeLocationId)
+        return send("POST", "/api/me/corrections", body)
+    }
+
+    fun adminUsers(): JSONObject = send("GET", "/api/admin/users")
+    fun adminSeedDummies(): JSONObject = send("POST", "/api/admin/users", JSONObject().put("seedDummies", true))
+    fun adminCreateUser(email: String, name: String?, role: String, isDummy: Boolean): JSONObject =
+        send(
+            "POST",
+            "/api/admin/users",
+            JSONObject()
+                .put("email", email)
+                .put("name", name ?: "")
+                .put("role", role)
+                .put("isDummy", isDummy),
+        )
+    fun adminDeleteUser(id: String): JSONObject = send("DELETE", "/api/admin/users?id=${enc(id)}")
+    fun adminSimulate(userId: String, inOffice: Boolean, officeLocationId: String?): JSONObject {
+        val body = JSONObject().put("action", "simulate").put("userId", userId).put("inOffice", inOffice)
+        if (!officeLocationId.isNullOrBlank()) body.put("officeLocationId", officeLocationId)
+        return send("POST", "/api/admin/users", body)
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private fun send(method: String, path: String, body: JSONObject? = null, auth: Boolean = true): JSONObject {

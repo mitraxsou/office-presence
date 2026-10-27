@@ -276,7 +276,8 @@ async function queueAlerts(a: {
 }) {
   const prefs = await prisma.userNotificationPrefs.findUnique({ where: { userId: a.userId } });
   const base = { email: a.email, name: a.name, hoursToday: a.hoursToday, hoursTarget: a.dayHours };
-  if (a.inOffice && prefs?.notifyOfficeDetected !== false) {
+  const enterOn = prefs?.notifyOfficeEnter ?? prefs?.notifyOfficeDetected ?? true;
+  if (a.inOffice && enterOn) {
     await enqueueAlert(a.userId, "hours_started", a.today, {
       ...base,
       type: "hours_started",

@@ -37,3 +37,6 @@ web/.env.vercel*.local
 *.p12
 *.key
 
+
+.tools/
+

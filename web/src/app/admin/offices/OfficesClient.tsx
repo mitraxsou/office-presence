@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
 const OfficeMap = dynamic(() => import("@/components/OfficeMap"), {
@@ -20,6 +20,8 @@ type Office = {
   createdBy?: { email: string } | null;
 };
 
+type PlaceHit = { name: string; address: string; lat: number; lng: number };
+
 const empty = { id: "", name: "", latitude: "", longitude: "", radiusMeters: "100", pointsPerVisitDay: "1" };
 
 export default function OfficesClient() {
@@ -29,6 +31,10 @@ export default function OfficesClient() {
   const [bulk, setBulk] = useState("");
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [places, setPlaces] = useState<PlaceHit[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
     const res = await fetch("/api/admin/offices", { cache: "no-store" });
@@ -44,10 +50,50 @@ export default function OfficesClient() {
     setAddress(res.ok ? (await res.json()).addressLabel ?? "No address found" : null);
   }
 
-  function pick(lat: number, lng: number) {
-    setForm((f) => ({ ...f, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }));
-    lookup(lat, lng);
+  function pick(lat: number, lng: number, label?: string | null, nameHint?: string) {
+    setForm((f) => ({
+      ...f,
+      latitude: lat.toFixed(6),
+      longitude: lng.toFixed(6),
+      name: f.name || (nameHint ?? ""),
+    }));
+    if (label) setAddress(label);
+    else lookup(lat, lng);
+    setPlaces([]);
   }
+
+  const savedMatches = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (q.length < 2 || !offices) return [];
+    return offices
+      .filter((o) => o.status === "active" || o.status === "inactive")
+      .filter(
+        (o) =>
+          o.name.toLowerCase().includes(q) ||
+          (o.addressLabel ?? "").toLowerCase().includes(q),
+      )
+      .slice(0, 6);
+  }, [searchQ, offices]);
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const q = searchQ.trim();
+    if (q.length < 2) {
+      setPlaces([]);
+      setSearchBusy(false);
+      return;
+    }
+    setSearchBusy(true);
+    searchTimer.current = setTimeout(async () => {
+      const res = await fetch(`/api/geo/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      setPlaces(res.ok ? (j.places as PlaceHit[]) ?? [] : []);
+      setSearchBusy(false);
+    }, 400);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [searchQ]);
 
   async function save() {
     setBusy(true);
@@ -173,11 +219,73 @@ export default function OfficesClient() {
 
       <div className="card">
         <h2>{form.id ? "Edit office" : "Add office"}</h2>
-        <p className="help">Click the map to place the office, or type coordinates.</p>
+        <p className="help">Search a place or saved office, click the map, or type coordinates. Then Save.</p>
+        <div className="form-stack" style={{ marginBottom: "0.75rem" }}>
+          <label htmlFor="osearch">Search place or office</label>
+          <input
+            id="osearch"
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="PwC Kolkata, Pune office, street address"
+            autoComplete="off"
+          />
+          {searchBusy ? <p className="help">Searching...</p> : null}
+          {savedMatches.length || places.length ? (
+            <div className="search-results" role="listbox" aria-label="Search results">
+              {savedMatches.length ? (
+                <>
+                  <div className="search-group">Saved offices</div>
+                  {savedMatches.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className="search-hit"
+                      onClick={() => {
+                        setForm({
+                          id: o.id,
+                          name: o.name,
+                          latitude: String(o.latitude),
+                          longitude: String(o.longitude),
+                          radiusMeters: String(o.radiusMeters),
+                          pointsPerVisitDay: String(o.pointsPerVisitDay),
+                        });
+                        setAddress(o.addressLabel);
+                        setSearchQ("");
+                        setPlaces([]);
+                      }}
+                    >
+                      <strong>{o.name}</strong>
+                      <span className="help">{o.addressLabel ?? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}`}</span>
+                    </button>
+                  ))}
+                </>
+              ) : null}
+              {places.length ? (
+                <>
+                  <div className="search-group">Places (OpenStreetMap)</div>
+                  {places.map((p, i) => (
+                    <button
+                      key={`${p.lat}-${p.lng}-${i}`}
+                      type="button"
+                      className="search-hit"
+                      onClick={() => {
+                        pick(p.lat, p.lng, p.address, p.name);
+                        setSearchQ("");
+                      }}
+                    >
+                      <strong>{p.name}</strong>
+                      <span className="help">{p.address}</span>
+                    </button>
+                  ))}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <OfficeMap
           center={hasPoint ? { lat, lng } : null}
           pins={hasPoint ? [{ lat, lng, radiusMeters: Number(form.radiusMeters) || 100 }] : listed.map((o) => ({ lat: o.latitude, lng: o.longitude, radiusMeters: o.radiusMeters, label: o.name }))}
-          onPick={pick}
+          onPick={(a, b) => pick(a, b)}
         />
         {address ? <p className="help">{address}</p> : null}
         <div className="form-stack">

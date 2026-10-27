@@ -2,14 +2,23 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_reports"
+        android:title="@string/reports"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/action_peers"
         android:title="@string/peers"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_admin"
+        android:title="@string/admin"
+        android:visible="false"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_settings"
         android:title="@string/settings"
         android:icon="@android:drawable/ic_menu_preferences"
-        app:showAsAction="ifRoom" />
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_developer"
         android:title="@string/developer"

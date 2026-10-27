@@ -30,11 +30,17 @@ class GeofenceReceiver : BroadcastReceiver() {
                 officeId = id?.takeIf { offices.containsKey(it) },
             )
         }
+        val best = ids.mapNotNull { offices[it] }.maxByOrNull { it.pointsPerVisitDay }
         if (type == "enter") {
-            val best = ids.mapNotNull { offices[it] }.maxByOrNull { it.pointsPerVisitDay }
             if (best != null) Notifier.officeEntered(context, best.displayName, best.pointsPerVisitDay)
+            repo.prefs().lastSampleOfficeId = best?.id ?: ids.firstOrNull().orEmpty()
             PresenceService.start(context)
         } else {
+            val name = best?.displayName
+                ?: repo.prefs().cachedOfficeName.takeIf { it.isNotBlank() }
+                ?: "office"
+            Notifier.officeLeft(context, name)
+            repo.prefs().lastSampleOfficeId = ""
             PresenceService.stop(context)
         }
         val pending = goAsync()
