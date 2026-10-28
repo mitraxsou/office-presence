@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import {
   assertCanCreate,
   dayVisitSnapshot,
@@ -50,6 +51,15 @@ export async function POST(request: Request) {
     const updated = await prisma.visitCorrectionRequest.update({
       where: { id },
       data: { status: "cancelled" },
+    });
+    recordApiActivity({
+      userId: actor.user.id,
+      deviceTokenId: actor.device?.id,
+      method: "POST",
+      path: "/api/me/corrections",
+      statusCode: 200,
+      note: "cancel",
+      throttle: false,
     });
     return NextResponse.json({ request: updated });
   }
@@ -121,6 +131,15 @@ export async function POST(request: Request) {
       targetId: row.id,
       afterJson: row,
     },
+  });
+  recordApiActivity({
+    userId: actor.user.id,
+    deviceTokenId: actor.device?.id,
+    method: "POST",
+    path: "/api/me/corrections",
+    statusCode: 200,
+    note: "create",
+    throttle: false,
   });
   return NextResponse.json({ request: row, effect });
 }

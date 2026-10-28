@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import { cleanDeviceLabel } from "@/lib/otp";
-import { recomputeUserPresence } from "@/lib/presence";
+import { recomputeUserPresence, touchStatusFromLatestEvidence } from "@/lib/presence";
 import { listActiveOffices } from "@/lib/offices";
 import { getPolicy } from "@/lib/policy";
 import { matchNearestOffice } from "@/lib/visit-calculator";
@@ -28,6 +29,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const started = Date.now();
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
   const blocked = rejectIfReadonlyViewAs(actor);
@@ -84,11 +86,27 @@ export async function POST(request: Request) {
     }
   }
 
-  const s = await recomputeUserPresence(user.id);
+  // Sample-only batches: persist + light status. Full month rewrite on enter/exit/check.
+  const needsFullRecompute = parsed.data.events.some((e) => e.type !== "sample");
+  const s = needsFullRecompute
+    ? await recomputeUserPresence(user.id, { flushAlerts: true })
+    : await touchStatusFromLatestEvidence(user.id);
+
+  recordApiActivity({
+    userId: user.id,
+    deviceTokenId: device?.id,
+    method: "POST",
+    path: "/api/ingest",
+    statusCode: 200,
+    durationMs: Date.now() - started,
+    note: needsFullRecompute ? "recomputed" : "light",
+    throttle: false,
+  });
 
   return NextResponse.json({
     ok: true,
     accepted,
+    light: !needsFullRecompute,
     inOffice: s.inOffice,
     sinceAt: s.sinceAt?.toISOString() ?? null,
     officeLocationId: s.officeLocationId,

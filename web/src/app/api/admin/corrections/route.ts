@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import { recomputeUserPresence } from "@/lib/presence";
 import { previewEffect, type RequestedSnapshot } from "@/lib/corrections";
 import { canDecideOwnCorrection } from "@/lib/corrections-rules";
 import { phoneSyncPerDevice } from "@/lib/phone-sync";
 import { getPolicy } from "@/lib/policy";
 import { monthKeyInTz } from "@/lib/presence";
+import { invalidatePendingCorrectionsCount } from "@/lib/pending-corrections-cache";
 import type { CorrectionStatus, Prisma } from "@prisma/client";
 
 const STATUS_TABS = ["pending", "approved", "rejected", "cancelled", "all"] as const;
@@ -261,6 +263,15 @@ export async function POST(request: Request) {
       reason: reviewNote ?? undefined,
     },
   });
-  if (decision === "approve") await recomputeUserPresence(row.userId);
+  invalidatePendingCorrectionsCount();
+  if (decision === "approve") await recomputeUserPresence(row.userId, { flushAlerts: true });
+  recordApiActivity({
+    userId: admin.id,
+    method: "POST",
+    path: "/api/admin/corrections",
+    statusCode: 200,
+    note: decision,
+    throttle: false,
+  });
   return NextResponse.json({ request: updated });
 }

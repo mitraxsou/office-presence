@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveActor, unauthorized, rejectIfReadonlyViewAs } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import {
   setUserPassword,
   clearUserPassword,
@@ -61,6 +62,15 @@ export async function PUT(request: Request) {
   }
 
   await setUserPassword(actor.user.id, validated.password);
+  recordApiActivity({
+    userId: actor.user.id,
+    deviceTokenId: actor.device?.id,
+    method: "PUT",
+    path: "/api/me/password",
+    statusCode: 200,
+    note: "set",
+    throttle: false,
+  });
   return NextResponse.json({ ok: true, hasPassword: true }, { headers: NO_STORE });
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireRealAdminActor } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import {
   setViewAsCookie,
   signViewAsToken,
@@ -82,6 +83,16 @@ export async function POST(request: Request) {
       targetId: target.id,
       afterJson: { sessionId: session.id, mode },
     },
+  });
+
+  recordApiActivity({
+    userId: actor.user.id,
+    deviceTokenId: actor.device?.id,
+    method: "POST",
+    path: "/api/admin/view-as",
+    statusCode: 200,
+    note: "start",
+    throttle: false,
   });
 
   return NextResponse.json({

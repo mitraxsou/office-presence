@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canDecideOwnCorrection, isMonthLocked } from "../src/lib/corrections-rules";
-import { countsAs, daysCounted, daysMeterLabel } from "../src/lib/days-format";
+import { countsAs, pointsCounted, pointsMeterLabel } from "../src/lib/points-format";
 
 describe("corrections month lock", () => {
   it("locks after month end plus window days", () => {
@@ -23,12 +23,12 @@ describe("sole admin may decide own correction", () => {
   });
 });
 
-describe("days-format UI helpers", () => {
-  it("uses days copy", () => {
-    expect(daysMeterLabel(5, 8).main).toContain("days");
-    expect(daysMeterLabel(5, 8).side).toBe("3 to go");
-    expect(daysMeterLabel(8, 8).side).toBe("Goal met");
-    expect(countsAs(2)).toBe("Counts as 2 days");
-    expect(daysCounted(1)).toBe("1 day counted");
+describe("points-format UI helpers", () => {
+  it("uses points copy", () => {
+    expect(pointsMeterLabel(5, 8).main).toContain("points");
+    expect(pointsMeterLabel(5, 8).side).toBe("3 to go");
+    expect(pointsMeterLabel(8, 8).side).toBe("Goal met");
+    expect(countsAs(2)).toBe("Counts as 2 points");
+    expect(pointsCounted(1)).toBe("1 point counted");
   });
 });

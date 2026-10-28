@@ -1,14 +1,37 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { resolveActor, unauthorized } from "@/lib/actor";
+import { forbidden, resolveActor, unauthorized } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import { displayName } from "@/lib/display-name";
 
-/** Shared fields only: In/Out, since when, office name. Never coordinates. */
+/** Shared fields only: In/Out, since when, office name. Never coordinates. Admin-only (SPEC §18). */
 export async function GET(request: Request) {
+  const started = Date.now();
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
   const me = actor.user;
+  if (me.role !== "admin") {
+    recordApiActivity({
+      userId: me.id,
+      deviceTokenId: actor.device?.id,
+      method: "GET",
+      path: "/api/peers/presence",
+      statusCode: 403,
+      durationMs: Date.now() - started,
+      note: "non-admin",
+    });
+    return forbidden();
+  }
   if (!me.sharePresenceWithPeers) {
+    recordApiActivity({
+      userId: me.id,
+      deviceTokenId: actor.device?.id,
+      method: "GET",
+      path: "/api/peers/presence",
+      statusCode: 200,
+      durationMs: Date.now() - started,
+      note: "opted-out",
+    });
     return NextResponse.json({ optedIn: false, peers: [] });
   }
   const peers = await prisma.user.findMany({
@@ -31,6 +54,15 @@ export async function GET(request: Request) {
     },
     orderBy: [{ isDummy: "desc" }, { email: "asc" }],
   });
+  recordApiActivity({
+    userId: me.id,
+    deviceTokenId: actor.device?.id,
+    method: "GET",
+    path: "/api/peers/presence",
+    statusCode: 200,
+    durationMs: Date.now() - started,
+  });
+
   return NextResponse.json({
     optedIn: true,
     peers: peers.map((p) => ({

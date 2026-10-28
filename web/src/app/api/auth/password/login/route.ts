@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import { loginWithPassword } from "@/lib/password";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -24,6 +25,15 @@ export async function POST(request: Request) {
   }
 
   if (result.kind === "device") {
+    recordApiActivity({
+      userId: result.user.id,
+      deviceTokenId: result.deviceId,
+      method: "POST",
+      path: "/api/auth/password/login",
+      statusCode: 200,
+      note: "device",
+      throttle: false,
+    });
     return NextResponse.json(
       {
         ok: true,
@@ -35,5 +45,13 @@ export async function POST(request: Request) {
     );
   }
 
+  recordApiActivity({
+    userId: result.user.id,
+    method: "POST",
+    path: "/api/auth/password/login",
+    statusCode: 200,
+    note: "web",
+    throttle: false,
+  });
   return NextResponse.json({ ok: true, user: result.user }, { headers: NO_STORE });
 }

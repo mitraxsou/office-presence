@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { resolveActor, unauthorized } from "@/lib/actor";
-import { recomputeUserPresence } from "@/lib/presence";
+import { recordApiActivity } from "@/lib/device-api-activity";
+import { getPolicy } from "@/lib/policy";
+import { isStatusFresh, monthKeyInTz, recomputeUserPresence } from "@/lib/presence";
 import { officesForUser } from "@/lib/offices-view";
+import { dayKeyInTz } from "@/lib/visit-calculator";
+import { monthContentVersion, parseClientMonthVersions } from "@/lib/year-stats";
 
 export async function GET(request: Request) {
+  const started = Date.now();
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
   const { user, device } = actor;
+  const url = new URL(request.url);
+  const force = url.searchParams.get("recompute") === "1";
+  const clientVersions = parseClientMonthVersions(url.searchParams.get("months"));
 
-  const s = await recomputeUserPresence(user.id);
+  const fresh = !force && (await isStatusFresh(user.id));
+  const s = fresh
+    ? await statusFromCache(user.id)
+    : await recomputeUserPresence(user.id, { flushAlerts: true });
+
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const [visits, offices, prefs, decided] = await Promise.all([
     prisma.visit.findMany({ where: { userId: user.id }, orderBy: { startAt: "desc" }, take: 60 }),
@@ -26,6 +38,53 @@ export async function GET(request: Request) {
     }),
   ]);
   const first = offices[0] ?? null;
+  const tz = user.timezone || s.rules.timezone || "Asia/Kolkata";
+  const todayKey = dayKeyInTz(new Date(), tz);
+  const officeNameById = new Map(offices.map((o) => [o.id, o.name]));
+  const todayOffices = groupTodayOffices(visits, todayKey, tz, officeNameById);
+
+  const currentMonth = monthKeyInTz(new Date(), tz);
+  const monthKeys = recentMonthKeys(currentMonth, 3);
+  const monthVersions: Record<string, string> = {};
+  await Promise.all(
+    monthKeys.map(async (mk) => {
+      monthVersions[mk] = await monthContentVersion(user.id, mk, tz);
+    }),
+  );
+
+  // Months the client should refetch (version mismatch or recent correction / admin edit).
+  const dirtyFromDecisions = decided
+    .map((r) => r.dayKey.slice(0, 7))
+    .filter((m) => /^\d{4}-\d{2}$/.test(m));
+  const dirtyFromVersions = monthKeys.filter((m) => {
+    if (!clientVersions.has(m)) return false;
+    return clientVersions.get(m) !== monthVersions[m];
+  });
+  const dirtyMonths = [...new Set([...dirtyFromDecisions, ...dirtyFromVersions])];
+
+  const allVersionsMatch =
+    clientVersions.size > 0 &&
+    monthKeys.every((m) => clientVersions.has(m) && clientVersions.get(m) === monthVersions[m]);
+
+  if (!force && fresh && allVersionsMatch) {
+    recordApiActivity({
+      userId: user.id,
+      deviceTokenId: device?.id,
+      method: "GET",
+      path: "/api/me/sync",
+      statusCode: 304,
+      durationMs: Date.now() - started,
+      note: "not-modified",
+    });
+    return new NextResponse(null, {
+      status: 304,
+      headers: {
+        ETag: `W/"${Object.entries(monthVersions)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(",")}"`,
+      },
+    });
+  }
 
   const correctionDecisions = decided.map((r) => ({
     id: r.id,
@@ -42,6 +101,16 @@ export async function GET(request: Request) {
             : "Not approved",
     },
   }));
+
+  recordApiActivity({
+    userId: user.id,
+    deviceTokenId: device?.id,
+    method: "GET",
+    path: "/api/me/sync",
+    statusCode: 200,
+    durationMs: Date.now() - started,
+    note: fresh ? "fresh" : "recomputed",
+  });
 
   return NextResponse.json({
     user: {
@@ -78,6 +147,8 @@ export async function GET(request: Request) {
     hoursToday: s.hoursToday,
     dayHoursAdvisory: s.dayHoursAdvisory,
     monthDays: s.monthDays,
+    recomputed: !fresh,
+    todayOffices,
     visits: visits.map((v) => ({
       id: v.id,
       startAt: v.startAt.toISOString(),
@@ -89,5 +160,95 @@ export async function GET(request: Request) {
       editedByAdmin: v.source === "admin" || Boolean(v.editedBy),
     })),
     correctionDecisions,
+    monthVersions,
+    dirtyMonths,
+    generatedAt: new Date().toISOString(),
   });
+}
+
+function recentMonthKeys(current: string, count: number): string[] {
+  const [y0, m0] = current.split("-").map(Number);
+  const out: string[] = [];
+  let y = y0;
+  let m = m0;
+  for (let i = 0; i < count; i++) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  return out;
+}
+
+async function statusFromCache(userId: string) {
+  const [rules, row] = await Promise.all([
+    getPolicy(),
+    prisma.currentStatus.findUnique({ where: { userId } }),
+  ]);
+  const target = rules.monthlyPointsTarget ?? 8;
+  const monthPoints = row?.monthPoints ?? 0;
+  return {
+    hoursToday: row?.hoursToday ?? 0,
+    pointsToday: row?.pointsToday ?? 0,
+    monthPoints,
+    monthVisitDays: row?.monthVisitDays ?? 0,
+    monthDays: row?.monthDays ?? 0,
+    pointsTarget: target,
+    pointsRemaining: Math.max(0, target - monthPoints),
+    targetMet: monthPoints >= target,
+    dayHoursAdvisory: rules.dayHours,
+    inOffice: row?.inOffice ?? false,
+    sinceAt: row?.sinceAt ?? null,
+    officeLocationId: row?.officeLocationId ?? null,
+    officeName: row?.officeName ?? null,
+    lastDeviceName: row?.lastDeviceName ?? null,
+    rules,
+  };
+}
+
+function groupTodayOffices(
+  visits: Array<{
+    startAt: Date;
+    endAt: Date | null;
+    officeLocationId: string | null;
+  }>,
+  todayKey: string,
+  tz: string,
+  names: Map<string, string>,
+) {
+  type Row = {
+    office_id: string | null;
+    name: string;
+    minutes: number;
+    visits: Array<{ in_at: string; out_at: string; minutes: number }>;
+  };
+  const order: string[] = [];
+  const map = new Map<string, Row>();
+  const now = Date.now();
+  for (const v of [...visits].sort((a, b) => a.startAt.getTime() - b.startAt.getTime())) {
+    if (dayKeyInTz(v.startAt, tz) !== todayKey) continue;
+    const key = v.officeLocationId || "unknown";
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        office_id: v.officeLocationId,
+        name: (v.officeLocationId && names.get(v.officeLocationId)) || "Office",
+        minutes: 0,
+        visits: [],
+      };
+      map.set(key, g);
+      order.push(key);
+    }
+    const endMs = v.endAt?.getTime() ?? now;
+    const mins = Math.max(0, Math.round((endMs - v.startAt.getTime()) / 60_000));
+    g.minutes += mins;
+    g.visits.push({
+      in_at: v.startAt.toISOString(),
+      out_at: (v.endAt ?? new Date(endMs)).toISOString(),
+      minutes: mins,
+    });
+  }
+  return order.map((k) => map.get(k)!);
 }

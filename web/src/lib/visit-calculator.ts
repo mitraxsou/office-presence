@@ -64,7 +64,7 @@ export type DayPointsResult = {
 export type ComputeResult = {
   visits: ComputedVisit[];
   totalHours: number;
-  /** Advisory only: total hours reached the FYI dayHours figure. Never gates points. */
+  /** Advisory only: total hours reached the dayHours figure. Never gates points. */
   dayMet: boolean;
   dayKeysVisited: string[];
   visitDays: number;
@@ -508,6 +508,6 @@ export const DEFAULT_RULES: PresenceRules = {
   monthlyPointsTarget: 8,
   timezone: "Asia/Kolkata",
   fenceRadiusMeters: 100,
-  sampleIntervalMinutes: 5,
+  sampleIntervalMinutes: 10,
   correctionWindowDays: 5,
 };

@@ -278,15 +278,38 @@ export async function DELETE(request: Request, ctx: Ctx) {
     }
   }
 
-  await prisma.user.delete({ where: { id } });
-  await prisma.auditLog.create({
-    data: {
-      actorId: actor.user.id,
-      action: "user.delete",
-      targetType: "User",
-      targetId: id,
-      beforeJson: { email: target.email, role: target.role },
-    },
+  // Push force_sign_out while FCM tokens still exist, then revoke and delete.
+  const { sendForceSignOutToUser } = await import("@/lib/firebase-admin");
+  await sendForceSignOutToUser(id, {
+    reason: "deleted",
+    message: "This account is no longer available. Sign in again.",
   });
+
+  const now = new Date();
+  // Revoke devices and end view-as before delete so mid-flight tokens fail immediately
+  // (cascade also removes DeviceToken rows with the user).
+  await prisma.$transaction([
+    prisma.deviceToken.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: now },
+    }),
+    prisma.viewAsSession.updateMany({
+      where: {
+        endedAt: null,
+        OR: [{ targetUserId: id }, { adminId: id }],
+      },
+      data: { endedAt: now },
+    }),
+    prisma.user.delete({ where: { id } }),
+    prisma.auditLog.create({
+      data: {
+        actorId: actor.user.id,
+        action: "user.delete",
+        targetType: "User",
+        targetId: id,
+        beforeJson: { email: target.email, role: target.role },
+      },
+    }),
+  ]);
   return NextResponse.json({ ok: true });
 }

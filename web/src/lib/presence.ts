@@ -166,7 +166,122 @@ export async function computeUserMonth(userId: string, monthKey?: string) {
   };
 }
 
-export async function recomputeUserPresence(userId: string) {
+/**
+ * Build the same month-view shape as computeUserMonth from a just-finished
+ * recomputeUserPresence result so reports avoid a second computeForRange.
+ */
+export async function monthViewFromRecompute(
+  userId: string,
+  recomputed: Awaited<ReturnType<typeof recomputeUserPresence>>,
+  monthKey: string,
+) {
+  const nameOf = await officeNameResolver(userId);
+  const timezone = recomputed.rules.timezone;
+  const target = recomputed.pointsTarget;
+  return {
+    monthKey,
+    timezone,
+    rules: recomputed.rules,
+    summary: summarizeMonth(recomputed.dayPoints, target),
+    days: attachDetails(recomputed.dayPoints, recomputed.visits, timezone, nameOf),
+  };
+}
+
+export type RecomputeOpts = {
+  /** Queue and flush Teams alerts (enter/exit / sync / corrections). Default true. */
+  flushAlerts?: boolean;
+};
+
+/**
+ * Cheap live status update from the latest evidence without rewriting month visits.
+ * Used for sample-only ingest to cut Vercel Hobby CPU.
+ */
+export async function touchStatusFromLatestEvidence(userId: string) {
+  const [rules, active, existing, latest] = await Promise.all([
+    getPolicy(),
+    listActiveOffices(),
+    prisma.currentStatus.findUnique({ where: { userId } }),
+    prisma.presenceEvent.findFirst({
+      where: { userId },
+      orderBy: { recordedAt: "desc" },
+    }),
+  ]);
+  const nameOf = await officeNameResolver(userId);
+  const target = rules.monthlyPointsTarget ?? DEFAULT_POINTS_TARGET;
+  const gapMs =
+    (rules.gapSeconds != null && rules.gapSeconds > 0 ? rules.gapSeconds : rules.gapMinutes * 60) * 1000;
+
+  let inOffice = false;
+  let sinceAt: Date | null = existing?.sinceAt ?? null;
+  let officeLocationId: string | null = null;
+  if (latest && ["enter", "sample", "check_in"].includes(latest.type)) {
+    if (Date.now() - latest.recordedAt.getTime() <= gapMs) {
+      const matched =
+        latest.latitude != null && latest.longitude != null
+          ? matchNearestOffice(latest.latitude, latest.longitude, latest.accuracyMeters, active, rules)
+          : null;
+      // Samples outside every fence (or weak fixes) must not keep a stuck In / Unknown office.
+      officeLocationId = matched?.id ?? latest.officeLocationId ?? null;
+      inOffice = officeLocationId != null;
+      if (inOffice) {
+        if (!existing?.inOffice || existing.officeLocationId !== officeLocationId) {
+          sinceAt = latest.recordedAt;
+        } else {
+          sinceAt = existing.sinceAt ?? latest.recordedAt;
+        }
+      } else {
+        sinceAt = null;
+      }
+    } else {
+      sinceAt = null;
+    }
+  } else {
+    sinceAt = null;
+  }
+  const officeName = nameOf(officeLocationId);
+  const lastDeviceName = latest?.deviceName ?? existing?.lastDeviceName ?? null;
+  const statusData = {
+    inOffice,
+    sinceAt,
+    hoursToday: existing?.hoursToday ?? 0,
+    pointsToday: existing?.pointsToday ?? 0,
+    monthPoints: existing?.monthPoints ?? 0,
+    monthVisitDays: existing?.monthVisitDays ?? 0,
+    monthDays: existing?.monthDays ?? 0,
+    officeLocationId,
+    officeName,
+    lastDeviceName,
+    lastEvidenceAt: latest?.recordedAt ?? null,
+  };
+  await prisma.currentStatus.upsert({
+    where: { userId },
+    create: { userId, ...statusData },
+    update: statusData,
+  });
+  const monthPoints = statusData.monthPoints;
+  return {
+    hoursToday: statusData.hoursToday,
+    pointsToday: statusData.pointsToday,
+    monthPoints,
+    monthVisitDays: statusData.monthVisitDays,
+    monthDays: statusData.monthDays,
+    pointsTarget: target,
+    pointsRemaining: Math.max(0, target - monthPoints),
+    targetMet: monthPoints >= target,
+    dayHoursAdvisory: rules.dayHours,
+    inOffice,
+    sinceAt,
+    officeLocationId,
+    officeName,
+    lastDeviceName,
+    visits: [] as ComputedVisit[],
+    dayPoints: [] as DayPointsResult[],
+    rules,
+  };
+}
+
+export async function recomputeUserPresence(userId: string, opts: RecomputeOpts = {}) {
+  const flushAlerts = opts.flushAlerts !== false;
   const c = await computeForRange(userId);
   const { rules, user, timezone, events, active, result } = c;
   const nameOf = await officeNameResolver(userId);
@@ -200,13 +315,15 @@ export async function recomputeUserPresence(userId: string) {
     const gapMs =
       (rules.gapSeconds != null && rules.gapSeconds > 0 ? rules.gapSeconds : rules.gapMinutes * 60) * 1000;
     if (Date.now() - latest.recordedAt.getTime() <= gapMs) {
-      inOffice = true;
       const matched =
         latest.latitude != null && latest.longitude != null
           ? matchNearestOffice(latest.latitude, latest.longitude, latest.accuracyMeters, active, rules)
           : null;
       officeLocationId = matched?.id ?? latest.officeLocationId ?? null;
-      sinceAt = continuousStart(result.visits, latest.recordedAt.getTime());
+      inOffice = officeLocationId != null;
+      if (inOffice) {
+        sinceAt = continuousStart(result.visits, latest.recordedAt.getTime());
+      }
     }
   }
   const officeName = nameOf(officeLocationId);
@@ -233,20 +350,22 @@ export async function recomputeUserPresence(userId: string) {
     update: statusData,
   });
 
-  await queueAlerts({
-    userId,
-    email: user.email,
-    name: user.name ?? user.email.split("@")[0],
-    timezone,
-    today,
-    monthKey: c.monthKey,
-    inOffice,
-    officeName,
-    summary,
-    hoursToday,
-    dayHours: rules.dayHours,
-  });
-  await flushPendingAlerts(userId);
+  if (flushAlerts) {
+    await queueAlerts({
+      userId,
+      email: user.email,
+      name: user.name ?? user.email.split("@")[0],
+      timezone,
+      today,
+      monthKey: c.monthKey,
+      inOffice,
+      officeName,
+      summary,
+      hoursToday,
+      dayHours: rules.dayHours,
+    });
+    await flushPendingAlerts(userId);
+  }
 
   return {
     hoursToday,
@@ -267,6 +386,19 @@ export async function recomputeUserPresence(userId: string) {
     dayPoints: result.days,
     rules,
   };
+}
+
+/** True when currentStatus evidence is still within the visit gap window. */
+export async function isStatusFresh(userId: string): Promise<boolean> {
+  const [rules, status] = await Promise.all([
+    getPolicy(),
+    prisma.currentStatus.findUnique({ where: { userId }, select: { lastEvidenceAt: true, updatedAt: true } }),
+  ]);
+  const at = status?.lastEvidenceAt ?? status?.updatedAt;
+  if (!at) return false;
+  const gapMs =
+    (rules.gapSeconds != null && rules.gapSeconds > 0 ? rules.gapSeconds : rules.gapMinutes * 60) * 1000;
+  return Date.now() - at.getTime() <= gapMs;
 }
 
 /** Start of the visit chain that contains `atMs`, joining segments split at local midnight. */
@@ -318,7 +450,7 @@ async function queueAlerts(a: {
     await enqueueAlert(a.userId, "points_met", a.monthKey, {
       ...base,
       type: "hours_met",
-      message: `Goal met: ${a.summary.points} / ${a.summary.target} days this month.`,
+      message: `Goal met: ${a.summary.points} / ${a.summary.target} points this month.`,
     });
   }
   if (!a.summary.targetMet && prefs?.notifyDailySummary !== false && localHour(a.timezone) >= 9) {
@@ -326,8 +458,8 @@ async function queueAlerts(a: {
       ...base,
       type: "custom",
       message:
-        `Office days: ${a.summary.points} / ${a.summary.target} this month, ${a.summary.remaining} to go. ` +
-        `Hours today ${a.hoursToday.toFixed(1)} (FYI, advised ${a.dayHours}).`,
+        `Office points: ${a.summary.points} / ${a.summary.target} this month, ${a.summary.remaining} to go. ` +
+        `Hours today ${a.hoursToday.toFixed(1)} (advised ${a.dayHours}).`,
     });
   }
 }

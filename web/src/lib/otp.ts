@@ -14,6 +14,14 @@ export async function requestOtp(emailRaw: string): Promise<{ ok: true; sent: bo
   if (!isPwcEmail(email)) {
     return { ok: false, error: "Use your PwC email address", status: 400 };
   }
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { deactivatedAt: true },
+  });
+  if (existing?.deactivatedAt) {
+    const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("./account-status");
+    return { ok: false, error: ACCOUNT_DEACTIVATED_MESSAGE, status: 403 };
+  }
   const code = randomOtp();
   const codeHash = await bcrypt.hash(code, 10);
   await prisma.otpCode.create({
@@ -53,6 +61,14 @@ export async function verifyOtp(emailRaw: string, code: string) {
     }
   }
   if (!matched) return { ok: false as const, error: "Invalid or expired code", status: 401 };
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { deactivatedAt: true },
+  });
+  if (existing?.deactivatedAt) {
+    const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("./account-status");
+    return { ok: false as const, error: ACCOUNT_DEACTIVATED_MESSAGE, status: 403 };
+  }
   await prisma.otpCode.update({ where: { id: matched.id }, data: { usedAt: new Date() } });
   const user = await ensureUser(email);
   return { ok: true as const, user };

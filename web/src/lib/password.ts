@@ -85,7 +85,11 @@ export async function loginWithPassword(body: LoginBody) {
     return { ok: false as const, error: "Use your PwC email address", status: 400 };
   }
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.deactivatedAt || !user.passwordHash) {
+  if (user?.deactivatedAt) {
+    const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("./account-status");
+    return { ok: false as const, error: ACCOUNT_DEACTIVATED_MESSAGE, status: 403 };
+  }
+  if (!user || !user.passwordHash) {
     return { ok: false as const, error: "Email or password is incorrect", status: 401 };
   }
   const match = await passwordsMatch(password, user.passwordHash);
