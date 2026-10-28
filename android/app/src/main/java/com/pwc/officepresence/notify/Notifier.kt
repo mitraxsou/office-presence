@@ -20,7 +20,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
-import com.pwc.officepresence.ui.DaysFormat
+import com.pwc.officepresence.ui.PointsFormat
 import com.pwc.officepresence.ui.ShellActivity
 import java.time.Instant
 import java.time.ZoneId
@@ -36,6 +36,7 @@ object Notifier {
     const val ID_LEFT = 1004
     const val ID_CORRECTIONS = 1005
     const val ID_TRACKING = 1006
+    const val ID_SIGNED_OUT = 1007
     const val ID_TEST = 1099
 
     const val CHANNEL_ARRIVALS = "arrivals_leaving"
@@ -56,8 +57,8 @@ object Notifier {
 
     val CHANNELS = listOf(
         ChannelSpec(CHANNEL_ARRIVALS, "Arrivals and leaving", "When you are In or Out at an office", NotificationManager.IMPORTANCE_HIGH, "chime"),
-        ChannelSpec(CHANNEL_GOAL, "Goal met", "When you reach your days for the month", defaultTone = "pulse"),
-        ChannelSpec(CHANNEL_WEEKLY, "Weekly summary", "Monday 9:00 am: days so far this month"),
+        ChannelSpec(CHANNEL_GOAL, "Goal met", "When you reach your points for the month", defaultTone = "pulse"),
+        ChannelSpec(CHANNEL_WEEKLY, "Weekly summary", "Monday 9:00 am: points so far this month"),
         ChannelSpec(CHANNEL_CORRECTIONS, "Correction requests", "When an admin decides on your request"),
         ChannelSpec(CHANNEL_TRACKING, "Tracking problems", "Location off, or no sync for 24 h", NotificationManager.IMPORTANCE_HIGH),
     )
@@ -302,6 +303,10 @@ object Notifier {
         return h * 60 + m
     }
 
+    /**
+     * Posts a notification. During quiet hours (when [respectQuietHours]), still lands in the
+     * shade with no sound, vibration, or heads-up (SPEC §17). Returns true if notify was called.
+     */
     private fun post(
         context: Context,
         channelId: String,
@@ -310,16 +315,16 @@ object Notifier {
         text: String,
         high: Boolean = false,
         respectQuietHours: Boolean = true,
-    ) {
-        if (!canPost(context)) return
+    ): Boolean {
+        if (!canPost(context)) return false
         val prefs = AppPrefs(context)
-        if (respectQuietHours && inQuietHours(prefs)) return
+        val quiet = respectQuietHours && inQuietHours(prefs)
         ensureAllChannels(context)
         val launch = PendingIntent.getActivity(
             context, notifId, Intent(context, ShellActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val n = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_presence)
             .setColor(ContextCompat.getColor(context, R.color.pwc_orange))
             .setContentTitle(title)
@@ -327,54 +332,76 @@ object Notifier {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(launch)
             .setAutoCancel(true)
-            .setPriority(if (high) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .build()
-        try {
-            NotificationManagerCompat.from(context).notify(notifId, n)
+        if (quiet) {
+            builder
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSound(null)
+                .setVibrate(longArrayOf(0L))
+        } else {
+            builder.setPriority(if (high) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+        }
+        return try {
+            NotificationManagerCompat.from(context).notify(notifId, builder.build())
+            true
         } catch (_: SecurityException) {
+            false
         }
     }
 
-    fun recentlyAlerted(context: Context): Boolean {
-        val at = AppPrefs(context).lastPresenceAlertAtMs
+    fun recentlyAlertedEnter(context: Context): Boolean {
+        val at = AppPrefs(context).lastPresenceEnterAlertAtMs
         return at > 0L && System.currentTimeMillis() - at < ALERT_DEBOUNCE_MS
     }
 
-    private fun markAlerted(context: Context) {
-        AppPrefs(context).lastPresenceAlertAtMs = System.currentTimeMillis()
+    fun recentlyAlertedLeave(context: Context): Boolean {
+        val at = AppPrefs(context).lastPresenceLeaveAlertAtMs
+        return at > 0L && System.currentTimeMillis() - at < ALERT_DEBOUNCE_MS
+    }
+
+    private fun markEnterAlerted(context: Context) {
+        AppPrefs(context).lastPresenceEnterAlertAtMs = System.currentTimeMillis()
+    }
+
+    private fun markLeaveAlerted(context: Context) {
+        AppPrefs(context).lastPresenceLeaveAlertAtMs = System.currentTimeMillis()
     }
 
     fun officeEntered(context: Context, officeName: String, points: Int, force: Boolean = false) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyOfficeEnter) return
-        if (!force && recentlyAlerted(context)) return
-        markAlerted(context)
-        post(
-            context, CHANNEL_ARRIVALS, ID_OFFICE,
-            "At $officeName",
-            DaysFormat.countsAs(points),
-            high = true,
-        )
+        if (!force && recentlyAlertedEnter(context)) return
+        if (post(
+                context, CHANNEL_ARRIVALS, ID_OFFICE,
+                "At $officeName",
+                PointsFormat.countsAs(points),
+                high = true,
+            )
+        ) {
+            markEnterAlerted(context)
+        }
     }
 
     fun officeLeft(context: Context, officeName: String, force: Boolean = false) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyOfficeLeave) return
-        if (!force && recentlyAlerted(context)) return
-        markAlerted(context)
-        post(
-            context, CHANNEL_ARRIVALS, ID_LEFT,
-            "Left $officeName",
-            "Visit closed",
-            high = true,
-        )
+        if (!force && recentlyAlertedLeave(context)) return
+        if (post(
+                context, CHANNEL_ARRIVALS, ID_LEFT,
+                "Left $officeName",
+                "Visit closed",
+                high = true,
+            )
+        ) {
+            markLeaveAlerted(context)
+        }
     }
 
     fun goalMet(context: Context, points: Int, target: Int) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyGoalMet) return
-        post(context, CHANNEL_GOAL, ID_GOAL, "Goal met", "$points / $target days")
+        post(context, CHANNEL_GOAL, ID_GOAL, "Goal met", "$points / $target points")
     }
 
     fun dailySummary(context: Context, points: Int, target: Int, hoursToday: Double, advised: Double) {
@@ -383,8 +410,8 @@ object Notifier {
         val remaining = target - points
         post(
             context, CHANNEL_WEEKLY, ID_SUMMARY,
-            "$points / $target days",
-            "$remaining to go. Hours ${"%.1f".format(hoursToday)}h (FYI)",
+            "$points / $target points",
+            "$remaining to go. Hours ${"%.1f".format(hoursToday)}h",
         )
     }
 
@@ -404,6 +431,17 @@ object Notifier {
         post(
             context, CHANNEL_TRACKING, ID_TRACKING,
             "Tracking problem",
+            text,
+            high = true,
+            respectQuietHours = false,
+        )
+    }
+
+    /** Forced sign-out after account delete/deactivate (always lands in shade). */
+    fun signedOut(context: Context, text: String) {
+        post(
+            context, CHANNEL_TRACKING, ID_SIGNED_OUT,
+            "Signed out",
             text,
             high = true,
             respectQuietHours = false,

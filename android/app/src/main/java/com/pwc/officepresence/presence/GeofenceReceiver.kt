@@ -31,16 +31,23 @@ class GeofenceReceiver : BroadcastReceiver() {
             )
         }
         val best = ids.mapNotNull { offices[it] }.maxByOrNull { it.pointsPerVisitDay }
+        val prefs = repo.prefs()
         if (type == "enter") {
-            if (best != null) Notifier.officeEntered(context, best.displayName, best.pointsPerVisitDay)
-            repo.prefs().lastSampleOfficeId = best?.id ?: ids.firstOrNull().orEmpty()
+            // Skip duplicate enter when we already track this office (e.g. after re-register).
+            if (best != null && prefs.lastSampleOfficeId != best.id) {
+                Notifier.officeEntered(context, best.displayName, best.pointsPerVisitDay)
+            }
+            if (best != null) {
+                prefs.lastSampleOfficeId = best.id
+            }
             PresenceService.start(context)
         } else {
             val name = best?.displayName
-                ?: repo.prefs().cachedOfficeName.takeIf { it.isNotBlank() }
+                ?: prefs.cachedOfficeName.takeIf { it.isNotBlank() }
+                ?: prefs.lastOfficeName.takeIf { it.isNotBlank() }
                 ?: "office"
             Notifier.officeLeft(context, name)
-            repo.prefs().lastSampleOfficeId = ""
+            prefs.lastSampleOfficeId = ""
             PresenceService.stop(context)
         }
         val pending = goAsync()

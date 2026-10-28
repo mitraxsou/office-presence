@@ -47,8 +47,10 @@ object GeofenceHelper {
                     .setLoiteringDelay(0)
                     .build()
             }
+            // No INITIAL_TRIGGER_ENTER: re-register while already In must not fire a fake enter
+            // (that also ate the shared enter/leave debounce and hid the real leave).
             val req = GeofencingRequest.Builder()
-                .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+                .setInitialTrigger(0)
                 .addGeofences(fences)
                 .build()
             try {

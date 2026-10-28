@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
+import { recordApiActivity } from "@/lib/device-api-activity";
 import { cleanDeviceLabel } from "@/lib/otp";
 
 export async function GET(request: Request) {
@@ -23,12 +24,37 @@ export async function PATCH(request: Request) {
   if (blocked) return blocked;
   const body = await request.json().catch(() => ({}));
   const id = String(body.id ?? actor.device?.id ?? "");
-  const label = cleanDeviceLabel(body.label);
-  if (!id || !label) return NextResponse.json({ error: "id and label required" }, { status: 400 });
+  const fcmToken =
+    typeof body.fcmToken === "string" ? body.fcmToken.trim().slice(0, 4096) : "";
+  const labelRaw = body.label;
+  const label =
+    labelRaw === undefined || labelRaw === null ? null : cleanDeviceLabel(labelRaw);
+
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  if (!fcmToken && !label) {
+    return NextResponse.json({ error: "label or fcmToken required" }, { status: 400 });
+  }
+
   const row = await prisma.deviceToken.findFirst({ where: { id, userId: actor.user.id, revokedAt: null } });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const device = await prisma.deviceToken.update({ where: { id }, data: { label } });
-  return NextResponse.json({ device: { id: device.id, label: device.label } });
+
+  const data: { label?: string; fcmToken?: string } = {};
+  if (label) data.label = label;
+  if (fcmToken) data.fcmToken = fcmToken;
+
+  const device = await prisma.deviceToken.update({ where: { id }, data });
+  recordApiActivity({
+    userId: actor.user.id,
+    deviceTokenId: actor.device?.id,
+    method: "PATCH",
+    path: "/api/me/devices",
+    statusCode: 200,
+    note: fcmToken ? "fcmToken" : "label",
+    throttle: false,
+  });
+  return NextResponse.json({
+    device: { id: device.id, label: device.label, fcmRegistered: Boolean(device.fcmToken) },
+  });
 }
 
 export async function DELETE(request: Request) {
@@ -44,6 +70,15 @@ export async function DELETE(request: Request) {
   await prisma.deviceToken.update({ where: { id }, data: { revokedAt: new Date() } });
   await prisma.auditLog.create({
     data: { actorId: actor.user.id, action: "device.revoke", targetType: "DeviceToken", targetId: id },
+  });
+  recordApiActivity({
+    userId: actor.user.id,
+    deviceTokenId: actor.device?.id,
+    method: "DELETE",
+    path: "/api/me/devices",
+    statusCode: 200,
+    note: "revoke",
+    throttle: false,
   });
   return NextResponse.json({ ok: true });
 }

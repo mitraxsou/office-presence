@@ -41,10 +41,22 @@
             android:name=".presence.PresenceService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <service
+            android:name=".notify.OfficeFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="firebase_performance_logcat_enabled"
+            android:value="false" />
         <receiver android:name=".presence.GeofenceReceiver" android:exported="false" />
         <receiver android:name=".presence.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>

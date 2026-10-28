@@ -98,6 +98,7 @@ model User {
   officesApproved         OfficeLocation[]         @relation("OfficeApprover")
   viewAsAsAdmin           ViewAsSession[]          @relation("ViewAsAdmin")
   viewAsAsTarget          ViewAsSession[]          @relation("ViewAsTarget")
+  deviceApiActivity       DeviceApiActivity[]
 
   @@index([homeOfficeId])
   @@index([deactivatedAt])
@@ -135,21 +136,42 @@ model OtpCode {
 }
 
 model DeviceToken {
-  id          String          @id @default(cuid())
+  id          String             @id @default(cuid())
   userId      String
   tokenHash   String
   tokenPrefix String
   installId   String?
   label       String?
-  platform    String          @default("android")
+  platform    String             @default("android")
+  /** Firebase Cloud Messaging registration token for remote force-logout. */
+  fcmToken    String?
   lastSeenAt  DateTime?
   revokedAt   DateTime?
-  createdAt   DateTime        @default(now())
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime           @default(now())
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   events      PresenceEvent[]
+  apiActivity DeviceApiActivity[]
 
   @@index([tokenPrefix])
   @@index([userId])
+}
+
+/** Significant per-device API calls for admin Hobby diagnostics. Pruned after 14 days. */
+model DeviceApiActivity {
+  id            String       @id @default(cuid())
+  userId        String
+  deviceTokenId String?
+  method        String
+  path          String
+  statusCode    Int
+  durationMs    Int?
+  note          String?
+  at            DateTime     @default(now())
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceToken   DeviceToken? @relation(fields: [deviceTokenId], references: [id], onDelete: SetNull)
+
+  @@index([deviceTokenId, at(sort: Desc)])
+  @@index([userId, at(sort: Desc)])
 }
 
 model Policy {

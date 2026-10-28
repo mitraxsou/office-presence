@@ -35,6 +35,14 @@ export async function POST(request: Request, ctx: Ctx) {
     }
   }
 
+  // Push while FCM tokens still exist, then deactivate and revoke.
+  const { sendForceSignOutToUser } = await import("@/lib/firebase-admin");
+  const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("@/lib/account-status");
+  await sendForceSignOutToUser(id, {
+    reason: "deactivated",
+    message: ACCOUNT_DEACTIVATED_MESSAGE,
+  });
+
   const now = new Date();
   const [user] = await prisma.$transaction([
     prisma.user.update({

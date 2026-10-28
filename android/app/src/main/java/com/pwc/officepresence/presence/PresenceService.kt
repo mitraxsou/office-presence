@@ -96,7 +96,42 @@ class PresenceService : Service() {
             simulated = false,
             officeId = office?.id,
         )
-        maybeAlertOnSampleTransition(office)
+        // Weak GPS: record only. Do not treat as leave or change lastSampleOfficeId.
+        if (weak) {
+            val nm = getSystemService(NotificationManager::class.java)
+            val mockTag = if (isMock) " mock" else ""
+            nm.notify(NOTIF_ID, buildNotification("Weak fix ${loc.accuracy.toInt()}m (not counted)$mockTag"))
+            return
+        }
+        // Outside all fences while server/local cache still In with unknown office: force check_out.
+        if (office == null && prefs.cachedInOffice && prefs.cachedOfficeName.isBlank()) {
+            val leaveId = prefs.lastSampleOfficeId
+            val leaveName = prefs.offices().firstOrNull { it.id == leaveId }?.displayName
+                ?: prefs.lastOfficeName.ifBlank { "office" }
+            Notifier.officeLeft(this, leaveName)
+            log.add(
+                type = "check_out",
+                recordedAtIso = Instant.now().toString(),
+                lat = loc.latitude,
+                lng = loc.longitude,
+                accuracy = loc.accuracy.toDouble(),
+                wifiSsid = wifi.first,
+                wifiBssid = wifi.second,
+                simulated = false,
+            )
+            prefs.cachedInOffice = false
+            prefs.cachedSinceAt = ""
+            prefs.lastSampleOfficeId = ""
+            // Flush promptly so roster/colleagues clear; still not a poll loop.
+            thread {
+                try {
+                    PresenceRepository(this).uploadAndSync()
+                } catch (_: Exception) {
+                }
+            }
+        } else {
+            maybeAlertOnSampleTransition(office)
+        }
         val nm = getSystemService(NotificationManager::class.java)
         val mockTag = if (isMock) " mock" else ""
         val text = if (weak) "Weak fix ${loc.accuracy.toInt()}m (not counted)$mockTag"
@@ -139,13 +174,29 @@ class PresenceService : Service() {
         }
     }
 
+    /**
+     * Queue samples locally; flush to the server every ~20 min (or when the queue is large).
+     * Enter/exit, Check now, and Today sync still call [PresenceRepository.uploadAndSync] immediately.
+     */
     private fun uploadAsync() {
         thread {
             try {
-                PresenceRepository(this).uploadPendingOnly()
+                if (!shouldFlushSampleUpload()) return@thread
+                if (PresenceRepository(this).uploadPendingOnly()) {
+                    prefs.lastIngestFlushAtMs = System.currentTimeMillis()
+                }
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun shouldFlushSampleUpload(): Boolean {
+        val pending = log.pendingCount()
+        if (pending <= 0) return false
+        if (pending >= 4) return true
+        val last = prefs.lastIngestFlushAtMs
+        if (last <= 0L) return true
+        return System.currentTimeMillis() - last >= FLUSH_INTERVAL_MS
     }
 
     private fun startForegroundNotification() {
@@ -180,6 +231,8 @@ class PresenceService : Service() {
 
     companion object {
         const val NOTIF_ID = 42
+        /** Debounce sample uploads to cut Vercel Hobby CPU while still In. */
+        private const val FLUSH_INTERVAL_MS = 20 * 60_000L
         fun start(context: Context) {
             val prefs = AppPrefs(context)
             // Real-user view-as: pause tracking on this phone.
