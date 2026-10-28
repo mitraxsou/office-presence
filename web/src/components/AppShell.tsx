@@ -5,6 +5,7 @@ import { clearSession, getSession } from "@/lib/auth";
 import { displayName, greetingName } from "@/lib/display-name";
 import { initials } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getPendingCorrectionsCount } from "@/lib/pending-corrections-cache";
 import { redirect } from "next/navigation";
 
 async function signOut() {
@@ -28,7 +29,7 @@ export default async function AppShell({
 
   let pendingCorrections = 0;
   if (showAdmin) {
-    pendingCorrections = await prisma.visitCorrectionRequest.count({ where: { status: "pending" } });
+    pendingCorrections = await getPendingCorrectionsCount();
   }
 
   let viewAsBanner: {
@@ -99,7 +100,8 @@ export default async function AppShell({
           <Mark size={22} /> Office Presence
         </a>
         {link("/month", "My month")}
-        {link("/colleagues", "Colleagues")}
+        {link("/year", "My year")}
+        {showAdmin ? link("/colleagues", "Colleagues") : null}
         {link("/settings", "Settings")}
         {showAdmin ? (
           <>

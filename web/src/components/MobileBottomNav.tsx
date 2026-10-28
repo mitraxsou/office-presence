@@ -12,7 +12,7 @@ type Props = {
   signOutAction: () => Promise<void>;
 };
 
-function Icon({ name }: { name: "month" | "roster" | "corrections" | "more" | "colleagues" | "settings" }) {
+function Icon({ name }: { name: "month" | "year" | "roster" | "corrections" | "more" | "colleagues" | "settings" }) {
   const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, "aria-hidden": true as const };
   switch (name) {
     case "month":
@@ -20,6 +20,13 @@ function Icon({ name }: { name: "month" | "roster" | "corrections" | "more" | "c
         <svg {...common}>
           <rect x="3" y="5" width="18" height="16" rx="2" />
           <path d="M3 10h18M8 3v4M16 3v4" />
+        </svg>
+      );
+    case "year":
+      return (
+        <svg {...common}>
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M3 9h18M8 2v4M16 2v4M8 14h3M13 14h3M8 18h3M13 18h3" />
         </svg>
       );
     case "roster":
@@ -73,7 +80,7 @@ function TabLink({
 }: {
   href: string;
   label: string;
-  icon: "month" | "roster" | "corrections" | "more" | "colleagues" | "settings";
+  icon: "month" | "year" | "roster" | "corrections" | "more" | "colleagues" | "settings";
   active: boolean;
   badge?: number;
 }) {
@@ -117,6 +124,7 @@ export default function MobileBottomNav({
   }, [moreOpen]);
 
   const isMonth = pathname === "/" || pathname.startsWith("/month");
+  const isYear = pathname.startsWith("/year");
   const isColleagues = pathname.startsWith("/colleagues");
   const isSettings = pathname.startsWith("/settings");
   const isRoster = pathname.startsWith("/admin/roster");
@@ -127,6 +135,7 @@ export default function MobileBottomNav({
       pathname.startsWith("/admin/offices") ||
       pathname.startsWith("/admin/reports") ||
       pathname.startsWith("/admin/settings") ||
+      isYear ||
       isColleagues ||
       isSettings);
 
@@ -158,7 +167,7 @@ export default function MobileBottomNav({
         ) : (
           <>
             <TabLink href="/month" label="My month" icon="month" active={isMonth} />
-            <TabLink href="/colleagues" label="Colleagues" icon="colleagues" active={isColleagues} />
+            <TabLink href="/year" label="My year" icon="year" active={isYear} />
             <TabLink href="/settings" label="Settings" icon="settings" active={isSettings} />
           </>
         )}
@@ -200,6 +209,9 @@ export default function MobileBottomNav({
 
             <div className="op-msheet-section">You</div>
             <div className="op-msheet-card">
+              <a href="/year" onClick={() => setMoreOpen(false)}>
+                My year <span aria-hidden>&gt;</span>
+              </a>
               <a href="/colleagues" onClick={() => setMoreOpen(false)}>
                 Colleagues <span aria-hidden>&gt;</span>
               </a>

@@ -201,10 +201,10 @@ export default async function PersonVisitsPage({
         secondary || points === 0
           ? secondary
             ? "Same day"
-            : "0 days"
+            : "0 points"
           : points === 1
-            ? "1 day"
-            : `${points} days`,
+            ? "1 point"
+            : `${points} points`,
       deviceLabel,
       deviceSub,
       tag: secondary ? null : tag,

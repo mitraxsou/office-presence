@@ -158,7 +158,7 @@ export default function AdminReportsClient({
         </div>
         <div>
           <div className="n">{stats.target}</div>
-          <div className="l">Target days</div>
+          <div className="l">Target points</div>
         </div>
       </div>
 
@@ -171,11 +171,7 @@ export default function AdminReportsClient({
               <th className="r">Visits</th>
               <th>Days counted</th>
               <th>Month</th>
-              <th className="r">
-                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                  Hours <span className="op-badge fyi">FYI</span>
-                </span>
-              </th>
+              <th className="r">Hours</th>
               <th />
             </tr>
           </thead>

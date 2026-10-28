@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Office Presence",
-  description: "Office days and presence for PwC teams",
+  description: "Office points and presence for PwC teams",
 };
 
 export const viewport: Viewport = {

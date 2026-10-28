@@ -1,6 +1,6 @@
 "use client";
 
-import { countsAs } from "@/lib/days-format";
+import { countsAs } from "@/lib/points-format";
 
 /** Shared web components. Screens compose these; they should not restyle them. */
 
@@ -40,7 +40,7 @@ export function DaysMeter({
   const t = Math.max(1, Math.round(target));
   const met = c >= t;
   const pct = Math.min(100, Math.round((c / t) * 100));
-  const label = `${c} of ${t} days, ${met ? "goal met" : `${t - c} to go`}`;
+  const label = `${c} of ${t} points, ${met ? "goal met" : `${t - c} to go`}`;
 
   if (size === "inline") {
     return (
@@ -61,7 +61,7 @@ export function DaysMeter({
       <div className="op-days-row">
         <div>
           <span className="op-days-num">{c}</span>
-          <span className="op-days-den">/ {t} days</span>
+          <span className="op-days-den">/ {t} points</span>
         </div>
         {met ? <StatusBadge kind="goalMet" /> : <span className="op-days-togo">{t - c} to go</span>}
       </div>
@@ -77,7 +77,7 @@ export function HoursFyiRow({
   hours,
   advised,
   value,
-  caption = "Suggested 5 h a day. Does not affect days.",
+  caption = "Suggested 5 h a day. Does not affect points.",
 }: {
   hours?: number;
   advised?: number;
@@ -86,12 +86,12 @@ export function HoursFyiRow({
 }) {
   const display = value ?? (typeof hours === "number" ? `${hours.toFixed(1)} h` : "0 h");
   const cap =
-    typeof advised === "number" ? `Suggested ${advised} h a day. Does not affect days.` : caption;
+    typeof advised === "number" ? `Suggested ${advised} h a day. Does not affect points.` : caption;
   return (
     <div className="op-hours-fyi">
       <div>
         <div>
-          <span className="op-label">Hours today</span> <FyiTag />
+          <span className="op-label">Hours today</span>
         </div>
         <div className="help">{cap}</div>
       </div>
@@ -175,8 +175,9 @@ export function StatusBadge({
   );
 }
 
+/** @deprecated FYI badges were removed from UI; kept as a no-op for imports. */
 export function FyiTag() {
-  return <span className="op-badge fyi">FYI</span>;
+  return null;
 }
 
 export function CorrectedTag() {

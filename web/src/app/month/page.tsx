@@ -6,7 +6,11 @@ import { fmtGreetingDate } from "@/lib/format";
 import AppShell from "@/components/AppShell";
 import MeClient from "../me/MeClient";
 
-export default async function MonthPage() {
+export default async function MonthPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ month?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
 
@@ -26,6 +30,9 @@ export default async function MonthPage() {
 
   const tz = user.timezone || "Asia/Kolkata";
   const now = new Date();
+  const sp = searchParams ? await searchParams : {};
+  const initialMonth =
+    sp.month && /^\d{4}-\d{2}$/.test(sp.month) ? sp.month : null;
 
   return (
     <AppShell role={session.role} active="/month">
@@ -33,6 +40,7 @@ export default async function MonthPage() {
         name={session.name ?? session.email}
         greetingText={greeting(user, now, tz)}
         greetingDate={fmtGreetingDate(now, tz)}
+        initialMonth={initialMonth}
         viewAs={
           session.adminId && session.viewAsMode
             ? {

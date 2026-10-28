@@ -70,6 +70,39 @@ function fmtHoursLabel(h: number): string {
   return `${hr} h ${m} m`;
 }
 
+/** In since before today (local tz) - likely stuck live status. */
+function isStaleIn(inOffice: boolean, sinceAt: string | null | undefined, tz = "Asia/Kolkata"): boolean {
+  if (!inOffice || !sinceAt) return false;
+  const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(sinceAt));
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+  return dayKey < todayKey;
+}
+
+async function adminSetPresence(opts: {
+  userId: string;
+  inOffice: boolean;
+  officeLocationId?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "setPresence",
+        userId: opts.userId,
+        inOffice: opts.inOffice,
+        officeLocationId: opts.officeLocationId || undefined,
+        confirm: true,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) return { ok: false, error: json.error || `Request failed (${res.status})` };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "The server did not respond." };
+  }
+}
+
 function MiniDays({ current, target }: { current: number; target: number }) {
   const met = current >= target;
   const pct = Math.min(100, Math.round((Math.max(0, current) / Math.max(1, target)) * 100));
@@ -119,6 +152,8 @@ export default function AdminClient({
   const [statFilter, setStatFilter] = useState<StatKey>(null);
   const [tick, setTick] = useState(0);
   const [mobileFilters, setMobileFilters] = useState(false);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const query = useMemo(
     () =>
@@ -156,7 +191,7 @@ export default function AdminClient({
     void load();
   }, [load]);
 
-  usePoll(() => load({ quiet: true }), 30_000);
+  usePoll(() => load({ quiet: true }), 180_000);
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 5_000);
@@ -218,6 +253,27 @@ export default function AdminClient({
 
   void tick;
 
+  async function markAsOut(u: RosterRow) {
+    const label = u.name ?? u.email;
+    if (
+      !window.confirm(
+        `Mark ${label} as Out? This clears live In status for colleagues and the roster.`,
+      )
+    ) {
+      return;
+    }
+    setBusyUserId(u.id);
+    setActionMsg(null);
+    const res = await adminSetPresence({ userId: u.id, inOffice: false });
+    setBusyUserId(null);
+    if (!res.ok) {
+      setActionMsg(res.error || "Could not Mark as Out.");
+      return;
+    }
+    setActionMsg(`Marked ${label} as Out.`);
+    await load({ quiet: true });
+  }
+
   return (
     <div>
       <div className="op-whead">
@@ -237,6 +293,12 @@ export default function AdminClient({
           <button type="button" className="btn btn-primary btn-sm" onClick={() => void load()}>
             Try again
           </button>
+        </div>
+      ) : null}
+
+      {actionMsg ? (
+        <div className="op-toast" role="status" style={{ marginBottom: 12 }}>
+          <div>{actionMsg}</div>
         </div>
       ) : null}
 
@@ -449,12 +511,8 @@ export default function AdminClient({
                   <th>Person</th>
                   <th>Status, since</th>
                   <th>Office</th>
-                  <th>Month days</th>
-                  <th className="r">
-                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                      Hours today <span className="op-badge fyi">FYI</span>
-                    </span>
-                  </th>
+                  <th>Month points</th>
+                  <th className="r">Hours today</th>
                   <th>Last device</th>
                   <th />
                 </tr>
@@ -494,7 +552,9 @@ export default function AdminClient({
                         </td>
                       </tr>
                     ) : (
-                      rows.map((u) => (
+                      rows.map((u) => {
+                        const stale = isStaleIn(u.inOffice, u.sinceAt);
+                        return (
                         <tr key={u.id}>
                           <td data-label="Person">
                             <div className="person-name">{u.name ?? u.email}</div>
@@ -507,12 +567,17 @@ export default function AdminClient({
                             </span>
                             <div className="person-email" style={{ marginTop: 4 }}>
                               {fmtSinceLabel(u.sinceAt)}
+                              {stale ? (
+                                <span className="muted" style={{ marginLeft: 6 }}>
+                                  Stale In
+                                </span>
+                              ) : null}
                             </div>
                           </td>
                           <td className={!u.officeName ? "muted" : undefined} data-label="Office">
                             {u.inOffice ? u.officeName ?? "Unknown" : u.officeName ?? "-"}
                           </td>
-                          <td data-label="Month days">
+                          <td data-label="Month points">
                             <MiniDays current={u.monthPoints} target={data.pointsTarget} />
                           </td>
                           <td className="r muted" data-label="Hours today">
@@ -522,12 +587,25 @@ export default function AdminClient({
                             {u.lastDeviceName ?? "-"}
                           </td>
                           <td className="r" data-label="">
-                            <a className="btn btn-secondary btn-sm" href={`/admin/people/${u.id}`}>
-                              View visits
-                            </a>
+                            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                              {u.inOffice ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={busyUserId === u.id}
+                                  onClick={() => void markAsOut(u)}
+                                >
+                                  {busyUserId === u.id ? "Working..." : stale ? "Clear In status" : "Mark as Out"}
+                                </button>
+                              ) : null}
+                              <a className="btn btn-secondary btn-sm" href={`/admin/people/${u.id}`}>
+                                View visits
+                              </a>
+                            </div>
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     )}
               </tbody>
             </table>

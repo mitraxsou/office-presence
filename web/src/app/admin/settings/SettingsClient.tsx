@@ -56,7 +56,7 @@ export default function SettingsClient({
     }
   }
 
-  const sample = policy.sampleIntervalMinutes ?? 5;
+  const sample = policy.sampleIntervalMinutes ?? 10;
 
   return (
     <div>
@@ -74,7 +74,7 @@ export default function SettingsClient({
         <div className="op-kv">
           <div className="k">
             <b>Monthly target</b>
-            <small>Office days needed each month</small>
+            <small>Office points needed each month</small>
           </div>
           <div className="v">
             <input
@@ -82,14 +82,14 @@ export default function SettingsClient({
               value={policy.monthlyPointsTarget}
               onChange={(e) => setPolicy({ ...policy, monthlyPointsTarget: Number(e.target.value) })}
               disabled={busy}
-              aria-label="Monthly target days"
+              aria-label="Monthly target points"
             />
-            <span>days</span>
+            <span>points</span>
           </div>
 
           <div className="k">
             <b>Counts as</b>
-            <small>Days per visit day, set per office</small>
+            <small>Points per visit day, set per office</small>
           </div>
           <div className="v">
             <a className="op-ghost" href="/admin/offices">
@@ -135,7 +135,7 @@ export default function SettingsClient({
 
           <div className="k">
             <b>Suggested day</b>
-            <small>Advice only, never affects days</small>
+            <small>Advice only, never affects points</small>
           </div>
           <div className="v">
             <input

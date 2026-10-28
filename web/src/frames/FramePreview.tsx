@@ -485,14 +485,14 @@ function MonthFrame({ variant }: { variant: "progress" | "goal" | "day" | "pendi
       <div style={{ textAlign: "center", fontWeight: 700, marginBottom: 16 }}>{"< October 2026 >"}</div>
       <div style={{ background: "var(--op-surface)", borderRadius: 20, padding: 16, border: "1px solid var(--op-line)" }}>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span style={{ font: "var(--op-text-number)", fontSize: 40 }}>{points} / 8 days</span>
+          <span style={{ font: "var(--op-text-number)", fontSize: 40 }}>{points} / 8 points</span>
           <span className={`op-badge ${points >= 8 ? "goal" : "todo"}`}>{side}</span>
         </div>
         <div className="op-days-track" style={{ marginTop: 10 }}>
           <div className="op-days-fill" style={{ width: `${(points / 8) * 100}%` }} />
         </div>
         <p style={{ color: "var(--op-ink-3)", fontSize: 13 }}>
-          {variant === "approved" ? "5 visits. 1 corrected." : "4 visits. Kolkata counts as 2 days."}
+          {variant === "approved" ? "5 visits. 1 corrected." : "4 visits. Kolkata counts as 2 points."}
         </p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, marginTop: 16 }}>
@@ -542,7 +542,7 @@ function MonthFrame({ variant }: { variant: "progress" | "goal" | "day" | "pendi
         >
           {variant === "approved" ? (
             <div style={{ background: "var(--op-ink)", color: "var(--op-bg)", borderRadius: 12, padding: 12, marginBottom: 12, fontSize: 13 }}>
-              Your correction for 15 Oct was approved. October is now 6 / 8 days.
+              Your correction for 15 Oct was approved. October is now 6 / 8 points.
             </div>
           ) : null}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -562,7 +562,7 @@ function MonthFrame({ variant }: { variant: "progress" | "goal" | "day" | "pendi
           ) : null}
           {variant === "approved" ? (
             <>
-              <p style={{ color: "var(--op-ink-2)" }}>Gurugram, Tower B, counts as 1 day</p>
+              <p style={{ color: "var(--op-ink-2)" }}>Gurugram, Tower B, counts as 1 point</p>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>9:30 am to 6:00 pm</span>
                 <span className="op-badge accent">Corrected</span>
@@ -652,7 +652,7 @@ function CorrectionFrame({ step }: { step: "issue" | "edit" | "review" | "sent" 
               <div style={{ color: "var(--op-ink-3)", fontSize: 12 }}>You are asking for</div>
               <strong>{FRAME_CORRECTION.officeName}</strong>
               <div>9:30 am to 6:00 pm</div>
-              <div style={{ fontSize: 13 }}>Counts as 1 day</div>
+              <div style={{ fontSize: 13 }}>Counts as 1 point</div>
             </div>
           </div>
           <p style={{ borderLeft: "3px solid var(--op-line-strong)", paddingLeft: 12 }}>{FRAME_CORRECTION.reason}</p>
@@ -664,7 +664,7 @@ function CorrectionFrame({ step }: { step: "issue" | "edit" | "review" | "sent" 
               </div>
               <strong>6 / 8</strong>
             </div>
-            <p style={{ color: "var(--op-ink-3)", fontSize: 13, marginBottom: 0 }}>Until then your month stays at 5 / 8 days.</p>
+            <p style={{ color: "var(--op-ink-3)", fontSize: 13, marginBottom: 0 }}>Until then your month stays at 5 / 8 points.</p>
           </div>
           <button style={{ width: "100%", marginTop: 20, height: 48, borderRadius: 999, background: "var(--op-accent)", border: "none", fontWeight: 600 }}>
             Send request
@@ -962,7 +962,7 @@ function WebSettingsFrame() {
           </div>
           <div style={{ background: "var(--op-sunk)", borderRadius: 12, padding: 12 }}>
             <strong>Never shared</strong>
-            <div style={{ color: "var(--op-ink-2)", fontSize: 13 }}>Live GPS, coordinates, hours, days counted.</div>
+            <div style={{ color: "var(--op-ink-2)", fontSize: 13 }}>Live GPS, coordinates, hours, points counted.</div>
           </div>
         </div>
       </section>
@@ -1148,7 +1148,7 @@ function WebOfficesFrame() {
                 <span className="op-badge in">{o.inNow} In</span>
               </div>
               <div style={{ color: "var(--op-ink-2)", fontSize: 13 }}>{o.addressLabel}</div>
-              <div style={{ fontSize: 13 }}>Radius {o.radiusMeters} m · Counts as {o.pointsPerVisitDay} day{o.pointsPerVisitDay === 1 ? "" : "s"}</div>
+              <div style={{ fontSize: 13 }}>Radius {o.radiusMeters} m · Counts as {o.pointsPerVisitDay} point{o.pointsPerVisitDay === 1 ? "" : "s"}</div>
               {i === 0 ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
                   <input defaultValue={100} style={{ padding: 10, borderRadius: 12, border: "1px solid var(--op-line)" }} />
@@ -1184,7 +1184,7 @@ function WebReportsFrame() {
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, margin: "16px 0", background: "var(--op-surface)", borderRadius: 16, padding: 16, border: "1px solid var(--op-line)" }}>
-        {[["312", "People"], ["118", "Goal met"], ["194", "Below target"], ["8", "Target days"]].map(([n, l]) => (
+        {[["312", "People"], ["118", "Goal met"], ["194", "Below target"], ["8", "Target points"]].map(([n, l]) => (
           <div key={l}><div style={{ fontSize: 28, fontWeight: 800 }}>{n}</div><div style={{ color: "var(--op-ink-2)" }}>{l}</div></div>
         ))}
       </div>
@@ -1207,12 +1207,12 @@ function WebReportsFrame() {
 
 function WebRulesFrame() {
   const rows = [
-    ["Monthly target", "Office days needed each month", "8 days"],
-    ["Counts as", "Days per visit day, set per office", "Edit in Offices"],
+    ["Monthly target", "Office points needed each month", "8 points"],
+    ["Counts as", "Points per visit day, set per office", "Edit in Offices"],
     ["A visit ends after a gap of", "No samples inside the office", "15 minutes"],
     ["Location sample", "Set by the app", "About every 5 minutes"],
     ["Default office radius", "Used for new offices", "100 m"],
-    ["Suggested day", "Advice only, never affects days", "5 hours"],
+    ["Suggested day", "Advice only, never affects points", "5 hours"],
     ["Correction requests close", "After this the month is locked", "5 days after month end"],
     ["Who decides corrections", "Every decision is logged", "Any admin, except on their own requests"],
     ["Default timezone", "Used to decide which day a visit falls on", "Asia/Kolkata"],
@@ -1265,10 +1265,10 @@ function WebPersonVisitsFrame() {
         </div>
         <div style={{ background: "var(--op-surface)", borderRadius: 16, border: "1px solid var(--op-line)" }}>
           {[
-            ["Fri 23 Oct", "Kolkata, Plot Y14", "9:20 am", "5:55 pm", "8 h 35 m", "2 days", "Pixel 7a", ""],
-            ["Tue 13 Oct", "Gurugram, Cyber City", "11:02 am", "2:15 pm", "3 h 13 m", "1 day", "Galaxy S23", "Pending review"],
+            ["Fri 23 Oct", "Kolkata, Plot Y14", "9:20 am", "5:55 pm", "8 h 35 m", "2 points", "Pixel 7a", ""],
+            ["Tue 13 Oct", "Gurugram, Cyber City", "11:02 am", "2:15 pm", "3 h 13 m", "1 point", "Galaxy S23", "Pending review"],
             ["Tue 13 Oct", "Gurugram, Cyber City", "2:50 pm", "4:05 pm", "1 h 15 m", "Same day", "Pixel 7a", ""],
-            ["Mon 5 Oct", "Kolkata, Plot Y14", "9:30 am", "6:00 pm", "8 h 30 m", "2 days", "By request, Kavya Rao, 7 Oct", "Corrected"],
+            ["Mon 5 Oct", "Kolkata, Plot Y14", "9:30 am", "6:00 pm", "8 h 30 m", "2 points", "By request, Kavya Rao, 7 Oct", "Corrected"],
           ].map((row, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr 0.8fr 0.8fr 0.8fr 0.8fr 1.4fr", padding: 12, borderTop: i ? "1px solid var(--op-line)" : "none", fontSize: 13 }}>
               <div>

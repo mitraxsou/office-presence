@@ -15,10 +15,11 @@ export const FRAME_ADMIN = {
 };
 
 export const FRAME_OFFICES = [
-  { id: "off-ggn", name: "Gurugram, Tower B", addressLabel: "Building 10, Tower B, DLF Cyber City, Gurugram 122002", radiusMeters: 100, pointsPerVisitDay: 1, inNow: 23 },
-  { id: "off-cyber", name: "Gurugram, Cyber City", addressLabel: "DLF Cyber City, Gurugram", radiusMeters: 120, pointsPerVisitDay: 1, inNow: 8 },
-  { id: "off-kol", name: "Kolkata, Plot Y14", addressLabel: "Plot Y14, Kolkata", radiusMeters: 100, pointsPerVisitDay: 2, inNow: 5 },
+  { id: "off-ggn", name: "Gurugram, Tower B", addressLabel: "Building 10, Tower B, DLF Cyber City, Gurugram 122002", radiusMeters: 100, pointsPerVisitDay: 4, inNow: 23 },
+  { id: "off-cyber", name: "Gurugram, Cyber City", addressLabel: "DLF Cyber City, Gurugram", radiusMeters: 120, pointsPerVisitDay: 4, inNow: 8 },
+  { id: "off-kol", name: "Kolkata, Plot Y14", addressLabel: "Plot Y14, Kolkata", radiusMeters: 100, pointsPerVisitDay: 1, inNow: 5 },
   { id: "off-blr", name: "Bengaluru, Prestige", addressLabel: "Prestige Tech Park, Bengaluru", radiusMeters: 150, pointsPerVisitDay: 1, inNow: 4 },
+  { id: "off-pune", name: "Pune, Kharadi", addressLabel: "Kharadi, Pune", radiusMeters: 120, pointsPerVisitDay: 4, inNow: 2 },
 ];
 
 export const FRAME_TODAY = {
@@ -39,10 +40,10 @@ export const FRAME_TODAY = {
 };
 
 export const FRAME_MONTH_DAYS = [
-  { dayKey: "2026-10-06", points: 1, officeName: "Gurugram", label: "1 day" },
-  { dayKey: "2026-10-14", points: 2, officeName: "Kolkata", label: "2 days" },
-  { dayKey: "2026-10-21", points: 1, officeName: "Gurugram", label: "1 day" },
-  { dayKey: "2026-10-27", points: 1, officeName: "Gurugram", label: "1 day", inNow: true },
+  { dayKey: "2026-10-06", points: 1, officeName: "Gurugram", label: "1 point" },
+  { dayKey: "2026-10-14", points: 2, officeName: "Kolkata", label: "2 points" },
+  { dayKey: "2026-10-21", points: 1, officeName: "Gurugram", label: "1 point" },
+  { dayKey: "2026-10-27", points: 1, officeName: "Gurugram", label: "1 point", inNow: true },
 ];
 
 export const FRAME_DAY_DETAIL = {

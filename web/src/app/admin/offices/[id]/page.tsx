@@ -2,7 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import AppShell from "@/components/AppShell";
-import { countsAs } from "@/lib/days-format";
+import { countsAs } from "@/lib/points-format";
 import OfficeDetailMap from "./OfficeDetailMap";
 
 export default async function OfficeDetailPage({ params }: { params: Promise<{ id: string }> }) {

@@ -42,7 +42,7 @@ type Device = {
 type Section = "profile" | "notifications" | "sharing" | "appearance" | "nicknames" | "suggest";
 
 export const PEER_CONSENT_TEXT =
-  "Share my presence with colleagues who also opted in. Shared: In or Out, since when, and the office name. Not shared: live GPS, coordinates, hours, or days. You can turn this off at any time.";
+  "Share my presence with colleagues who also opted in. Shared: In or Out, since when, and the office name. Not shared: live GPS, coordinates, hours, or points. You can turn this off at any time.";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "profile", label: "Profile" },
@@ -553,7 +553,7 @@ export default function UserSettingsClient({
                         {
                           key: "goal",
                           title: "Goal met",
-                          hint: "When you reach your days for the month",
+                          hint: "When you reach your points for the month",
                           on: !!prefs.notifyGoalMet,
                           patch: { notifyGoalMet: true },
                           offPatch: { notifyGoalMet: false },
@@ -561,7 +561,7 @@ export default function UserSettingsClient({
                         {
                           key: "summary",
                           title: "Weekly summary",
-                          hint: "Monday 9:00 am: days so far this month",
+                          hint: "Monday 9:00 am: points so far this month",
                           on: !!prefs.notifyDailySummary,
                           patch: { notifyDailySummary: true },
                           offPatch: { notifyDailySummary: false },
@@ -696,7 +696,7 @@ export default function UserSettingsClient({
                       Never shared
                     </div>
                     <div className="op-meta" style={{ marginTop: 4 }}>
-                      Live GPS, coordinates, hours, days counted
+                      Live GPS, coordinates, hours, points counted
                     </div>
                   </div>
                 </div>

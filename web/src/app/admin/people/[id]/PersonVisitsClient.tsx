@@ -113,10 +113,58 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
   const [addOffice, setAddOffice] = useState(props.offices[0]?.id ?? "");
   const [addIn, setAddIn] = useState("09:30");
   const [addOut, setAddOut] = useState("18:00");
+  const [inOffice, setInOffice] = useState(props.inOffice);
+  const [sinceLabel, setSinceLabel] = useState(props.sinceLabel);
+  const [debugOfficeId, setDebugOfficeId] = useState(props.offices[0]?.id ?? "");
+  const [presenceBusy, setPresenceBusy] = useState(false);
 
   const monthName = labelMonth(month);
   const firstName = props.firstName || props.name.split(/\s+/)[0] || "them";
   const canEdit = !props.isOwnRecord;
+
+  async function setPresence(nextIn: boolean) {
+    if (nextIn && !debugOfficeId) {
+      setToast("Pick an office before Set In for debug.");
+      return;
+    }
+    const msg = nextIn
+      ? `Set ${firstName} In for debug at the selected office? This is for testing live status.`
+      : `Mark ${firstName} as Out? This clears live In for colleagues and the roster.`;
+    if (!window.confirm(msg)) return;
+    setPresenceBusy(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setPresence",
+          userId: props.userId,
+          inOffice: nextIn,
+          officeLocationId: nextIn ? debugOfficeId : undefined,
+          confirm: true,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        officeName?: string | null;
+        sinceAt?: string | null;
+      };
+      if (!res.ok) {
+        setToast(json.error || "Could not update live status.");
+        return;
+      }
+      setInOffice(nextIn);
+      if (nextIn) {
+        setSinceLabel("just now");
+        setToast(`Set In for debug${json.officeName ? ` at ${json.officeName}` : ""}.`);
+      } else {
+        setSinceLabel("");
+        setToast("Marked as Out. Colleagues and roster will show Out after refresh.");
+      }
+    } finally {
+      setPresenceBusy(false);
+    }
+  }
 
   const visits = useMemo(
     () => rows.filter((v) => v.dayKey.startsWith(month)),
@@ -343,11 +391,45 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span className={`op-badge ${props.inOffice ? "in" : "out"}`}>
-            <span className={`op-dot ${props.inOffice ? "in" : ""}`} />
-            {props.inOffice ? "In" : "Out"}
+          <span className={`op-badge ${inOffice ? "in" : "out"}`}>
+            <span className={`op-dot ${inOffice ? "in" : ""}`} />
+            {inOffice ? "In" : "Out"}
           </span>
-          {props.sinceLabel ? <span className="op-meta-row">since {props.sinceLabel}</span> : null}
+          {sinceLabel ? <span className="op-meta-row">since {sinceLabel}</span> : null}
+          {inOffice ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={presenceBusy}
+              onClick={() => void setPresence(false)}
+            >
+              {presenceBusy ? "Working..." : "Mark as Out"}
+            </button>
+          ) : null}
+          {props.offices.length > 0 ? (
+            <>
+              <select
+                value={debugOfficeId}
+                onChange={(e) => setDebugOfficeId(e.target.value)}
+                disabled={presenceBusy}
+                aria-label="Office for Set In debug"
+              >
+                {props.offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={presenceBusy || !debugOfficeId}
+                onClick={() => void setPresence(true)}
+              >
+                Set In for debug
+              </button>
+            </>
+          ) : null}
           {canEdit ? (
             <>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => void openHistory()}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { countsAs } from "@/lib/days-format";
+import { countsAs } from "@/lib/points-format";
 
 const OfficeMap = dynamic(() => import("@/components/OfficeMap"), {
   ssr: false,
@@ -109,6 +109,11 @@ export default function OfficesClient() {
 
   function selectOffice(o: Office) {
     setAdding(false);
+    // Keep dirty draft when re-selecting the already expanded office (Enter in Name must not clobber).
+    if (selectedId === o.id && !adding) {
+      setSelectedId(o.id);
+      return;
+    }
     setSelectedId(o.id);
     setDraft({
       id: o.id,
@@ -174,8 +179,17 @@ export default function OfficesClient() {
     setAdding(false);
     await load();
     if (j.office?.id) {
-      setSelectedId(j.office.id);
-      setDraft((d) => ({ ...d, id: j.office.id }));
+      const office = j.office as Office;
+      setSelectedId(office.id);
+      setDraft({
+        id: office.id,
+        name: office.name ?? draft.name,
+        latitude: String(office.latitude ?? draft.latitude),
+        longitude: String(office.longitude ?? draft.longitude),
+        radiusMeters: String(office.radiusMeters ?? draft.radiusMeters),
+        pointsPerVisitDay: String(office.pointsPerVisitDay ?? draft.pointsPerVisitDay),
+        addressLabel: office.addressLabel ?? draft.addressLabel,
+      });
     }
   }
 
@@ -197,7 +211,7 @@ export default function OfficesClient() {
   async function decidePending(o: Office, decision: "approve" | "reject") {
     let points: number | undefined;
     if (decision === "approve") {
-      const v = window.prompt(`Counts as how many days for ${o.name}?`, String(o.pointsPerVisitDay));
+      const v = window.prompt(`Counts as how many points for ${o.name}?`, String(o.pointsPerVisitDay));
       if (v == null) return;
       points = Number(v);
     }
@@ -306,7 +320,7 @@ export default function OfficesClient() {
                     />
                   </label>
                   <label className="field">
-                    <span className="lab">Counts as (days)</span>
+                    <span className="lab">Counts as (points)</span>
                     <input
                       type="number"
                       min={0}
@@ -349,11 +363,17 @@ export default function OfficesClient() {
                 <div
                   key={o.id}
                   className={`op-ocard${on ? " on" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => selectOffice(o)}
+                  role={on ? undefined : "button"}
+                  tabIndex={on ? undefined : 0}
+                  onClick={() => {
+                    if (!on) selectOffice(o);
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") selectOffice(o);
+                    if (on) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      selectOffice(o);
+                    }
                   }}
                 >
                   {!on ? (
@@ -370,7 +390,7 @@ export default function OfficesClient() {
                           Radius <b>{o.radiusMeters} m</b>
                         </span>
                         <span>
-                          Counts as <b>{o.pointsPerVisitDay === 1 ? "1 day" : `${o.pointsPerVisitDay} days`}</b>
+                          Counts as <b>{o.pointsPerVisitDay === 1 ? "1 point" : `${o.pointsPerVisitDay} points`}</b>
                         </span>
                       </div>
                     </>
@@ -393,8 +413,10 @@ export default function OfficesClient() {
                           {inCount} In
                         </span>
                       </div>
-                      <div className="op-meta-row" style={{ marginTop: 4 }}>
-                        {o.addressLabel ?? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}`}
+                      <div className="op-meta-row" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                        {draft.addressLabel ??
+                          o.addressLabel ??
+                          `${Number(draft.latitude || o.latitude).toFixed(5)}, ${Number(draft.longitude || o.longitude).toFixed(5)}`}
                       </div>
                       <div
                         style={{
@@ -416,7 +438,7 @@ export default function OfficesClient() {
                           />
                         </label>
                         <label className="field">
-                          <span className="lab">Counts as (days)</span>
+                          <span className="lab">Counts as (points)</span>
                           <input
                             type="number"
                             min={0}

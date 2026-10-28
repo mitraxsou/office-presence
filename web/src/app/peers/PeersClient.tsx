@@ -17,14 +17,23 @@ type Filter = "all" | "in" | "out";
 
 export default function PeersClient() {
   const [data, setData] = useState<{ optedIn: boolean; peers: Peer[] } | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [office, setOffice] = useState("all");
 
   usePoll(async () => {
     const res = await fetch("/api/peers/presence", { cache: "no-store" });
-    if (res.ok) setData(await res.json());
-  }, 60_000);
+    if (res.status === 403) {
+      setForbidden(true);
+      setData(null);
+      return;
+    }
+    if (res.ok) {
+      setForbidden(false);
+      setData(await res.json());
+    }
+  }, 180_000);
 
   const offices = useMemo(() => {
     const set = new Set<string>();
@@ -49,6 +58,24 @@ export default function PeersClient() {
     if (office !== "all") list = list.filter((p) => p.officeName === office);
     return list;
   }, [data, q, filter, office]);
+
+  if (forbidden) {
+    return (
+      <>
+        <div className="op-whead">
+          <h1 className="op-page-title">Colleagues</h1>
+        </div>
+        <div className="card" style={{ textAlign: "center", padding: "48px 32px" }}>
+          <div className="op-page-title" style={{ fontSize: 22 }}>
+            Colleagues not available
+          </div>
+          <p className="op-ink2" style={{ margin: "8px auto 0", maxWidth: 420 }}>
+            This list is only for admins.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

@@ -14,6 +14,17 @@ type Phone = {
   lastSeenAt: string | null;
 };
 
+type ApiActivityRow = {
+  id: string;
+  deviceId: string | null;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number | null;
+  note: string | null;
+  at: string;
+};
+
 type UserRow = {
   id: string;
   email: string;
@@ -48,7 +59,7 @@ type UserDetail = UserRow & {
 
 type StatusFilter = "active" | "deactivated" | "all";
 type DrawerMode = "add" | "edit" | null;
-type ModalMode = "viewAs" | "deactivate" | "delete" | null;
+type ModalMode = "viewAs" | "deactivate" | "reactivate" | "delete" | null;
 
 type FormState = {
   fullName: string;
@@ -125,6 +136,8 @@ export default function UsersClient({
   const [viewAsTarget, setViewAsTarget] = useState<UserRow | null>(null);
   const [adminPassword, setAdminPassword] = useState("");
   const [adminPasswordBusy, setAdminPasswordBusy] = useState(false);
+  const [apiActivity, setApiActivity] = useState<ApiActivityRow[]>([]);
+  const [apiActivityLoading, setApiActivityLoading] = useState(false);
 
   const loadStats = useCallback(async () => {
     const res = await fetch("/api/admin/users?status=all&includeTest=1", { cache: "no-store" });
@@ -182,12 +195,27 @@ export default function UsersClient({
     [users, selectedId],
   );
 
+  async function loadApiActivity(userId: string) {
+    setApiActivityLoading(true);
+    setApiActivity([]);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/api-activity`, { cache: "no-store" });
+      if (res.ok) {
+        const j = (await res.json()) as { activity: ApiActivityRow[] };
+        setApiActivity(j.activity ?? []);
+      }
+    } finally {
+      setApiActivityLoading(false);
+    }
+  }
+
   async function openEdit(u: UserRow) {
     setSelectedId(u.id);
     setDrawer("edit");
     setModal(null);
     setEmailError(null);
     setAdminPassword("");
+    setApiActivity([]);
     setForm({
       fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.name || "",
       email: u.email,
@@ -199,6 +227,7 @@ export default function UsersClient({
     if (res.ok) {
       const j = (await res.json()) as { user: UserDetail };
       setDetail(j.user);
+      void loadApiActivity(u.id);
       setForm({
         fullName:
           [j.user.firstName, j.user.lastName].filter(Boolean).join(" ") || j.user.name || "",
@@ -414,6 +443,27 @@ export default function UsersClient({
     setMsg({ kind: "ok", text: `${personLabel(detail)} deactivated` });
     setModal(null);
     closeDrawer();
+    void loadList();
+    void loadStats();
+  }
+
+  async function confirmReactivate() {
+    if (!detail || busy) return;
+    setBusy(true);
+    const res = await fetch(`/api/admin/users/${detail.id}/reactivate`, { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setMsg({ kind: "error", text: typeof j.error === "string" ? j.error : "Could not reactivate" });
+      return;
+    }
+    setMsg({ kind: "ok", text: `${personLabel(detail)} reactivated` });
+    setModal(null);
+    const refreshed = await fetch(`/api/admin/users/${detail.id}`, { cache: "no-store" });
+    if (refreshed.ok) {
+      const body = (await refreshed.json()) as { user: UserDetail };
+      setDetail(body.user);
+    }
     void loadList();
     void loadStats();
   }
@@ -808,21 +858,64 @@ export default function UsersClient({
                   </p>
                 ) : (
                   <div className="op-lst">
-                    {detail.phones.map((d) => (
-                      <div key={d.id} className="op-lst-it">
-                        <div className="grow">
-                          <b>{d.label ?? "Phone"}</b>
-                          <div className="op-meta">{fmtSyncAgo(d.lastSeenAt)}</div>
+                    {detail.phones.map((d) => {
+                      const rows = apiActivity.filter((a) => a.deviceId === d.id);
+                      return (
+                        <div key={d.id} className="op-lst-it" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <div className="grow">
+                              <b>{d.label ?? "Phone"}</b>
+                              <div className="op-meta">
+                                {d.platform} · {fmtSyncAgo(d.lastSeenAt)}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => void revokeDevice(d.id)}
+                            >
+                              Sign out device
+                            </button>
+                          </div>
+                          <div className="op-meta" style={{ fontWeight: 600, margin: "10px 0 4px" }}>
+                            Recent API activity
+                          </div>
+                          {apiActivityLoading ? (
+                            <p className="op-meta" style={{ margin: 0 }}>
+                              Loading activity...
+                            </p>
+                          ) : rows.length === 0 ? (
+                            <p className="op-meta" style={{ margin: 0 }}>
+                              No calls logged yet
+                            </p>
+                          ) : (
+                            <div className="op-meta" style={{ color: "var(--op-ink)" }}>
+                              {rows.slice(0, 20).map((a) => {
+                                const when = new Date(a.at).toLocaleString("en-GB", {
+                                  day: "numeric",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                });
+                                const bits = [
+                                  when,
+                                  a.method,
+                                  a.path,
+                                  String(a.statusCode),
+                                  a.note,
+                                  a.durationMs != null ? `${a.durationMs} ms` : null,
+                                ].filter(Boolean);
+                                return (
+                                  <div key={a.id} style={{ marginBottom: 4 }}>
+                                    {bits.join(" · ")}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-xs"
-                          onClick={() => void revokeDevice(d.id)}
-                        >
-                          Sign out device
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 <div className="op-meta" style={{ fontWeight: 600, margin: "16px 0 4px" }}>
@@ -895,7 +988,15 @@ export default function UsersClient({
                     >
                       Deactivate user
                     </button>
-                  ) : null}
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => setModal("reactivate")}
+                    >
+                      Reactivate user
+                    </button>
+                  )}
                   <button type="button" className="btn btn-ghost" style={{ fontSize: 13.5 }} onClick={() => {
                     setConfirmEmail("");
                     setModal("delete");
@@ -969,6 +1070,34 @@ export default function UsersClient({
           <div className="row" style={{ marginTop: 24, gap: 10, display: "flex" }}>
             <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void confirmDeactivate()}>
               Deactivate user
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {modal === "reactivate" && detail ? (
+        <Modal onClose={() => setModal(null)}>
+          <h2 className="op-modal-title">Reactivate {personLabel(detail)}?</h2>
+          <div className="op-drows">
+            <div className="op-drow">
+              <span aria-hidden>•</span>
+              <span>They can sign in again on the phone and web.</span>
+            </div>
+            <div className="op-drow">
+              <span aria-hidden>•</span>
+              <span>Visit history and past reports are kept.</span>
+            </div>
+            <div className="op-drow">
+              <span aria-hidden>•</span>
+              <span>They need to sign in fresh; old device sessions stay signed out.</span>
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 24, gap: 10, display: "flex" }}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void confirmReactivate()}>
+              Reactivate user
             </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModal(null)}>
               Cancel

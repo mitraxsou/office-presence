@@ -103,8 +103,8 @@ function effectLabel(effect?: { days_before: number; days_after: number }): stri
   if (!effect) return "No change";
   const delta = effect.days_after - effect.days_before;
   if (delta === 0) return "No change";
-  if (delta > 0) return `+${delta} day${delta === 1 ? "" : "s"}`;
-  return `${delta} day${delta === -1 ? "" : "s"}`;
+  if (delta > 0) return `+${delta} point${delta === 1 ? "" : "s"}`;
+  return `${delta} point${delta === -1 ? "" : "s"}`;
 }
 
 function recordedText(recorded: unknown): string {
@@ -132,7 +132,7 @@ function requestedText(requested: unknown, officeName: string | null): { lines: 
   if (office) lines.push(office);
   if (r.in_at && r.out_at) lines.push(`${fmtClock(String(r.in_at))} to ${fmtClock(String(r.out_at))}`);
   if (typeof r.counts_as === "number") {
-    lines.push(r.counts_as === 1 ? "Counts as 1 day" : `Counts as ${r.counts_as} days`);
+    lines.push(r.counts_as === 1 ? "Counts as 1 point" : `Counts as ${r.counts_as} points`);
   }
   return { lines: lines.length ? lines : ["Requested change"], remove: false };
 }

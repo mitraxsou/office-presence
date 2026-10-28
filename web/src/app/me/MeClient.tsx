@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { daysMeterLabel } from "@/lib/days-format";
+import { pointsMeterLabel, visitDaysFyi } from "@/lib/points-format";
 import {
   dayTitle,
   fmtDurationSince,
@@ -65,7 +65,7 @@ function shiftMonth(key: string, delta: number) {
 
 function chipLabel(points: number) {
   const n = Math.max(0, Math.round(points));
-  return n === 1 ? "1 day" : `${n} days`;
+  return n === 1 ? "1 point" : `${n} points`;
 }
 
 export default function MeClient({
@@ -73,13 +73,15 @@ export default function MeClient({
   greetingText,
   greetingDate,
   viewAs,
+  initialMonth = null,
 }: {
   name: string;
   greetingText?: string;
   greetingDate?: string;
   viewAs?: { mode: "readonly" | "full"; name: string } | null;
+  initialMonth?: string | null;
 }) {
-  const [month, setMonth] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(initialMonth);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
@@ -88,8 +90,13 @@ export default function MeClient({
   const [pendingDays, setPendingDays] = useState<Set<string>>(new Set());
   const viewAsReadonly = viewAs?.mode === "readonly";
 
+  useEffect(() => {
+    if (initialMonth && initialMonth !== month) setMonth(initialMonth);
+  }, [initialMonth, month]);
+
   const load = useCallback(async (m: string | null) => {
     setLoading(true);
+    setSelected(null);
     const res = await fetch(`/api/me/reports${m ? `?month=${m}` : ""}`, { cache: "no-store" });
     if (res.ok) {
       const json = (await res.json()) as Report;
@@ -104,19 +111,51 @@ export default function MeClient({
     const res = await fetch(`/api/me/corrections?month=${m}`, { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { requests?: CorrectionRow[] };
-    const pending = new Set(
-      (json.requests ?? []).filter((r) => r.status === "pending").map((r) => r.dayKey),
+    setPendingDays(
+      new Set((json.requests ?? []).filter((r) => r.status === "pending").map((r) => r.dayKey)),
     );
-    setPendingDays(pending);
   }, []);
 
   useEffect(() => {
-    void load(month);
-  }, [month, load]);
+    let cancelled = false;
+    setLoading(true);
+    setSelected(null);
+    void (async () => {
+      const res = await fetch(`/api/me/reports${month ? `?month=${month}` : ""}`, { cache: "no-store" });
+      if (cancelled) return;
+      if (res.ok) {
+        const json = (await res.json()) as Report;
+        if (cancelled) return;
+        if (month && json.month !== month) {
+          setLoading(false);
+          return;
+        }
+        setData(json);
+        if (!month) setMonth(json.month);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
 
   useEffect(() => {
-    void loadCorrections(month);
-  }, [month, loadCorrections]);
+    if (!month) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(`/api/me/corrections?month=${month}`, { cache: "no-store" });
+      if (cancelled || !res.ok) return;
+      const json = (await res.json()) as { requests?: CorrectionRow[] };
+      if (cancelled) return;
+      setPendingDays(
+        new Set((json.requests ?? []).filter((r) => r.status === "pending").map((r) => r.dayKey)),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
 
   useEffect(() => {
     fetch("/api/offices")
@@ -124,8 +163,15 @@ export default function MeClient({
       .then((j) => setOffices(j.offices ?? []));
   }, []);
 
-  const dayMap = useMemo(() => new Map((data?.days ?? []).map((d) => [d.dayKey, d])), [data]);
-  const tz = data?.timezone ?? "Asia/Kolkata";
+  const monthReady = !!data && !!month && data.month === month;
+  const showMonthLoading = loading || (!!data && !!month && data.month !== month);
+  const currentMonth = data?.currentMonth ?? month;
+
+  const dayMap = useMemo(
+    () => new Map((monthReady ? data?.days ?? [] : []).map((d) => [d.dayKey, d])),
+    [data, monthReady],
+  );
+  const tz = (monthReady ? data?.timezone : null) ?? "Asia/Kolkata";
   const todayKey = useMemo(
     () => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()),
     [tz],
@@ -142,13 +188,14 @@ export default function MeClient({
     return out;
   }, [month]);
 
-  const sel = selected ? dayMap.get(selected) : undefined;
-  const meter = data ? daysMeterLabel(data.monthPoints, data.pointsTarget) : null;
-  const pct = data
-    ? Math.min(100, Math.round((Math.max(0, data.monthPoints) / Math.max(1, data.pointsTarget)) * 100))
-    : 0;
-  const sinceDur = data?.today.sinceAt ? fmtDurationSince(data.today.sinceAt) : null;
-  const sinceTime = data?.today.sinceAt ? fmtTime(data.today.sinceAt, tz) : null;
+  const sel = selected && monthReady ? dayMap.get(selected) : undefined;
+  const meter = monthReady && data ? pointsMeterLabel(data.monthPoints, data.pointsTarget) : null;
+  const pct =
+    monthReady && data
+      ? Math.min(100, Math.round((Math.max(0, data.monthPoints) / Math.max(1, data.pointsTarget)) * 100))
+      : 0;
+  const sinceDur = monthReady && data?.today.sinceAt ? fmtDurationSince(data.today.sinceAt) : null;
+  const sinceTime = monthReady && data?.today.sinceAt ? fmtTime(data.today.sinceAt, tz) : null;
 
   function openDay(dayKey: string) {
     setSelected(dayKey);
@@ -178,12 +225,31 @@ export default function MeClient({
           >
             ‹
           </button>
-          <h1 className="op-page-title">{month ? monthTitle(month) : "My month"}</h1>
+          <div>
+            <h1 className="op-page-title">{month ? monthTitle(month) : "My month"}</h1>
+            <div className="help">
+              {(() => {
+                try {
+                  const at = Number(sessionStorage.getItem("op-last-successful-sync-at") || "0");
+                  const mins = at > 0 ? Math.max(0, Math.floor((Date.now() - at) / 60_000)) : -1;
+                  if (mins < 0) return "Not synced yet";
+                  if (mins < 1) return "Updated just now";
+                  if (mins === 1) return "Updated 1 min ago";
+                  if (mins < 60) return `Updated ${mins} min ago`;
+                  if (mins < 120) return "Updated 1 h ago";
+                  if (mins < 24 * 60) return `Updated ${Math.floor(mins / 60)} h ago`;
+                  return `Updated ${Math.floor(mins / (24 * 60))} d ago`;
+                } catch {
+                  return "Updated recently";
+                }
+              })()}
+            </div>
+          </div>
           <button
             type="button"
             className="op-icon-btn"
             aria-label="Next month"
-            disabled={!data || month === data.currentMonth}
+            disabled={!month || !currentMonth || month === currentMonth}
             onClick={() => month && setMonth(shiftMonth(month, 1))}
           >
             ›
@@ -194,7 +260,7 @@ export default function MeClient({
 
       <div className="op-month-grid">
         <div className="op-month-side">
-          {loading && !data ? (
+          {showMonthLoading ? (
             <>
               <div className="card">
                 <span className="skeleton" style={{ height: 72, width: 120 }} />
@@ -205,7 +271,7 @@ export default function MeClient({
                 <span className="skeleton" style={{ height: 10, marginTop: 16 }} />
               </div>
             </>
-          ) : data ? (
+          ) : monthReady && data ? (
             <>
               <div className="card op-status-card">
                 <div className="op-status-row-web">
@@ -228,7 +294,7 @@ export default function MeClient({
                 <div className="op-days-row">
                   <div>
                     <span className="op-days-num">{Math.round(data.monthPoints)}</span>
-                    <span className="op-days-den"> / {data.pointsTarget} days</span>
+                    <span className="op-days-den"> / {data.pointsTarget} points</span>
                   </div>
                   {meter?.met ? (
                     <span className="op-badge goal">Goal met</span>
@@ -240,14 +306,13 @@ export default function MeClient({
                   <div className="op-days-fill" style={{ width: `${pct}%` }} />
                 </div>
                 <p className="op-meta" style={{ marginTop: 10 }}>
-                  {data.monthVisitDays === 1 ? "1 visit so far." : `${data.monthVisitDays} visits so far.`}
+                  {visitDaysFyi(data.monthVisitDays)}
                 </p>
                 <div className="op-hours-fyi">
                   <div>
-                    <span className="op-label">Hours today</span>{" "}
-                    <span className="op-badge fyi">FYI</span>
+                    <span className="op-label">Hours today</span>
                     <div className="op-meta" style={{ marginTop: 2 }}>
-                      Suggested {data.dayHoursAdvisory} h a day. Does not affect days.
+                      Suggested {data.dayHoursAdvisory} h a day. Does not affect points.
                     </div>
                   </div>
                   <div className="op-hours-value">{fmtHours(data.today.hoursToday)}</div>
@@ -269,7 +334,7 @@ export default function MeClient({
               {d}
             </div>
           ))}
-          {loading && !data
+          {showMonthLoading || !monthReady
             ? cells.map((c, i) =>
                 c ? (
                   <span key={i} className="skeleton op-wcal-d" style={{ display: "block" }} />
@@ -400,15 +465,61 @@ function DayDrawer({
         {day ? (
           <div className="op-drawer-chip-row">
             <span className="op-badge accent" style={{ background: "var(--op-accent)", color: "var(--op-on-accent)" }}>
-              {day.points === 1 ? "Counts as 1 day" : `Counts as ${Math.round(day.points)} days`}
+              {day.points === 1 ? "Counts as 1 point" : `Counts as ${Math.round(day.points)} points`}
             </span>
             <span className="op-meta">
               {multi
                 ? `${groups.length} offices, ${visits} visit${visits === 1 ? "" : "s"}`
-                : day.points > 1
-                  ? `Each visit day at this office counts as ${Math.round(day.points)}`
-                  : day.officeName || "Office"}
+                : day.officeName || "Office"}
             </span>
+          </div>
+        ) : null}
+
+        {day && day.points > 0 ? (
+          <div
+            className="row"
+            style={{
+              marginTop: 16,
+              marginBottom: 4,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ textAlign: "center", minWidth: 64 }}>
+              <div className="op-meta">Visits</div>
+              <div className="op-label" style={{ fontWeight: 600, marginTop: 4 }}>
+                {visits || 1}
+              </div>
+            </div>
+            {multi ? (
+              <div style={{ textAlign: "center", minWidth: 64 }}>
+                <div className="op-meta">Offices</div>
+                <div className="op-label" style={{ fontWeight: 600, marginTop: 4 }}>
+                  {groups.length}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", minWidth: 64 }}>
+                <div className="op-meta">Hours</div>
+                <div className="op-label" style={{ fontWeight: 600, marginTop: 4 }}>
+                  {fmtHours(day.hours)}
+                </div>
+              </div>
+            )}
+            <div style={{ textAlign: "center", minWidth: 64 }}>
+              <div className="op-meta">First In</div>
+              <div className="op-label" style={{ fontWeight: 600, marginTop: 4 }}>
+                {fmtTime(day.firstIn, timezone)}
+              </div>
+            </div>
+            <div style={{ textAlign: "center", minWidth: 64 }}>
+              <div className="op-meta">Last Out</div>
+              <div className="op-label" style={{ fontWeight: 600, marginTop: 4 }}>
+                {fmtTime(day.lastOut, timezone)}
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -444,10 +555,7 @@ function DayDrawer({
 
         {day ? (
           <div className="op-drawer-hours">
-            <span className="row" style={{ gap: 8, display: "inline-flex", alignItems: "center" }}>
-              <span className="op-label">{multi ? "Total in office" : "Hours"}</span>
-              <span className="op-badge fyi">FYI</span>
-            </span>
+            <span className="op-label">{multi ? "Total in office" : "Hours"}</span>
             <span className="op-ink2 tab">{fmtHours(day.hours)}</span>
           </div>
         ) : null}
