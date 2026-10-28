@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [deliveryFailed, setDeliveryFailed] = useState(false);
   const [verifyError, setVerifyError] = useState("");
   const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const autoSubmittedCode = useRef("");
 
   const code = digits.join("");
 
@@ -26,6 +27,17 @@ export default function LoginPage() {
       inputsRef.current[0]?.focus();
     }
   }, [mode, step, deliveryFailed]);
+
+  useEffect(() => {
+    if (code.length < 6) {
+      autoSubmittedCode.current = "";
+      return;
+    }
+    if (step !== "code" || deliveryFailed || busy) return;
+    if (autoSubmittedCode.current === code) return;
+    autoSubmittedCode.current = code;
+    void verify();
+  }, [code, step, deliveryFailed, busy]);
 
   async function sendCode() {
     setBusy(true);
@@ -48,6 +60,7 @@ export default function LoginPage() {
     setStep("code");
     setDeliveryFailed(false);
     setDigits(["", "", "", "", "", ""]);
+    autoSubmittedCode.current = "";
   }
 
   async function verify() {
@@ -118,6 +131,7 @@ export default function LoginPage() {
     setDigits(["", "", "", "", "", ""]);
     setDeliveryFailed(false);
     setVerifyError("");
+    autoSubmittedCode.current = "";
   }
 
   function switchMode(next: Mode) {
@@ -127,6 +141,7 @@ export default function LoginPage() {
     setPassword("");
     setDeliveryFailed(false);
     setVerifyError("");
+    autoSubmittedCode.current = "";
   }
 
   return (
@@ -346,7 +361,14 @@ export default function LoginPage() {
       </div>
 
       <footer className="op-login-foot">
-        PwC internal pilot. Sign in with a Teams code or a password you set in Settings.
+        <div>
+          PwC internal pilot. Sign in with a Teams code or a password you set in Settings.
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <a href="/download" style={{ color: "inherit" }}>
+            Download the Android app
+          </a>
+        </div>
       </footer>
     </div>
   );

@@ -8,6 +8,8 @@
     "test:android": "cd android && gradlew.bat test --console=plain",
     "test:all": "npm run test --prefix web && npm run test:bugs --prefix web && npm run build --prefix web",
     "dev": "npm run dev --prefix web",
-    "build": "npm run build --prefix web"
+    "build": "npm run build --prefix web",
+    "android:release": "cd android && gradlew.bat assembleRelease --console=plain",
+    "distribute:android": "powershell -ExecutionPolicy Bypass -File scripts/distribute-android.ps1"
   }
 }

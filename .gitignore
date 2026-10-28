@@ -14,6 +14,9 @@ out/
 .vscode/
 android/.gradle/
 android/local.properties
+android/keystore.properties
+android/app/google-services.json
+**/firebase-adminsdk*.json
 android/**/build/
 android/**/.cxx/
 android/*.iml
@@ -21,6 +24,8 @@ android/app/*.apk
 android/app/*.aab
 *.jks
 *.keystore
+android/*.jks
+android/*.keystore
 coverage/
 web/.env
 web/.env.local
@@ -39,4 +44,5 @@ web/.env.vercel*.local
 
 
 .tools/
+.tmp-firebase-auth/
 
