@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Person
@@ -41,9 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.pwc.officepresence.ui.analytics.OpAnalytics
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -58,6 +61,7 @@ import com.pwc.officepresence.ui.compose.OpFormat
 import com.pwc.officepresence.ui.compose.OpNoticeBanner
 import com.pwc.officepresence.ui.compose.TodayScreen
 import com.pwc.officepresence.ui.compose.ViewAsBanner
+import com.pwc.officepresence.ui.compose.YearScreen
 import com.pwc.officepresence.ui.compose.YouScreen
 import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OfficePresenceTheme
@@ -146,9 +150,16 @@ class ShellActivity : AppCompatActivity() {
                             }
                         }
                     },
+                    onUnauthorized = { goToLoginAfterUnauthorized() },
                 )
             }
         }
+    }
+
+    private fun goToLoginAfterUnauthorized() {
+        PresenceService.stop(this)
+        startActivity(Intent(this, LoginActivity::class.java))
+        finish()
     }
 
     private fun requestPerms() {
@@ -201,6 +212,10 @@ class ShellActivity : AppCompatActivity() {
                 thread {
                     val state = repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble())
                     runOnUiThread {
+                        if (state.unauthorized) {
+                            goToLoginAfterUnauthorized()
+                            return@runOnUiThread
+                        }
                         onDone(
                             if (state.ok) {
                                 if (state.inOffice) "In at ${state.officeName ?: "office"}" else "Out of office"
@@ -221,9 +236,14 @@ class ShellActivity : AppCompatActivity() {
 private enum class Tab(val label: String, val icon: ImageVector) {
     Today("Today", Icons.Outlined.LocationOn),
     Month("Month", Icons.Outlined.CalendarMonth),
+    Year("Year", Icons.Outlined.BarChart),
     Colleagues("Colleagues", Icons.Outlined.Groups),
     You("You", Icons.Outlined.Person),
 }
+
+/** Colleagues tab is admin-only. View-as follows the target (never admin). */
+private fun showColleaguesTab(prefs: AppPrefs): Boolean =
+    prefs.role == "admin" && !prefs.isViewAsActive
 
 @Composable
 private fun ShellApp(
@@ -234,13 +254,30 @@ private fun ShellApp(
     onForceDetect: ((String) -> Unit) -> Unit,
     onEndViewAs: () -> Unit,
     onSignOut: () -> Unit,
+    onUnauthorized: () -> Unit,
 ) {
     var tab by remember { mutableStateOf(Tab.Today) }
+    var monthFocus by remember { mutableStateOf<String?>(null) }
     var viewAsEpoch by remember { mutableStateOf(0) }
     var viewAsEndedNotice by remember { mutableStateOf<String?>(null) }
     val p = LocalOpPalette.current
-    @Suppress("UNUSED_EXPRESSION")
-    viewAsEpoch
+    val ctx = LocalContext.current
+    val colleaguesTab = showColleaguesTab(prefs)
+    val tabs = remember(colleaguesTab, viewAsEpoch) {
+        buildList {
+            add(Tab.Today)
+            add(Tab.Month)
+            add(Tab.Year)
+            if (colleaguesTab) add(Tab.Colleagues)
+            add(Tab.You)
+        }
+    }
+    LaunchedEffect(tabs) {
+        if (tab !in tabs) tab = Tab.Today
+    }
+    LaunchedEffect(tab) {
+        OpAnalytics.screen(ctx, tab.label)
+    }
     LaunchedEffect(viewAsEndedNotice) {
         if (viewAsEndedNotice != null) {
             kotlinx.coroutines.delay(8_000)
@@ -256,11 +293,11 @@ private fun ShellApp(
                     .background(p.surface)
                     .navigationBarsPadding()
                     .height(88.dp)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Tab.entries.forEach { t ->
+                tabs.forEach { t ->
                     val selected = t == tab
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -268,7 +305,7 @@ private fun ShellApp(
                             .clip(OpShape.Pill)
                             .background(if (selected) OpColor.AccentWash else p.surface)
                             .clickable { tab = t }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = if (tabs.size > 4) 10.dp else 14.dp, vertical = 10.dp),
                     ) {
                         Icon(
                             t.icon,
@@ -317,9 +354,26 @@ private fun ShellApp(
                         prefs = prefs,
                         onRequestPermissions = onRequestPermissions,
                         onForceDetect = onForceDetect,
-                        onOpenColleagues = { tab = Tab.Colleagues },
+                        onOpenColleagues = {
+                            if (showColleaguesTab(prefs)) tab = Tab.Colleagues
+                        },
+                        onOpenMonth = { tab = Tab.Month },
+                        onUnauthorized = onUnauthorized,
                     )
-                    Tab.Month -> MonthScreen(repo = repo, prefs = prefs)
+                    Tab.Month -> MonthScreen(
+                        repo = repo,
+                        prefs = prefs,
+                        initialMonthKey = monthFocus,
+                        onInitialMonthConsumed = { monthFocus = null },
+                    )
+                    Tab.Year -> YearScreen(
+                        repo = repo,
+                        prefs = prefs,
+                        onOpenMonth = { key ->
+                            monthFocus = key
+                            tab = Tab.Month
+                        },
+                    )
                     Tab.Colleagues -> ColleaguesScreen(
                         repo = repo,
                         prefs = prefs,
@@ -332,6 +386,7 @@ private fun ShellApp(
                         onForceDetect = onForceDetect,
                         onOpenDeveloper = onOpenDeveloper,
                         onSignOut = onSignOut,
+                        onUnauthorized = onUnauthorized,
                         onViewAsStarted = {
                             viewAsEpoch += 1
                             tab = Tab.Today

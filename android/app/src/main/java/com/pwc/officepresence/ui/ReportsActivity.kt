@@ -88,7 +88,7 @@ class ReportsActivity : AppCompatActivity() {
         val points = data.optInt("monthPoints")
         val target = data.optInt("pointsTarget").coerceAtLeast(1)
         val visitDays = data.optInt("monthVisitDays")
-        val summary = Ui.card(content, "$points / $target days", "$visitDays visit day${if (visitDays == 1) "" else "s"} this month")
+        val summary = Ui.card(content, "$points / $target points", "$visitDays visit day${if (visitDays == 1) "" else "s"} this month")
         if (data.optBoolean("targetMet")) {
             summary.addView(Ui.text(this, "Goal met", 14f, bold = true).apply {
                 setTextColor(getColor(R.color.pwc_orange))
@@ -103,7 +103,7 @@ class ReportsActivity : AppCompatActivity() {
             summary.addView(
                 Ui.text(
                     this,
-                    "Today: $status. Hours ${"%.1f".format(today.optDouble("hoursToday"))} (FYI).",
+                    "Today: $status. Hours ${"%.1f".format(today.optDouble("hoursToday"))}.",
                     13f,
                     muted = true,
                 ).apply { setPadding(0, Ui.dp(context, 6), 0, 0) },
@@ -226,7 +226,7 @@ class ReportsActivity : AppCompatActivity() {
             sel,
             if (day != null && day.optInt("points") > 0) {
                 val n = day.optInt("points")
-                if (n == 1) "Counts as 1 day" else "Counts as $n days"
+                if (n == 1) "Counts as 1 point" else "Counts as $n points"
             } else "No visit",
         )
         if (day != null && day.has("firstIn")) {
@@ -234,11 +234,11 @@ class ReportsActivity : AppCompatActivity() {
                 setPadding(0, Ui.dp(context, 8), 0, 0)
             })
             detail.addView(Ui.text(this, "Last out  ${Ui.fmtTime(day.optString("lastOut").takeIf { it != "null" }, tz)}", 14f))
-            detail.addView(Ui.text(this, "Hours (FYI)  ${"%.1f".format(day.optDouble("hours"))}", 14f, muted = true))
+            detail.addView(Ui.text(this, "Hours  ${"%.1f".format(day.optDouble("hours"))}", 14f, muted = true))
             detail.addView(
                 Ui.text(
                     this,
-                    "Days from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
+                    "Points from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
                     14f,
                     muted = true,
                 ),
@@ -260,7 +260,7 @@ class ReportsActivity : AppCompatActivity() {
             detail.addView(
                 Ui.text(
                     this,
-                    "Days from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
+                    "Points from  ${day.optString("officeName").takeIf { it.isNotBlank() && it != "null" } ?: "Office"}",
                     14f,
                     muted = true,
                 ).apply { setPadding(0, Ui.dp(context, 8), 0, 0) },
@@ -291,8 +291,8 @@ class ReportsActivity : AppCompatActivity() {
         }
         val names = offices.map {
             val n = it.pointsPerVisitDay
-            val days = if (n == 1) "1 day" else "$n days"
-            "${it.displayName} (Counts as $days)"
+            val pts = if (n == 1) "1 point" else "$n points"
+            "${it.displayName} (Counts as $pts)"
         }.ifEmpty { listOf("No offices") }
         val spinner = Spinner(this).apply {
             adapter = ArrayAdapter(this@ReportsActivity, android.R.layout.simple_spinner_dropdown_item, names)
@@ -303,7 +303,7 @@ class ReportsActivity : AppCompatActivity() {
         box.addView(reasonEt)
         AlertDialog.Builder(this)
             .setTitle("Correct $dayKey")
-            .setMessage("Admin must approve before days change.")
+            .setMessage("Admin must approve before points change.")
             .setView(box)
             .setPositiveButton("Send") { _, _ ->
                 val reason = reasonEt.text.toString().trim()

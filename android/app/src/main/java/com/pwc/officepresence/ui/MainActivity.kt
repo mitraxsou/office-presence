@@ -217,17 +217,17 @@ class MainActivity : AppCompatActivity() {
             if (state.inOffice && current != null) {
                 if (isNotEmpty()) append(" - ")
                 val n = current.pointsPerVisitDay
-                append(if (n == 1) "Counts as 1 day" else "Counts as $n days")
+                append(if (n == 1) "Counts as 1 point" else "Counts as $n points")
             }
         }
         officeDetailText.visibility = if (officeDetailText.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
         val target = state.pointsTarget.coerceAtLeast(1)
-        pointsText.text = "${state.monthPoints} / $target days"
+        pointsText.text = "${state.monthPoints} / $target points"
         pointsMeter.setProgressCompat(((state.monthPoints * 100) / target).coerceIn(0, 100), true)
         pointsDetailText.text = if (state.targetMet) "Goal met"
         else "${(target - state.monthPoints).coerceAtLeast(0)} to go, ${state.monthVisitDays} visits"
-        hoursText.text = "Hours ${"%.1f".format(state.hoursToday)} (FYI)"
+        hoursText.text = "Hours ${"%.1f".format(state.hoursToday)}"
 
         trackingChip.text = compactTracking()
         eventList.text = repo.log().recent(6).joinToString("\n").ifBlank { "" }

@@ -8,13 +8,13 @@ data class PresenceRules(
     val gapMinutes: Int = 15,
     /** When set, overrides gapMinutes (phone test mode uses 15). */
     val gapSeconds: Int? = null,
-    /** Advisory FYI only. Never gates points. */
+    /** Advisory only. Never gates points. */
     val dayHours: Double = 5.0,
     val monthlyDaysTarget: Int = 8,
     val monthlyPointsTarget: Int = 8,
     val timezone: String = "Asia/Kolkata",
     val fenceRadiusMeters: Double = 100.0,
-    val sampleIntervalMinutes: Int = 5,
+    val sampleIntervalMinutes: Int = 10,
 ) {
     fun gapMs(): Long =
         if (gapSeconds != null && gapSeconds > 0) gapSeconds * 1000L
@@ -69,7 +69,7 @@ data class DayPoints(
 data class ComputeResult(
     val visits: List<ComputedVisit>,
     val totalHours: Double,
-    /** Advisory only: hours reached the FYI dayHours figure. */
+    /** Advisory only: hours reached the dayHours figure. */
     val dayMet: Boolean,
     val visitDays: Int = 0,
     val totalPoints: Int = 0,

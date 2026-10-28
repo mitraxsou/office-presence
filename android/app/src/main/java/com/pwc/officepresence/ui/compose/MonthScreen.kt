@@ -40,6 +40,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,7 +61,7 @@ import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.Office
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
-import com.pwc.officepresence.ui.DaysFormat
+import com.pwc.officepresence.ui.PointsFormat
 import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OpColor
 import com.pwc.officepresence.ui.theme.OpShape
@@ -104,48 +105,87 @@ fun MonthScreen(
     repo: PresenceRepository,
     prefs: AppPrefs,
     onOpenRequests: () -> Unit = {},
+    initialMonthKey: String? = null,
+    onInitialMonthConsumed: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
     val main = remember { Handler(Looper.getMainLooper()) }
-    var monthKey by remember { mutableStateOf(YearMonth.now().toString()) }
+    var monthKey by remember { mutableStateOf(initialMonthKey ?: YearMonth.now().toString()) }
+    var requestedMonth by remember { mutableStateOf(initialMonthKey ?: YearMonth.now().toString()) }
     var report by remember { mutableStateOf<JSONObject?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var selectedDay by remember { mutableStateOf<String?>(null) }
     var corrections by remember { mutableStateOf<List<PendingCorrection>>(emptyList()) }
     var offices by remember { mutableStateOf(prefs.offices()) }
-    var toast by remember { mutableStateOf<String?>(null) }
     var correcting by remember { mutableStateOf(false) }
     var correctionDay by remember { mutableStateOf<String?>(null) }
+    var reportEpoch by remember { mutableIntStateOf(0) }
 
     fun reload(month: String? = monthKey) {
-        loading = true
+        val targetMonth = month ?: monthKey
+        requestedMonth = targetMonth
+        monthKey = targetMonth
+        selectedDay = null
         err = null
+        // Offices come from prefs (filled by Today/sync); skip a third network hop.
+        offices = prefs.offices()
+        val cached = prefs.cachedReportJson(targetMonth)
+        val dirty = prefs.isMonthDirty(targetMonth)
+        val syncedToday = repo.syncedToday()
+        val currentMonth = targetMonth == YearMonth.now().toString()
+        // Paint from disk immediately (Year-style); network refreshes in the background.
+        if (cached != null) {
+            report = cached
+            loading = false
+        } else {
+            loading = true
+        }
+        // Current month after a sync today with no dirty flag: skip the reports round-trip.
+        val skipNetwork = cached != null && currentMonth && syncedToday && !dirty
+        if (!skipNetwork) {
+            thread {
+                val res = runCatching { repo.api.reports(targetMonth) }.getOrNull()
+                main.post {
+                    if (requestedMonth != targetMonth) return@post
+                    if (res?.ok() == true) {
+                        val hadVisible = report != null && report?.optString("month") == targetMonth
+                        report = res
+                        monthKey = res.optString("month", targetMonth)
+                        prefs.storeReportJson(targetMonth, res.toString())
+                        prefs.storeReportFetchedAt(targetMonth, System.currentTimeMillis())
+                        prefs.clearMonthDirty(targetMonth)
+                        loading = false
+                        err = null
+                        // Soft fade only when replacing already-shown cache (not first paint).
+                        if (hadVisible) reportEpoch += 1
+                    } else if (report == null || report?.optString("month") != targetMonth) {
+                        err = res?.optString("error") ?: "Could not load"
+                        loading = false
+                    } else {
+                        loading = false
+                    }
+                }
+            }
+        }
         thread {
-            val res = runCatching { repo.api.reports(month) }.getOrNull()
-            val corr = runCatching { repo.api.listCorrections(month) }.getOrNull()
-            val officeRes = runCatching { repo.api.offices() }.getOrNull()
-            val list = if (officeRes?.ok() == true) {
-                val arr = officeRes.optJSONArray("offices")
-                if (arr == null) prefs.offices() else Office.listFromJson(arr)
-            } else prefs.offices()
+            val corr = runCatching { repo.api.listCorrections(targetMonth) }.getOrNull()
             val pending = parseCorrections(corr)
             main.post {
-                offices = list
+                if (requestedMonth != targetMonth) return@post
                 corrections = pending
-                if (res?.ok() == true) {
-                    report = res
-                    monthKey = res.optString("month", month ?: monthKey)
-                    loading = false
-                } else {
-                    err = res?.optString("error") ?: "Could not load"
-                    loading = false
-                }
             }
         }
     }
 
-    LaunchedEffect(Unit) { reload(null) }
+    LaunchedEffect(initialMonthKey) {
+        val target = initialMonthKey ?: YearMonth.now().toString()
+        if (repo.shouldRefreshOnOpen()) {
+            thread { repo.refreshIfNeeded() }
+        }
+        reload(target)
+        if (initialMonthKey != null) onInitialMonthConsumed()
+    }
 
     if (correcting && correctionDay != null) {
         CorrectionFlow(
@@ -182,18 +222,24 @@ fun MonthScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = {
-                monthKey = YearMonth.parse(monthKey).minusMonths(1).toString()
-                reload(monthKey)
+                reload(YearMonth.parse(monthKey).minusMonths(1).toString())
             }) {
                 Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "Previous month", tint = p.ink)
             }
-            Text(OpFormat.fmtMonthTitle(monthKey), style = OpType.Heading, color = p.ink)
-            val current = report?.optString("currentMonth") ?: YearMonth.now().toString()
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(OpFormat.fmtMonthTitle(monthKey), style = OpType.Heading, color = p.ink)
+                Text(
+                    OpFormat.updatedAgo(prefs.lastSyncAtMs),
+                    style = OpType.Meta,
+                    color = p.ink3,
+                )
+            }
+            val current = report?.optString("currentMonth")?.takeIf { it.isNotBlank() }
+                ?: YearMonth.now().toString()
             IconButton(
                 onClick = {
                     if (monthKey < current) {
-                        monthKey = YearMonth.parse(monthKey).plusMonths(1).toString()
-                        reload(monthKey)
+                        reload(YearMonth.parse(monthKey).plusMonths(1).toString())
                     }
                 },
                 enabled = monthKey < current,
@@ -202,86 +248,90 @@ fun MonthScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
+        val reportMatches = report?.optString("month").orEmpty() == monthKey
         when {
-            loading && report == null -> {
-                Text("Loading month...", color = p.ink3, style = OpType.Body)
-            }
-            err != null && report == null -> Text(err!!, color = p.ink2)
-            report != null -> {
-                val data = report!!
-                val points = data.optInt("monthPoints")
-                val target = data.optInt("pointsTarget").coerceAtLeast(1)
-                val visitDays = data.optInt("monthVisitDays")
-                val pendingCount = corrections.count { it.status == "pending" && it.dayKey.startsWith(monthKey) }
-                val correctedCount = corrections.count { it.status == "approved" && it.dayKey.startsWith(monthKey) }
-                val footer = buildString {
-                    append(if (visitDays == 1) "1 visit" else "$visitDays visits")
-                    val doubleOffice = offices.firstOrNull { it.pointsPerVisitDay >= 2 }
-                    if (doubleOffice != null) append(". ${doubleOffice.displayName} counts as 2 days")
-                    if (pendingCount > 0) append(". $pendingCount day${if (pendingCount == 1) "" else "s"} pending review")
-                    if (correctedCount > 0) append(". $correctedCount corrected")
-                    append(".")
-                }
-                OpCard {
-                    DaysMeter(points, target, footer = footer)
-                }
-                Spacer(Modifier.height(16.dp))
-                OpCard {
-                    CalendarGrid(
-                        monthKey = monthKey,
-                        days = dayMap(data),
-                        pendingDays = corrections.filter { it.status == "pending" }.map { it.dayKey }.toSet(),
-                        todayKey = LocalDate.now().toString(),
-                        selectedDay = selectedDay,
-                        onSelect = { selectedDay = it },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(OpColor.Accent))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Visit day", style = OpType.Meta, color = p.ink3)
+            reportMatches && report != null -> {
+                // Pair epoch with the report so outgoing fade keeps the previous snapshot.
+                OpContentFade(
+                    targetState = reportEpoch to report!!,
+                    label = "monthReport",
+                ) { (_, data) ->
+                    val points = data.optInt("monthPoints")
+                    val target = data.optInt("pointsTarget").coerceAtLeast(1)
+                    val visitDays = data.optInt("monthVisitDays")
+                    val days = dayMap(data)
+                    val hasDoubleDay = days.values.any { it.points >= 2 }
+                    val mk = data.optString("month", monthKey)
+                    val pendingCount = corrections.count { it.status == "pending" && it.dayKey.startsWith(mk) }
+                    val correctedCount = corrections.count { it.status == "approved" && it.dayKey.startsWith(mk) }
+                    val footer = buildString {
+                        append(PointsFormat.visitDaysFyi(visitDays))
+                        if (pendingCount > 0) append(". $pendingCount day${if (pendingCount == 1) "" else "s"} pending review")
+                        if (correctedCount > 0) append(". $correctedCount corrected")
+                        append(".")
+                    }
+                    Column {
+                        OpCard {
+                            DaysMeter(points, target, footer = footer)
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "2",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = p.ink2,
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(p.sunk)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                        Spacer(Modifier.height(16.dp))
+                        OpCard {
+                            CalendarGrid(
+                                monthKey = mk,
+                                days = days,
+                                pendingDays = corrections.filter { it.status == "pending" }.map { it.dayKey }.toSet(),
+                                todayKey = LocalDate.now().toString(),
+                                selectedDay = selectedDay,
+                                onSelect = { selectedDay = it },
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text("Counts as 2 days", style = OpType.Meta, color = p.ink3)
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(10.dp).clip(CircleShape).background(OpColor.Accent))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Visit day", style = OpType.Meta, color = p.ink3)
+                                }
+                                if (hasDoubleDay) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "4+",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = p.ink2,
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .background(p.sunk)
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Higher points day", style = OpType.Meta, color = p.ink3)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
-        if (toast != null) {
-            Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(OpShape.Card)
-                    .background(p.ink)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Check, contentDescription = null, tint = p.surface, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(toast!!, color = p.surface, style = OpType.Meta)
+            loading || !reportMatches -> {
+                Text("Loading month...", color = p.ink3, style = OpType.Body)
             }
+            err != null -> Text(err!!, color = p.ink2)
         }
     }
 
     val day = selectedDay
-    if (day != null && report != null) {
+    if (day != null && report != null && report?.optString("month").orEmpty() == monthKey) {
         val info = dayMap(report)[day]
         val pending = corrections.firstOrNull { it.dayKey == day && it.status == "pending" }
         val decided = corrections.firstOrNull { it.dayKey == day && it.status in setOf("approved", "rejected") }
+        val approvedToast = if (decided?.status == "approved") {
+            val pts = report?.optInt("monthPoints") ?: 0
+            val tgt = report?.optInt("pointsTarget") ?: 8
+            val mon = OpFormat.fmtMonthShort(monthKey)
+            "Your correction for ${day.takeLast(2).toInt()} ${mon.take(3)} was approved. $mon is now $pts / $tgt points."
+        } else {
+            null
+        }
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { selectedDay = null },
@@ -294,6 +344,7 @@ fun MonthScreen(
                 info = info,
                 pending = pending,
                 decided = decided,
+                approvedToast = approvedToast,
                 tz = prefs.timezone,
                 gapMinutes = prefs.gapMinutes,
                 readonly = prefs.isViewAsReadonly,
@@ -319,13 +370,20 @@ fun MonthScreen(
                 },
             )
         }
-        LaunchedEffect(decided?.status) {
-            if (decided?.status == "approved" && toast == null) {
-                val pts = report?.optInt("monthPoints") ?: 0
-                val tgt = report?.optInt("pointsTarget") ?: 8
-                toast = "Your correction for ${day.takeLast(2).toInt()} ${OpFormat.fmtMonthShort(monthKey).take(3)} was approved. ${OpFormat.fmtMonthShort(monthKey)} is now $pts / $tgt days."
-            }
-        }
+    }
+}
+
+@Composable
+private fun DayStat(label: String, value: String) {
+    val p = LocalOpPalette.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = OpType.Meta, color = p.ink3)
+        Text(
+            value,
+            style = OpType.Label.copy(fontWeight = FontWeight.SemiBold),
+            color = p.ink,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -335,16 +393,32 @@ private fun DayDetailSheet(
     info: DayInfo?,
     pending: PendingCorrection?,
     decided: PendingCorrection?,
+    approvedToast: String? = null,
     tz: String,
     gapMinutes: Int,
     readonly: Boolean = false,
     readonlyName: String = "",
     onRequestCorrection: () -> Unit,
-    onCancelRequest: (String) -> Unit,
     onRequestAgain: () -> Unit,
+    onCancelRequest: (String) -> Unit,
 ) {
     val p = LocalOpPalette.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        if (approvedToast != null) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(OpShape.Card)
+                    .background(p.ink)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Check, contentDescription = null, tint = p.surface, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(approvedToast, color = p.surface, style = OpType.Meta)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(OpFormat.fmtDayTitle(dayKey), style = OpType.Heading, color = p.ink)
@@ -353,7 +427,7 @@ private fun DayDetailSheet(
                     decided?.status == "approved" -> Text(
                         listOfNotNull(
                             info?.officeName,
-                            info?.points?.takeIf { it > 0 }?.let { DaysFormat.countsAs(it).replaceFirst("Counts as", "counts as") },
+                            info?.points?.takeIf { it > 0 }?.let { PointsFormat.countsAs(it).replaceFirst("Counts as", "counts as") },
                         ).joinToString(", "),
                         style = OpType.Meta,
                         color = p.ink2,
@@ -377,7 +451,7 @@ private fun DayDetailSheet(
                 decided?.status == "approved" -> NeutralBadge("Approved", check = true)
                 decided?.status == "rejected" -> NeutralBadge("Not approved")
                 info != null && info.points > 0 -> Text(
-                    DaysFormat.countsAs(info.points),
+                    PointsFormat.countsAs(info.points),
                     color = OpColor.OnAccent,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
@@ -389,6 +463,26 @@ private fun DayDetailSheet(
             }
         }
         Spacer(Modifier.height(16.dp))
+
+        if (info != null && info.points > 0 && pending == null && decided?.status != "rejected") {
+            val officeCount = info.intervals.map {
+                it.optString("officeName").ifBlank { info.officeName ?: "Office" }
+            }.distinct().size
+            val visitCount = info.intervals.size.coerceAtLeast(1)
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                DayStat("Visits", "$visitCount")
+                if (officeCount >= 2) {
+                    DayStat("Offices", "$officeCount")
+                } else {
+                    DayStat("Hours", OpFormat.durationHm(info.hours))
+                }
+                DayStat("First In", OpFormat.fmtTime(info.firstIn, tz))
+                DayStat("Last Out", OpFormat.fmtTime(info.lastOut, tz))
+            }
+        }
 
         when {
             pending != null -> {
@@ -509,16 +603,7 @@ private fun DayDetailSheet(
                         Modifier.fillMaxWidth().padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (groups.size >= 2) "Total in office" else "Hours", style = OpType.Label, color = p.ink)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "FYI",
-                                fontSize = 11.sp,
-                                color = p.ink3,
-                                modifier = Modifier.border(1.dp, p.lineStrong, OpShape.Pill).padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
+                        Text(if (groups.size >= 2) "Total in office" else "Hours", style = OpType.Label, color = p.ink)
                         Text(OpFormat.durationHm(info.hours), style = OpType.Body.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
                     }
                     Text(
@@ -891,7 +976,7 @@ private fun CorrectionFlow(
                                 color = p.ink,
                             )
                             Text(
-                                DaysFormat.countsAs(offices.firstOrNull { it.id == officeId }?.pointsPerVisitDay ?: 1),
+                                PointsFormat.countsAs(offices.firstOrNull { it.id == officeId }?.pointsPerVisitDay ?: 1),
                                 style = OpType.Meta,
                                 color = p.ink3,
                             )
@@ -915,7 +1000,7 @@ private fun CorrectionFlow(
                     Spacer(Modifier.height(8.dp))
                     DaysMeter(effectAfter, target)
                     Text(
-                        "Until then your month stays at $effectBefore / $target days.",
+                        "Until then your month stays at $effectBefore / $target points.",
                         style = OpType.Meta,
                         color = p.ink3,
                         modifier = Modifier.padding(top = 8.dp),

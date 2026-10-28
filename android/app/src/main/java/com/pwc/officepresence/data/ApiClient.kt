@@ -54,13 +54,20 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
     fun ingest(events: JSONArray, deviceName: String): JSONObject =
         send("POST", "/api/ingest", JSONObject().put("events", events).put("deviceName", deviceName))
 
-    fun sync(): JSONObject = send("GET", "/api/me/sync")
+    fun sync(monthVersions: String? = null): JSONObject {
+        val q = if (monthVersions.isNullOrBlank()) "" else "?months=${enc(monthVersions)}"
+        return send("GET", "/api/me/sync$q")
+    }
+
+    fun year(year: Int): JSONObject = send("GET", "/api/me/year?year=$year")
     fun offices(): JSONObject = send("GET", "/api/offices")
     fun notificationPrefs(): JSONObject = send("GET", "/api/me/notification-prefs")
     fun patchNotificationPrefs(patch: JSONObject): JSONObject = send("PATCH", "/api/me/notification-prefs", patch)
     fun devices(): JSONObject = send("GET", "/api/me/devices")
     fun renameDevice(id: String, label: String): JSONObject =
         send("PATCH", "/api/me/devices", JSONObject().put("id", id).put("label", label))
+    fun updateFcmToken(fcmToken: String): JSONObject =
+        send("PATCH", "/api/me/devices", JSONObject().put("fcmToken", fcmToken))
     fun revokeDevice(id: String): JSONObject = send("DELETE", "/api/me/devices?id=${enc(id)}")
     fun setPrivacy(share: Boolean): JSONObject =
         send("PATCH", "/api/me/privacy", JSONObject().put("sharePresenceWithPeers", share).put("consent", share))
@@ -156,7 +163,11 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
         )
     fun adminDeleteUser(id: String): JSONObject = send("DELETE", "/api/admin/users?id=${enc(id)}")
     fun adminSimulate(userId: String, inOffice: Boolean, officeLocationId: String?): JSONObject {
-        val body = JSONObject().put("action", "simulate").put("userId", userId).put("inOffice", inOffice)
+        val body = JSONObject()
+            .put("action", "simulate")
+            .put("userId", userId)
+            .put("inOffice", inOffice)
+            .put("confirm", true)
         if (!officeLocationId.isNullOrBlank()) body.put("officeLocationId", officeLocationId)
         return send("POST", "/api/admin/users", body)
     }

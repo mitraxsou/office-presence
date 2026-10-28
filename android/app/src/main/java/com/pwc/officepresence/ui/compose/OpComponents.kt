@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -40,8 +43,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -176,36 +189,32 @@ fun StatusHero(
     forSinceLabel: String?,
     lastInOffice: String? = null,
     updatedLabel: String? = null,
+    fenceRadiusMeters: Int = 100,
 ) {
     val p = LocalOpPalette.current
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-        // Quiet status change: fade plus 6 dp rise, 320 ms. No loop.
-        AnimatedContent(
-            targetState = inOffice,
-            transitionSpec = {
-                (fadeIn(tween(320, easing = OpEase)) +
-                    slideInVertically(tween(320, easing = OpEase)) { 6 }) togetherWith
-                    fadeOut(tween(160))
-            },
-            label = "status",
-        ) { inNow ->
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        AnimatedStatus(
+            isIn = inOffice,
+            word = { inNow ->
                 Text(
                     if (inNow) "In" else "Out",
-                    style = OpType.Status,
+                    style = OpType.Status.copy(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    ),
                     color = p.ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            },
+            dot = { inNow ->
                 Box(
                     Modifier
-                        .padding(bottom = 14.dp)
                         .size(16.dp)
                         .clip(CircleShape)
                         .background(if (inNow) OpColor.Ok else p.ink3),
                 )
-            }
-        }
+            },
+        )
         Text(
             if (inOffice) officeName?.takeIf { it.isNotBlank() } ?: "Office" else "Not at an office",
             style = OpType.Heading.copy(fontSize = 24.sp),
@@ -250,6 +259,145 @@ fun StatusHero(
                 )
             }
         }
+        OfficeAreaDiagram(
+            inOffice = inOffice,
+            radiusMeters = fenceRadiusMeters,
+            modifier = Modifier
+                .padding(top = 20.dp)
+                .fillMaxWidth(),
+        )
+    }
+}
+
+/**
+ * Simple drawing of the office fence with you inside or outside.
+ * Explains how detection works; no real map or coordinates.
+ */
+@Composable
+fun OfficeAreaDiagram(
+    inOffice: Boolean,
+    radiusMeters: Int = 100,
+    modifier: Modifier = Modifier,
+) {
+    val p = LocalOpPalette.current
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val radiusLabel = "$radiusMeters m"
+    val youLabel = "You"
+    val labelStyle = TextStyle(
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = p.ink,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+    )
+    val youStyle = TextStyle(
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        color = p.ink2,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+    )
+    val radiusLayout = measurer.measure(radiusLabel, labelStyle)
+    val youLayout = measurer.measure(youLabel, youStyle)
+    val dash = with(density) { floatArrayOf(6.dp.toPx(), 5.dp.toPx()) }
+    val strokeW = with(density) { 1.5.dp.toPx() }
+    val youR = with(density) { 7.dp.toPx() }
+    val gridStep = with(density) { 18.dp.toPx() }
+    val youGap = with(density) { 3.dp.toPx() }
+    val labelGap = with(density) { 8.dp.toPx() }
+
+    Box(
+        modifier
+            .aspectRatio(1.55f)
+            .clip(OpShape.Card)
+            .background(p.sunk)
+            .border(1.dp, p.line, OpShape.Card),
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cx = w * 0.52f
+            val cy = h * 0.48f
+            val r = minOf(w, h) * 0.36f
+
+            // Soft grid (no real map).
+            var x = 0f
+            while (x <= w) {
+                drawLine(p.line, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+                x += gridStep
+            }
+            var y = 0f
+            while (y <= h) {
+                drawLine(p.line, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+                y += gridStep
+            }
+
+            if (inOffice) {
+                drawCircle(color = OpColor.OkWash, radius = r, center = Offset(cx, cy))
+            }
+
+            drawCircle(
+                color = p.ink3,
+                radius = r,
+                center = Offset(cx, cy),
+                style = Stroke(
+                    width = strokeW,
+                    pathEffect = PathEffect.dashPathEffect(dash, 0f),
+                ),
+            )
+
+            // Building silhouette at the fence centre.
+            val bw = r * 0.42f
+            val bh = r * 0.52f
+            val left = cx - bw / 2f
+            val top = cy - bh / 2f
+            val building = Path().apply {
+                moveTo(left, top + bh)
+                lineTo(left, top + bh * 0.22f)
+                lineTo(left + bw * 0.18f, top)
+                lineTo(left + bw * 0.82f, top)
+                lineTo(left + bw, top + bh * 0.22f)
+                lineTo(left + bw, top + bh)
+                close()
+            }
+            drawPath(building, p.ink)
+            val win = bw * 0.14f
+            val gap = bw * 0.1f
+            for (col in 0..2) {
+                for (row in 0..1) {
+                    val wx = left + bw * 0.18f + col * (win + gap)
+                    val wy = top + bh * 0.32f + row * (win + gap * 0.8f)
+                    drawRect(p.sunk, Offset(wx, wy), Size(win, win))
+                }
+            }
+
+            // "You" marker: inside when In, outside when Out.
+            val you = if (inOffice) {
+                Offset(cx - r * 0.38f, cy + r * 0.42f)
+            } else {
+                Offset(cx - r * 1.15f, cy + r * 0.72f)
+            }
+            drawCircle(
+                color = if (inOffice) OpColor.Ok else p.ink3,
+                radius = youR,
+                center = you,
+            )
+            drawText(
+                textLayoutResult = youLayout,
+                topLeft = Offset(
+                    you.x - youLayout.size.width / 2f,
+                    you.y + youR + youGap,
+                ),
+            )
+
+            // Radius label on the right of the dashed ring.
+            drawText(
+                textLayoutResult = radiusLayout,
+                topLeft = Offset(
+                    cx + r + labelGap,
+                    cy - radiusLayout.size.height / 2f,
+                ),
+            )
+        }
     }
 }
 
@@ -286,7 +434,7 @@ fun DaysMeter(
     val met = c >= t
     val side = if (met) "Goal met" else "${(t - c).coerceAtLeast(0)} to go"
     val pct = (c.toFloat() / t.toFloat()).coerceIn(0f, 1f)
-    val animated by animateFloatAsState(pct, tween(900), label = "days")
+    val animated = animatedFill(pct)
     Column(Modifier.fillMaxWidth()) {
         if (!monthLabel.isNullOrBlank()) {
             Text(monthLabel, style = OpType.Meta, color = p.ink3, modifier = Modifier.padding(bottom = 6.dp))
@@ -297,13 +445,12 @@ fun DaysMeter(
             verticalAlignment = Alignment.Bottom,
         ) {
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    "$c",
+                CountUpText(
+                    value = c,
                     style = if (compact) OpType.Number.copy(fontSize = 40.sp) else OpType.Number,
-                    color = p.ink,
                 )
                 Text(
-                    " / $t days",
+                    " / $t points",
                     style = OpType.Body.copy(fontWeight = FontWeight.Medium),
                     color = p.ink2,
                     modifier = Modifier.padding(bottom = 10.dp, start = 4.dp),
@@ -345,20 +492,9 @@ fun HoursFyiRow(hours: Double, advised: Double) {
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Hours today", style = OpType.Label, color = p.ink)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "FYI",
-                        fontSize = 11.sp,
-                        color = p.ink3,
-                        modifier = Modifier
-                            .border(1.dp, p.lineStrong, OpShape.Pill)
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
+                Text("Hours today", style = OpType.Label, color = p.ink)
                 Text(
-                    "Suggested ${advised.toInt()} h a day. Does not affect days.",
+                    "Suggested ${advised.toInt()} h a day. Does not affect points.",
                     style = OpType.Meta,
                     color = p.ink3,
                     modifier = Modifier.padding(top = 4.dp),
@@ -386,6 +522,62 @@ fun MonthSummaryCard(
     OpCard {
         DaysMeter(current, target, monthLabel = monthLabel, footer = footer)
         if (showHours) HoursFyiRow(hoursToday, advised)
+    }
+}
+
+/** Compact month progress under Today card. Tappable to open Month (SPEC §21). */
+@Composable
+fun CompactMonthProgress(
+    current: Int,
+    target: Int,
+    visitDays: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val p = LocalOpPalette.current
+    val t = target.coerceAtLeast(1)
+    val c = current.coerceAtLeast(0)
+    val pct = (c.toFloat() / t.toFloat()).coerceIn(0f, 1f)
+    val animated by animateFloatAsState(pct, tween(900), label = "compactMonth")
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(OpShape.Card)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "$c / $t points",
+                style = OpType.Label.copy(fontWeight = FontWeight.SemiBold),
+                color = p.ink,
+            )
+            Text(
+                com.pwc.officepresence.ui.PointsFormat.visitDaysFyi(visitDays),
+                style = OpType.Meta,
+                color = p.ink3,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(OpShape.Pill)
+                .background(p.sunk),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(animated)
+                    .height(8.dp)
+                    .clip(OpShape.Pill)
+                    .background(OpColor.Accent),
+            )
+        }
     }
 }
 
@@ -644,7 +836,7 @@ data class TodayOfficeRow(
     val durationLabel: String,
 )
 
-/** "Today, N offices" FYI card (frame 11). */
+/** "Today, N offices" card (frame 11). */
 @Composable
 fun TodayOfficesCard(
     offices: List<TodayOfficeRow>,
@@ -654,21 +846,11 @@ fun TodayOfficesCard(
     if (offices.size < 2) return
     val p = LocalOpPalette.current
     OpCard(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                "Today, ${offices.size} offices",
-                style = OpType.Meta.copy(fontWeight = FontWeight.SemiBold),
-                color = p.ink2,
-            )
-            Text(
-                "FYI",
-                fontSize = 11.sp,
-                color = p.ink3,
-                modifier = Modifier
-                    .border(1.dp, p.lineStrong, OpShape.Pill)
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
+        Text(
+            "Today, ${offices.size} offices",
+            style = OpType.Meta.copy(fontWeight = FontWeight.SemiBold),
+            color = p.ink2,
+        )
         offices.forEachIndexed { i, row ->
             if (i > 0) DividerLine()
             Row(

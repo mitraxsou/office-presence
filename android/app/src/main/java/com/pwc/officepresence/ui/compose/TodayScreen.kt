@@ -50,9 +50,16 @@ import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OpColor
 import com.pwc.officepresence.ui.theme.OpShape
 import com.pwc.officepresence.ui.theme.OpType
+import org.json.JSONArray
 import org.json.JSONObject
-import java.time.YearMonth
 import kotlin.concurrent.thread
+
+private data class TodayVisitRow(
+    val officeName: String,
+    val timeLabel: String,
+    val durationLabel: String,
+    val stillIn: Boolean,
+)
 
 @Composable
 fun TodayScreen(
@@ -61,6 +68,8 @@ fun TodayScreen(
     onRequestPermissions: () -> Unit,
     onForceDetect: ((String) -> Unit) -> Unit,
     onOpenColleagues: () -> Unit = {},
+    onOpenMonth: () -> Unit = {},
+    onUnauthorized: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
     val ctx = LocalContext.current
@@ -69,7 +78,7 @@ fun TodayScreen(
     var loading by remember { mutableStateOf(true) }
     var checking by remember { mutableStateOf(false) }
     var peersIn by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var todayOffices by remember { mutableStateOf<List<TodayOfficeRow>>(emptyList()) }
+    var visitRows by remember { mutableStateOf<List<TodayVisitRow>>(emptyList()) }
     var tick by remember { mutableStateOf(0) }
 
     val fineOk = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -83,9 +92,22 @@ fun TodayScreen(
     LaunchedEffect(Unit) {
         thread {
             val s = repo.uploadAndSync()
+            if (s.unauthorized) {
+                main.post { onUnauthorized() }
+                return@thread
+            }
             if (s.ok) {
+                com.pwc.officepresence.ui.analytics.OpAnalytics.log(ctx, "sync_completed")
                 DailySummaryWorker.schedule(ctx)
+                com.pwc.officepresence.notify.SyncRefreshWorker.schedule(ctx)
                 GeofenceHelper.registerAll(ctx, prefs.offices())
+                com.pwc.officepresence.notify.FcmTokenSync.refreshAndUpload(ctx)
+            } else {
+                com.pwc.officepresence.ui.analytics.OpAnalytics.log(
+                    ctx,
+                    "sync_failed",
+                    mapOf("reason" to (s.message?.take(40) ?: "unknown")),
+                )
             }
             var peers: List<JSONObject> = emptyList()
             if (prefs.sharePresenceWithPeers) {
@@ -98,43 +120,15 @@ fun TodayScreen(
                     }
                 }
             }
-            var officeRows: List<TodayOfficeRow> = emptyList()
-            runCatching {
-                val rep = repo.api.reports()
-                if (rep.ok()) {
-                    val today = rep.optJSONObject("today")
-                    val officesArr = today?.optJSONArray("offices")
-                    val tz = prefs.timezone
-                    if (officesArr != null && officesArr.length() >= 2) {
-                        val rows = mutableListOf<TodayOfficeRow>()
-                        for (i in 0 until officesArr.length()) {
-                            val o = officesArr.getJSONObject(i)
-                            val name = o.optString("name").ifBlank { "Office" }
-                            val visits = o.optJSONArray("visits")
-                            val first = visits?.optJSONObject(0)
-                            val last = visits?.optJSONObject((visits.length() - 1).coerceAtLeast(0))
-                            val inAt = first?.optString("in_at")
-                            val outAt = last?.optString("out_at")
-                            val open = s.inOffice && i == officesArr.length() - 1 &&
-                                name == (s.officeName ?: name)
-                            val range = when {
-                                open -> "${OpFormat.fmtTime(inAt, tz)}, now"
-                                else -> "${OpFormat.fmtTime(inAt, tz)} to ${OpFormat.fmtTime(outAt, tz)}"
-                            }
-                            val mins = o.optInt("minutes", 0)
-                            rows += TodayOfficeRow(
-                                name = name,
-                                rangeLabel = range,
-                                durationLabel = OpFormat.durationHm(mins / 60.0),
-                            )
-                        }
-                        officeRows = rows
-                    }
-                }
-            }
+            val visits = parseTodayVisits(
+                prefs.cachedTodayOfficesJson,
+                s.inOffice,
+                s.officeName,
+                prefs.timezone,
+            )
             main.post {
                 state = s
-                todayOffices = officeRows
+                visitRows = visits
                 peersIn = peers
                 loading = false
             }
@@ -195,21 +189,11 @@ fun TodayScreen(
             needsPerms && !prefs.isViewAsActive -> {
                 PermissionsBlock(onRequestPermissions)
                 Spacer(Modifier.height(16.dp))
-                MonthSummaryCard(
-                    monthLabel = "${OpFormat.fmtMonthShort(YearMonth.now().toString())}, last known",
+                CompactMonthProgress(
                     current = state.monthPoints,
                     target = state.pointsTarget,
-                    hoursToday = state.hoursToday,
-                    advised = prefs.dayHours.toDouble(),
-                    showHours = false,
-                )
-                Spacer(Modifier.height(24.dp))
-                Text(
-                    "Only office arrival and leaving are recorded. Colleagues never see your location.",
-                    style = OpType.Meta,
-                    color = p.ink3,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
+                    visitDays = state.monthVisitDays,
+                    onClick = onOpenMonth,
                 )
             }
             else -> {
@@ -219,37 +203,22 @@ fun TodayScreen(
                     forSinceLabel = OpFormat.forSinceLabel(state.sinceAt, prefs.timezone),
                     lastInOffice = prefs.lastOfficeName.takeIf { it.isNotBlank() },
                     updatedLabel = updatedMeta,
+                    fenceRadiusMeters = prefs.fenceRadius.toInt().coerceAtLeast(1),
                 )
-                if (todayOffices.size >= 2) {
-                    Spacer(Modifier.height(22.dp))
-                    TodayOfficesCard(
-                        offices = todayOffices,
-                        hoursTodayLabel = OpFormat.durationHm(state.hoursToday),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    MonthSummaryCard(
-                        monthLabel = OpFormat.fmtMonthShort(YearMonth.now().toString()),
-                        current = state.monthPoints,
-                        target = state.pointsTarget,
-                        hoursToday = state.hoursToday,
-                        advised = prefs.dayHours.toDouble(),
-                        showHours = false,
-                    )
-                    Text(
-                        "Today counts once, whichever office you are at.",
-                        style = OpType.Meta,
-                        color = p.ink3,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    MonthSummaryCard(
-                        monthLabel = OpFormat.fmtMonthShort(YearMonth.now().toString()),
-                        current = state.monthPoints,
-                        target = state.pointsTarget,
-                        hoursToday = state.hoursToday,
-                        advised = prefs.dayHours.toDouble(),
-                    )
-                }
+                Spacer(Modifier.height(16.dp))
+                TodayPointsCard(
+                    pointsToday = state.pointsToday,
+                    visits = visitRows,
+                    hoursToday = state.hoursToday,
+                    advised = prefs.dayHours.toDouble(),
+                )
+                Spacer(Modifier.height(8.dp))
+                CompactMonthProgress(
+                    current = state.monthPoints,
+                    target = state.pointsTarget,
+                    visitDays = state.monthVisitDays,
+                    onClick = onOpenMonth,
+                )
                 Spacer(Modifier.height(24.dp))
                 Row(
                     Modifier.fillMaxWidth(),
@@ -300,6 +269,12 @@ fun TodayScreen(
                                 onForceDetect {
                                     checking = false
                                     state = repo.cached()
+                                    visitRows = parseTodayVisits(
+                                        prefs.cachedTodayOfficesJson,
+                                        state.inOffice,
+                                        state.officeName,
+                                        prefs.timezone,
+                                    )
                                 }
                             },
                             enabled = checkEnabled,
@@ -320,6 +295,59 @@ fun TodayScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TodayPointsCard(
+    pointsToday: Int,
+    visits: List<TodayVisitRow>,
+    hoursToday: Double,
+    advised: Double,
+) {
+    val p = LocalOpPalette.current
+    OpCard {
+        Text(
+            if (pointsToday == 1) "1 point" else "$pointsToday points",
+            style = OpType.Number.copy(fontSize = 36.sp),
+            color = p.ink,
+        )
+        Text(
+            "Earned today",
+            style = OpType.Meta,
+            color = p.ink3,
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+        )
+        if (visits.isEmpty()) {
+            Text(
+                "No visits yet today. Points appear when you arrive at an office.",
+                style = OpType.Body,
+                color = p.ink2,
+            )
+        } else {
+            visits.forEachIndexed { i, row ->
+                if (i > 0) DividerLine()
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(row.officeName, style = OpType.Label.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
+                        Text(
+                            if (row.stillIn) "${row.timeLabel}, still In" else row.timeLabel,
+                            style = OpType.Meta,
+                            color = p.ink2,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                    Text(row.durationLabel, style = OpType.Label, color = p.ink2)
+                }
+            }
+        }
+        HoursFyiRow(hoursToday, advised)
     }
 }
 
@@ -365,6 +393,49 @@ private fun PermissionsBlock(onRequestPermissions: () -> Unit) {
     }
 }
 
+/** Flatten sync todayOffices into per-visit rows for the Today card. */
+private fun parseTodayVisits(
+    json: String,
+    inOffice: Boolean,
+    officeName: String?,
+    tz: String,
+): List<TodayVisitRow> {
+    return try {
+        val officesArr = JSONArray(json)
+        if (officesArr.length() == 0) return emptyList()
+        val rows = mutableListOf<TodayVisitRow>()
+        for (oi in 0 until officesArr.length()) {
+            val o = officesArr.getJSONObject(oi)
+            val name = o.optString("name").ifBlank { "Office" }
+            val visits = o.optJSONArray("visits") ?: continue
+            for (vi in 0 until visits.length()) {
+                val v = visits.getJSONObject(vi)
+                val inAt = v.optString("in_at")
+                val outAt = v.optString("out_at")
+                val mins = v.optInt("minutes", 0)
+                val lastOffice = oi == officesArr.length() - 1
+                val lastVisit = vi == visits.length() - 1
+                val stillIn = inOffice && lastOffice && lastVisit &&
+                    (officeName == null || name == officeName)
+                val timeLabel = if (stillIn) {
+                    OpFormat.fmtTime(inAt, tz)
+                } else {
+                    "${OpFormat.fmtTime(inAt, tz)} to ${OpFormat.fmtTime(outAt, tz)}"
+                }
+                rows += TodayVisitRow(
+                    officeName = name,
+                    timeLabel = timeLabel,
+                    durationLabel = OpFormat.durationHm(mins / 60.0),
+                    stillIn = stillIn,
+                )
+            }
+        }
+        rows
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
 @Composable
 private fun TodaySkeleton() {
     val p = LocalOpPalette.current
@@ -388,11 +459,6 @@ private fun TodaySkeleton() {
             SkeletonBar(Modifier.fillMaxWidth(0.5f), height = 36.dp)
             Spacer(Modifier.height(12.dp))
             SkeletonBar(Modifier.fillMaxWidth(), height = 10.dp)
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                SkeletonBar(Modifier.fillMaxWidth(0.4f), height = 12.dp)
-                SkeletonBar(Modifier.width(48.dp), height = 12.dp)
-            }
         }
         Spacer(Modifier.height(32.dp))
         Text(

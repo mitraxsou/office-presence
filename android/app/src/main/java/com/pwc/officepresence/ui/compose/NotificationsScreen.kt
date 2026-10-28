@@ -189,7 +189,7 @@ private fun NotificationsMain(
             DividerLine()
             NotifToggleRow(
                 title = "Goal met",
-                subtitle = "When you reach your days for the month",
+                subtitle = "When you reach your points for the month",
                 checked = goal,
                 enabled = permissionOk && !readonly,
                 onCheckedChange = {
@@ -201,7 +201,7 @@ private fun NotificationsMain(
             DividerLine()
             NotifToggleRow(
                 title = "Weekly summary",
-                subtitle = "Monday 9:00 am: days so far this month",
+                subtitle = "Monday 9:00 am: points so far this month",
                 checked = weekly,
                 enabled = permissionOk && !readonly,
                 onCheckedChange = {
@@ -342,7 +342,7 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
             Text(spec?.name ?: "Channel", style = OpType.Title.copy(fontSize = 24.sp), color = p.ink)
         }
         Text(
-            "Pick any notification tone on this phone, or change more options in Android settings.",
+            "Android keeps sound and vibration for each kind of notification. Changes you make there show here.",
             style = OpType.Body,
             color = p.ink2,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
@@ -354,13 +354,29 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
                 onClick = { tonePicker.launch(Notifier.ringtonePickerIntent(ctx, channelId)) },
             )
             DividerLine()
-            SettingsRow("Vibrate", value = if (status.vibrate) "On" else "Off")
+            SettingsRow(
+                "Vibrate",
+                value = if (status.vibrate) "On" else "Off",
+                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+            )
             DividerLine()
-            SettingsRow("Pop on screen", value = if (status.popOnScreen) "On" else "Off")
+            SettingsRow(
+                "Pop on screen",
+                value = if (status.popOnScreen) "On" else "Off",
+                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+            )
             DividerLine()
-            SettingsRow("Show on lock screen", value = status.lockScreen)
+            SettingsRow(
+                "Show on lock screen",
+                value = status.lockScreen,
+                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+            )
             DividerLine()
-            SettingsRow("Override Do Not Disturb", value = if (status.bypassDnd) "On" else "Off")
+            SettingsRow(
+                "Override Do Not Disturb",
+                value = if (status.bypassDnd) "On" else "Off",
+                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+            )
         }
         Spacer(Modifier.height(14.dp))
         OpCard {

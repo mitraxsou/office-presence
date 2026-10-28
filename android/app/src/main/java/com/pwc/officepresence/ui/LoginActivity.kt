@@ -81,6 +81,8 @@ class LoginActivity : AppCompatActivity() {
             finish()
             return
         }
+        val forcedMessage = prefs.pendingSignInMessage.takeIf { it.isNotBlank() }
+        if (forcedMessage != null) prefs.pendingSignInMessage = ""
         setContent {
             val dark = when (prefs.themeMode) {
                 "dark" -> true
@@ -90,6 +92,7 @@ class LoginActivity : AppCompatActivity() {
             OfficePresenceTheme(dark = dark) {
                 LoginScreen(
                     prefs = prefs,
+                    forcedSignOutMessage = forcedMessage,
                     onSignedIn = {
                         startActivity(Intent(this, ShellActivity::class.java))
                         finish()
@@ -103,8 +106,13 @@ class LoginActivity : AppCompatActivity() {
 private enum class LoginStep { Email, Code, Password }
 
 @Composable
-private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
+private fun LoginScreen(
+    prefs: AppPrefs,
+    onSignedIn: () -> Unit,
+    forcedSignOutMessage: String? = null,
+) {
     val p = LocalOpPalette.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val main = remember { Handler(Looper.getMainLooper()) }
     var step by remember { mutableStateOf(LoginStep.Email) }
     var email by remember { mutableStateOf(prefs.email.orEmpty()) }
@@ -116,6 +124,7 @@ private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
     var errorBody by remember { mutableStateOf<String?>(null) }
     var triesLeft by remember { mutableIntStateOf(5) }
     var resendSeconds by remember { mutableIntStateOf(0) }
+    var banner by remember { mutableStateOf(forcedSignOutMessage) }
     val emailOk = OpFormat.emailValid(email)
 
     LaunchedEffect(resendSeconds) {
@@ -176,6 +185,12 @@ private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
                         prefs.token = token
                         prefs.email = email.trim()
                         res.optString("deviceId", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it }
+                        com.pwc.officepresence.ui.analytics.OpAnalytics.log(
+                            ctx,
+                            "sign_in_success",
+                            mapOf("method" to "otp"),
+                        )
+                        com.pwc.officepresence.notify.FcmTokenSync.refreshAndUpload(ctx)
                         onSignedIn()
                     } else {
                         triesLeft = (triesLeft - 1).coerceAtLeast(0)
@@ -217,6 +232,12 @@ private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
                         prefs.token = token
                         prefs.email = email.trim()
                         res.optString("deviceId", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it }
+                        com.pwc.officepresence.ui.analytics.OpAnalytics.log(
+                            ctx,
+                            "sign_in_success",
+                            mapOf("method" to "password"),
+                        )
+                        com.pwc.officepresence.notify.FcmTokenSync.refreshAndUpload(ctx)
                         onSignedIn()
                     } else {
                         errorTitle = "Could not sign in"
@@ -245,6 +266,20 @@ private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
                     color = p.ink2,
                     modifier = Modifier.padding(top = 8.dp),
                 )
+                if (banner != null) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        banner!!,
+                        style = OpType.Body,
+                        color = p.ink,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(OpShape.Card)
+                            .background(p.surface)
+                            .border(1.dp, p.lineStrong, OpShape.Card)
+                            .padding(12.dp),
+                    )
+                }
                 Spacer(Modifier.height(28.dp))
                 Text("Work email", style = OpType.Meta, color = p.ink3)
                 Spacer(Modifier.height(6.dp))
@@ -406,8 +441,11 @@ private fun LoginScreen(prefs: AppPrefs, onSignedIn: () -> Unit) {
                     OtpBoxes(
                         code = code,
                         onCodeChange = {
-                            code = it.filter { ch -> ch.isDigit() }.take(6)
+                            val next = it.filter { ch -> ch.isDigit() }.take(6)
+                            code = next
                             errorTitle = null
+                            // Auto-verify as soon as all 6 digits are entered.
+                            if (next.length == 6) verifyCode()
                         },
                         highlightError = failed,
                     )

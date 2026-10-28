@@ -22,6 +22,7 @@ class PresenceRepository(private val context: Context) {
         val officeName: String?,
         val sinceAt: String?,
         val hoursToday: Double,
+        val pointsToday: Int,
         val monthPoints: Int,
         val monthVisitDays: Int,
         val pointsTarget: Int,
@@ -34,11 +35,34 @@ class PresenceRepository(private val context: Context) {
     fun prefs(): AppPrefs = prefs
     fun log(): EventLog = log
 
+    /**
+     * Clear the device session after 401 (deleted or deactivated account).
+     * Posts a local shade notification and stores a Login banner message.
+     */
+    fun forceSignOut(
+        message: String = "This account is no longer available. Sign in again.",
+        source: String = "sync_401",
+    ) {
+        val hadToken = !prefs.token.isNullOrBlank()
+        prefs.pendingSignInMessage = message
+        prefs.clearSession()
+        PresenceService.stop(context)
+        if (hadToken) {
+            com.pwc.officepresence.ui.analytics.OpAnalytics.log(
+                context,
+                "force_sign_out",
+                mapOf("source" to source),
+            )
+            Notifier.signedOut(context, message)
+        }
+    }
+
     fun cached(message: String? = null, ok: Boolean = true, unauthorized: Boolean = false) = SyncState(
         inOffice = prefs.cachedInOffice,
         officeName = prefs.cachedOfficeName.ifBlank { null },
         sinceAt = prefs.cachedSinceAt.ifBlank { null },
         hoursToday = prefs.cachedHoursToday.toDouble(),
+        pointsToday = prefs.cachedPointsToday,
         monthPoints = prefs.cachedMonthPoints,
         monthVisitDays = prefs.cachedMonthVisitDays,
         pointsTarget = prefs.monthlyPointsTarget,
@@ -106,19 +130,135 @@ class PresenceRepository(private val context: Context) {
         return try {
             val client = api
             val err = uploadQueue(client)
-            if (err != null) return cached(err, ok = false, unauthorized = err == "Unauthorized")
-            applySync(client.sync())
+            if (err != null) {
+                val unauth = err == "Unauthorized"
+                if (unauth) forceSignOut()
+                return cached(err, ok = false, unauthorized = unauth)
+            }
+            prefs.lastIngestFlushAtMs = System.currentTimeMillis()
+            var state = applySync(client.sync(monthVersionsQuery()))
+            // Server In but phone clearly Out (or unknown office): push check_out once, no polling.
+            if (reconcileServerInMismatch()) {
+                val err2 = uploadQueue(client)
+                if (err2 == null) {
+                    prefs.lastIngestFlushAtMs = System.currentTimeMillis()
+                    state = applySync(client.sync(monthVersionsQuery()))
+                }
+            }
+            state
         } catch (e: Exception) {
             cached(e.message ?: "Sync failed", ok = false)
+        }
+    }
+
+    /**
+     * When the server still says In but this phone is outside every fence (and office is unknown
+     * or sinceAt is older than the visit gap), queue a check_out so live status matches reality.
+     * Hobby-friendly: only runs after an existing sync/upload, never on a timer.
+     */
+    fun reconcileServerInMismatch(): Boolean {
+        if (prefs.isViewAsReadonly) return false
+        if (!prefs.cachedInOffice) return false
+        val phoneOut = prefs.lastSampleOfficeId.isEmpty()
+        if (!phoneOut) return false
+        val officeUnknown = prefs.cachedOfficeName.isBlank()
+        val sinceStale = isSinceOlderThanGap(prefs.cachedSinceAt, prefs.gapMinutes)
+        if (!officeUnknown && !sinceStale) return false
+        recordLocal(type = "check_out")
+        prefs.cachedInOffice = false
+        prefs.cachedOfficeName = ""
+        prefs.cachedSinceAt = ""
+        PresenceService.stop(context)
+        return true
+    }
+
+    private fun isSinceOlderThanGap(sinceIso: String, gapMinutes: Int): Boolean {
+        if (sinceIso.isBlank()) return true
+        return try {
+            val sinceMs = Instant.parse(sinceIso).toEpochMilli()
+            val gapMs = gapMinutes.coerceAtLeast(1) * 60_000L
+            System.currentTimeMillis() - sinceMs > gapMs
+        } catch (_: Exception) {
+            true
         }
     }
 
     fun syncOnly(): SyncState {
         if (prefs.token == null) return cached("Signed out", ok = false, unauthorized = true)
         return try {
-            applySync(api.sync())
+            applySync(api.sync(monthVersionsQuery()))
         } catch (e: Exception) {
             cached(e.message ?: "Sync failed", ok = false)
+        }
+    }
+
+    /** True when Sync should run on screen open (cache older than 24 h, or never synced). */
+    fun shouldRefreshOnOpen(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (prefs.token == null) return false
+        if (prefs.lastSyncAtMs <= 0L) return true
+        return nowMs - prefs.lastSyncAtMs > TWENTY_FOUR_H_MS
+    }
+
+    /** True when the last sync was on the same local calendar day (tz from prefs). */
+    fun syncedToday(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val last = prefs.lastSyncAtMs
+        if (last <= 0L) return false
+        val zone = try {
+            java.time.ZoneId.of(prefs.timezone)
+        } catch (_: Exception) {
+            java.time.ZoneId.of("Asia/Kolkata")
+        }
+        val lastDay = java.time.Instant.ofEpochMilli(last).atZone(zone).toLocalDate()
+        val today = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        return lastDay == today
+    }
+
+    /** True when the Sync button may run (not in the 5 min post-success cooldown). */
+    fun canManualSync(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (prefs.token == null) return false
+        if (prefs.lastSuccessfulSyncAtMs <= 0L) return true
+        return nowMs - prefs.lastSuccessfulSyncAtMs >= SYNC_COOLDOWN_MS
+    }
+
+    /**
+     * Refresh sync when cache is stale (>24 h) or [force] is true.
+     * Manual Sync respects the 5 min cooldown unless [bypassCooldown] (WorkManager).
+     */
+    fun refreshIfNeeded(force: Boolean = false, bypassCooldown: Boolean = false): SyncState {
+        if (prefs.token == null) return cached("Signed out", ok = false, unauthorized = true)
+        val now = System.currentTimeMillis()
+        if (!force && !shouldRefreshOnOpen(now)) return cached()
+        if (force && !bypassCooldown && !canManualSync(now)) return cached("Synced recently")
+        return if (prefs.isViewAsReadonly) syncOnly() else uploadAndSync()
+    }
+
+    /** Colleagues (admins): refresh when older than 15 minutes. */
+    fun shouldRefreshPeers(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (prefs.peersFetchedAtMs <= 0L) return true
+        return nowMs - prefs.peersFetchedAtMs > PEERS_FRESH_MS
+    }
+
+    fun markMonthDirty(monthKey: String) {
+        if (!monthKey.matches(Regex("""\d{4}-\d{2}"""))) return
+        val set = prefs.dirtyMonthsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+        set += monthKey
+        prefs.dirtyMonthsCsv = set.joinToString(",")
+    }
+
+    private fun monthVersionsQuery(): String? {
+        val raw = prefs.monthVersionsJson
+        if (raw.isBlank() || raw == "{}") return null
+        return try {
+            val obj = JSONObject(raw)
+            val parts = mutableListOf<String>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                parts += "$k:${obj.optString(k)}"
+            }
+            if (parts.isEmpty()) null else parts.joinToString(",")
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -127,6 +267,7 @@ class PresenceRepository(private val context: Context) {
         prefs.cachedOfficeName = res.optString("officeName", "").takeIf { it != "null" }.orEmpty()
         prefs.cachedSinceAt = res.optString("sinceAt", "").takeIf { it != "null" }.orEmpty()
         if (res.has("hoursToday")) prefs.cachedHoursToday = res.optDouble("hoursToday", 0.0).toFloat()
+        if (res.has("pointsToday")) prefs.cachedPointsToday = res.optInt("pointsToday")
         if (res.has("monthPoints")) prefs.cachedMonthPoints = res.optInt("monthPoints")
         if (res.has("monthVisitDays")) prefs.cachedMonthVisitDays = res.optInt("monthVisitDays")
         if (res.has("pointsTarget")) prefs.monthlyPointsTarget = res.optInt("pointsTarget", prefs.monthlyPointsTarget)
@@ -145,9 +286,17 @@ class PresenceRepository(private val context: Context) {
     private fun zone(): ZoneId = try { ZoneId.of(prefs.timezone) } catch (_: Exception) { ZoneId.of("Asia/Kolkata") }
 
     private fun applySync(sync: JSONObject): SyncState {
+        val http = sync.optInt("_httpStatus")
+        if (http == 304) {
+            val now = System.currentTimeMillis()
+            prefs.lastSyncAtMs = now
+            prefs.lastSuccessfulSyncAtMs = now
+            return cached()
+        }
         if (!sync.ok()) {
-            val status = sync.optInt("_httpStatus")
-            return cached(sync.optString("error", "Sync failed"), ok = false, unauthorized = status == 401)
+            val unauth = http == 401
+            if (unauth) forceSignOut()
+            return cached(sync.optString("error", "Sync failed"), ok = false, unauthorized = unauth)
         }
         sync.optJSONObject("policy")?.let { p ->
             prefs.gapMinutes = p.optInt("gapMinutes", prefs.gapMinutes)
@@ -181,11 +330,36 @@ class PresenceRepository(private val context: Context) {
             }
         }
         applyStatus(sync)
-        prefs.lastSyncAtMs = System.currentTimeMillis()
+        sync.optJSONArray("todayOffices")?.let { prefs.cachedTodayOfficesJson = it.toString() }
+            ?: run { prefs.cachedTodayOfficesJson = "[]" }
+        val now = System.currentTimeMillis()
+        prefs.lastSyncAtMs = now
+        prefs.lastSuccessfulSyncAtMs = now
+        sync.optJSONObject("monthVersions")?.let { prefs.monthVersionsJson = it.toString() }
+        sync.optJSONArray("dirtyMonths")?.let { arr ->
+            val set = prefs.dirtyMonthsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+            for (i in 0 until arr.length()) {
+                val m = arr.optString(i)
+                if (m.matches(Regex("""\d{4}-\d{2}"""))) set += m
+            }
+            prefs.dirtyMonthsCsv = set.joinToString(",")
+        }
+        sync.optJSONArray("correctionDecisions")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val day = arr.optJSONObject(i)?.optString("dayKey").orEmpty()
+                if (day.length >= 7) markMonthDirty(day.take(7))
+            }
+        }
         if (prefs.cachedInOffice && !prefs.cachedOfficeName.isBlank()) {
             prefs.lastOfficeName = prefs.cachedOfficeName
         }
         return cached()
+    }
+
+    companion object {
+        private const val TWENTY_FOUR_H_MS = 24L * 60L * 60L * 1000L
+        private const val SYNC_COOLDOWN_MS = 5L * 60L * 1000L
+        private const val PEERS_FRESH_MS = 15L * 60L * 1000L
     }
 
     fun applyPrefs(p: JSONObject) {

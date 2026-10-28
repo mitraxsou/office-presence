@@ -132,7 +132,7 @@ class SettingsActivity : AppCompatActivity() {
                 .setTitle("Notifications")
                 .setMessage(
                     "Turn enter and leave on or off separately, each with its own tone " +
-                        "(or Silent for a banner only). Morning summary skips once your monthly days goal is met. " +
+                        "(or Silent for a banner only). Morning summary skips once your monthly points goal is met. " +
                         "Sounds never bypass Do Not Disturb.",
                 )
                 .setPositiveButton("OK", null)
@@ -189,15 +189,15 @@ class SettingsActivity : AppCompatActivity() {
     private fun renderPolicy() {
         clearAfterTitle(policyBox)
         val text = buildString {
-            appendLine("${prefs.monthlyPointsTarget} days / month")
+            appendLine("${prefs.monthlyPointsTarget} points / month")
             appendLine("Gap ${prefs.gapMinutes}m - ${prefs.timezone}")
-            append("Hours FYI (advised ${"%.0f".format(prefs.dayHours)}h)")
+            append("Hours (advised ${"%.0f".format(prefs.dayHours)}h)")
         }
         policyBox.addView(Ui.text(this, text, 14f).apply { setPadding(0, Ui.dp(context, 8), 0, 0) })
-        Ui.textButton(policyBox, "How days work") {
+        Ui.textButton(policyBox, "How points work") {
             AlertDialog.Builder(this)
-                .setTitle("Days")
-                .setMessage("Any time in an office that calendar day is a visit. Days come from the highest counts-as office you visited. Hours never fail the month.")
+                .setTitle("Points")
+                .setMessage("Any time in an office that calendar day is a visit. Points come from the highest counts-as office you visited. Hours never fail the month.")
                 .setPositiveButton("OK", null)
                 .show()
         }

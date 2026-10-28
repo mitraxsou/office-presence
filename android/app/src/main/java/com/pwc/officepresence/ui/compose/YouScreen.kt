@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,9 +30,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -48,11 +51,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.pwc.officepresence.BuildConfig
 import com.pwc.officepresence.data.AppPrefs
+import com.pwc.officepresence.data.Office
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
 import com.pwc.officepresence.ui.theme.LocalOpPalette
@@ -74,6 +79,7 @@ fun YouScreen(
     onForceDetect: ((String) -> Unit) -> Unit,
     onOpenDeveloper: () -> Unit,
     onSignOut: () -> Unit,
+    onUnauthorized: () -> Unit = {},
     onViewAsStarted: () -> Unit = {},
 ) {
     var sub by remember { mutableStateOf(YouSub.Main) }
@@ -96,6 +102,7 @@ fun YouScreen(
             prefs = prefs,
             onBack = { sub = YouSub.Main },
             onForceDetect = onForceDetect,
+            onUnauthorized = onUnauthorized,
         )
         YouSub.Corrections -> CorrectionsListScreen(repo = repo, prefs = prefs, onBack = { sub = YouSub.Main })
         YouSub.Notifications -> NotificationsScreen(repo = repo, prefs = prefs, onBack = { sub = YouSub.Main })
@@ -137,7 +144,45 @@ private fun YouMain(
     var versionTaps by remember { mutableIntStateOf(0) }
     var themePicker by remember { mutableStateOf(false) }
     var suggestOpen by remember { mutableStateOf(false) }
+    var developerOn by remember { mutableStateOf(prefs.developerMode) }
+    var developerConfirm by remember { mutableStateOf(false) }
+    var developerBusy by remember { mutableStateOf(false) }
     val readonly = prefs.isViewAsReadonly
+
+    fun openDeveloperTools() {
+        if (readonly) {
+            Toast.makeText(ctx, "Not available while viewing as another user.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (developerOn || prefs.developerMode) {
+            onOpenDeveloper()
+            return
+        }
+        developerConfirm = true
+    }
+
+    fun enableDeveloperAndOpen() {
+        if (developerBusy) return
+        developerBusy = true
+        thread {
+            val res = runCatching { repo.api.setDeveloper(true) }.getOrNull()
+            main.post {
+                developerBusy = false
+                if (res?.ok() == true || res?.optBoolean("developerMode") == true) {
+                    prefs.developerMode = true
+                    developerOn = true
+                    developerConfirm = false
+                    onOpenDeveloper()
+                } else {
+                    Toast.makeText(
+                        ctx,
+                        res?.optString("error")?.takeIf { it.isNotBlank() } ?: "Could not turn on Developer",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         thread {
@@ -272,6 +317,12 @@ private fun YouMain(
                 value = "$notifOn of $notifTotal on",
                 onClick = onNotifications,
             )
+            DividerLine()
+            SettingsRow(
+                title = "Developer",
+                value = if (developerOn) "On" else "Off",
+                onClick = { openDeveloperTools() },
+            )
         }
         if (prefs.role == "admin" && !prefs.isViewAsActive) {
             Spacer(Modifier.height(20.dp))
@@ -327,12 +378,39 @@ private fun YouMain(
                     versionTaps++
                     if (versionTaps >= 7) {
                         versionTaps = 0
-                        onOpenDeveloper()
+                        openDeveloperTools()
                     }
                 },
             )
             OpSecondaryButton("Sign out", onClick = onSignOut, modifier = Modifier.width(140.dp))
         }
+    }
+
+    if (developerConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!developerBusy) developerConfirm = false },
+            title = { Text("Turn on Developer?") },
+            text = {
+                Text(
+                    "Developer tools change how this phone samples location while testing. Turn it off when you are done.",
+                    color = p.ink2,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { enableDeveloperAndOpen() },
+                    enabled = !developerBusy,
+                ) {
+                    Text(if (developerBusy) "Turning on..." else "Turn on")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { developerConfirm = false },
+                    enabled = !developerBusy,
+                ) { Text("Cancel") }
+            },
+        )
     }
 
     if (themePicker) {
@@ -369,7 +447,7 @@ private fun YouMain(
             title = { Text("Suggest an office") },
             text = {
                 Text(
-                    "Open Developer settings (tap Version 7 times) to suggest an office with your current location, or use the web admin.",
+                    "Open Developer from You settings to suggest an office with your current location, or use the web admin.",
                     color = p.ink2,
                 )
             },
@@ -386,6 +464,7 @@ private fun DevicesScreen(
     prefs: AppPrefs,
     onBack: () -> Unit,
     onForceDetect: ((String) -> Unit) -> Unit,
+    onUnauthorized: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
     val ctx = LocalContext.current
@@ -519,10 +598,14 @@ private fun DevicesScreen(
                     onClick = {
                         syncing = true
                         thread {
-                            repo.uploadAndSync()
+                            val state = repo.uploadAndSync()
                             main.post {
+                                if (state.unauthorized) {
+                                    onUnauthorized()
+                                    return@post
+                                }
                                 syncing = false
-                                msg = "Synced"
+                                msg = if (state.ok) "Synced" else (state.message ?: "Sync failed")
                                 reload()
                             }
                         }
@@ -681,7 +764,7 @@ private fun RulesScreen(prefs: AppPrefs, onBack: () -> Unit) {
             DividerLine()
             SettingsRow("Suggested hours a day", value = "${rules.dayHours.toInt()} h")
             DividerLine()
-            SettingsRow("Monthly target", value = "${rules.monthlyPointsTarget} days")
+            SettingsRow("Monthly target", value = "${rules.monthlyPointsTarget} points")
             DividerLine()
             SettingsRow("Timezone", value = rules.timezone)
             DividerLine()
@@ -695,7 +778,13 @@ private fun RulesScreen(prefs: AppPrefs, onBack: () -> Unit) {
 @Composable
 private fun NicknamesScreen(repo: PresenceRepository, prefs: AppPrefs, onBack: () -> Unit) {
     val p = LocalOpPalette.current
-    val offices = prefs.offices()
+    val main = remember { Handler(Looper.getMainLooper()) }
+    var offices by remember { mutableStateOf(prefs.offices()) }
+    var editing by remember { mutableStateOf<Office?>(null) }
+    var draft by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var toast by remember { mutableStateOf<String?>(null) }
+
     Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
@@ -712,6 +801,10 @@ private fun NicknamesScreen(repo: PresenceRepository, prefs: AppPrefs, onBack: (
                     SettingsRow(
                         title = o.adminName,
                         value = o.alias?.takeIf { it.isNotBlank() } ?: o.displayName,
+                        onClick = {
+                            editing = o
+                            draft = o.alias.orEmpty()
+                        },
                     )
                     if (i < offices.lastIndex) DividerLine()
                 }
@@ -722,6 +815,62 @@ private fun NicknamesScreen(repo: PresenceRepository, prefs: AppPrefs, onBack: (
             style = OpType.Meta,
             color = p.ink3,
             modifier = Modifier.padding(top = 12.dp),
+        )
+        toast?.let {
+            Text(it, style = OpType.Meta, color = p.ink2, modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+
+    val target = editing
+    if (target != null) {
+        AlertDialog(
+            onDismissRequest = { if (!saving) editing = null },
+            title = { Text("Name for ${target.adminName}") },
+            text = {
+                Column {
+                    Text(
+                        "Leave empty to use the admin name.",
+                        style = OpType.Meta,
+                        color = p.ink3,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        singleLine = true,
+                        placeholder = { Text(target.adminName) },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                        enabled = !saving,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving,
+                    onClick = {
+                        saving = true
+                        val name = draft.trim()
+                        val officeId = target.id
+                        thread {
+                            val res = runCatching { repo.api.setAlias(officeId, name) }.getOrNull()
+                            if (res?.ok() == true) repo.syncOnly()
+                            main.post {
+                                saving = false
+                                if (res?.ok() == true) {
+                                    offices = prefs.offices()
+                                    editing = null
+                                    toast = "Saved"
+                                } else {
+                                    toast = res?.optString("error") ?: "Save failed"
+                                }
+                            }
+                        }
+                    },
+                ) { Text(if (saving) "Saving..." else "Save") }
+            },
+            dismissButton = {
+                TextButton(enabled = !saving, onClick = { editing = null }) { Text("Cancel") }
+            },
         )
     }
 }

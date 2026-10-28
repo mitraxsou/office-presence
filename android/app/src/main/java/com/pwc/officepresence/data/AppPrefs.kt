@@ -32,6 +32,14 @@ class AppPrefs(context: Context) {
         get() = prefs.getString("token", null)
         set(v) = putStr("token", v)
 
+    /**
+     * Shown once on Login after forced sign-out (deleted/deactivated account).
+     * Not cleared by [clearSession].
+     */
+    var pendingSignInMessage: String
+        get() = str("pendingSignInMessage", "")
+        set(v) = putStr("pendingSignInMessage", v)
+
     var email: String?
         get() = prefs.getString("email", null)
         set(v) = putStr("email", v)
@@ -60,6 +68,78 @@ class AppPrefs(context: Context) {
     var lastSyncAtMs: Long
         get() = prefs.getLong("lastSyncAtMs", 0L)
         set(v) = prefs.edit().putLong("lastSyncAtMs", v).apply()
+
+    /** Successful sync timestamp used for the 5 min cooldown. */
+    var lastSuccessfulSyncAtMs: Long
+        get() = prefs.getLong("lastSuccessfulSyncAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastSuccessfulSyncAtMs", v).apply()
+
+    /** JSON map of monthKey -> version string from sync. */
+    var monthVersionsJson: String
+        get() = str("monthVersionsJson", "{}")
+        set(v) = putStr("monthVersionsJson", v)
+
+    /** Comma-separated dirty month keys that need a reports refetch. */
+    var dirtyMonthsCsv: String
+        get() = str("dirtyMonthsCsv", "")
+        set(v) = putStr("dirtyMonthsCsv", v)
+
+    fun isMonthDirty(monthKey: String): Boolean {
+        if (monthKey.isBlank()) return false
+        return dirtyMonthsCsv.split(",").map { it.trim() }.any { it == monthKey }
+    }
+
+    fun clearMonthDirty(monthKey: String) {
+        if (monthKey.isBlank()) return
+        val next = dirtyMonthsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() && it != monthKey }
+        dirtyMonthsCsv = next.joinToString(",")
+    }
+
+    var yearFetchedAtMs: Long
+        get() = prefs.getLong("yearFetchedAtMs", 0L)
+        set(v) = prefs.edit().putLong("yearFetchedAtMs", v).apply()
+
+    var peersFetchedAtMs: Long
+        get() = prefs.getLong("peersFetchedAtMs", 0L)
+        set(v) = prefs.edit().putLong("peersFetchedAtMs", v).apply()
+
+    fun cachedYearJson(year: Int): org.json.JSONObject? {
+        val raw = prefs.getString("yearCache_$year", null) ?: return null
+        return try {
+            org.json.JSONObject(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun storeYearJson(year: Int, json: String) {
+        prefs.edit().putString("yearCache_$year", json).apply()
+    }
+
+    fun cachedReportJson(monthKey: String): org.json.JSONObject? {
+        if (monthKey.isBlank()) return null
+        val raw = prefs.getString("reportCache_$monthKey", null) ?: return null
+        return try {
+            org.json.JSONObject(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun storeReportJson(monthKey: String, json: String) {
+        if (monthKey.isBlank()) return
+        prefs.edit().putString("reportCache_$monthKey", json).apply()
+    }
+
+    fun reportFetchedAtMs(monthKey: String): Long {
+        if (monthKey.isBlank()) return 0L
+        return prefs.getLong("reportFetchedAt_$monthKey", 0L)
+    }
+
+    fun storeReportFetchedAt(monthKey: String, atMs: Long) {
+        if (monthKey.isBlank()) return
+        prefs.edit().putLong("reportFetchedAt_$monthKey", atMs).apply()
+    }
 
     var lastOfficeName: String
         get() = str("lastOfficeName", "")
@@ -133,8 +213,18 @@ class AppPrefs(context: Context) {
         set(v) = putStr("timezone", v)
 
     var sampleIntervalMinutes: Int
-        get() = int("sampleIntervalMinutes", 5)
+        get() = int("sampleIntervalMinutes", 10)
         set(v) = putInt("sampleIntervalMinutes", v)
+
+    /** Last successful sample-ingest flush (debounce uploads while In). */
+    var lastIngestFlushAtMs: Long
+        get() = prefs.getLong("lastIngestFlushAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastIngestFlushAtMs", v).apply()
+
+    /** JSON array of today's office groups from sync (avoids a separate reports call). */
+    var cachedTodayOfficesJson: String
+        get() = str("cachedTodayOfficesJson", "[]")
+        set(v) = putStr("cachedTodayOfficesJson", v)
 
     var fenceRadius: Float
         get() = float("fenceRadius", 100f)
@@ -231,6 +321,10 @@ class AppPrefs(context: Context) {
         get() = float("cachedHoursToday", 0f)
         set(v) = putFloat("cachedHoursToday", v)
 
+    var cachedPointsToday: Int
+        get() = int("cachedPointsToday", 0)
+        set(v) = putInt("cachedPointsToday", v)
+
     var cachedMonthPoints: Int
         get() = int("cachedMonthPoints", 0)
         set(v) = putInt("cachedMonthPoints", v)
@@ -248,10 +342,15 @@ class AppPrefs(context: Context) {
         get() = str("goalNotifiedMonth", "")
         set(v) = putStr("goalNotifiedMonth", v)
 
-    /** Last enter/leave heads-up time (epoch ms). Used to debounce geofence + sample alerts. */
-    var lastPresenceAlertAtMs: Long
-        get() = prefs.getLong("lastPresenceAlertAtMs", 0L)
-        set(v) = prefs.edit().putLong("lastPresenceAlertAtMs", v).apply()
+    /** Last enter heads-up time (epoch ms). Debounce is per direction. */
+    var lastPresenceEnterAlertAtMs: Long
+        get() = prefs.getLong("lastPresenceEnterAlertAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastPresenceEnterAlertAtMs", v).apply()
+
+    /** Last leave heads-up time (epoch ms). Debounce is per direction. */
+    var lastPresenceLeaveAlertAtMs: Long
+        get() = prefs.getLong("lastPresenceLeaveAlertAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastPresenceLeaveAlertAtMs", v).apply()
 
     /** Last office id from a sample (empty when outside). */
     var lastSampleOfficeId: String
@@ -355,6 +454,11 @@ class AppPrefs(context: Context) {
         }
     }
 
+    /** Last FCM token successfully uploaded to the server. */
+    var lastUploadedFcmToken: String
+        get() = str("lastUploadedFcmToken", "")
+        set(v) = putStr("lastUploadedFcmToken", v)
+
     fun clearSession() {
         prefs.edit()
             .remove("token")
@@ -369,6 +473,7 @@ class AppPrefs(context: Context) {
             .remove("viewAsExpiresAtMs")
             .remove("viewAsStartedAtMs")
             .remove("viewAsAdminToken")
+            .remove("lastUploadedFcmToken")
             .apply()
     }
 

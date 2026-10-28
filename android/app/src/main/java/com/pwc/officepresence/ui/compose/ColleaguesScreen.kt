@@ -59,10 +59,16 @@ fun ColleaguesScreen(
     var res by remember { mutableStateOf<JSONObject?>(null) }
     var query by remember { mutableStateOf("") }
 
-    fun reload() {
+    fun reload(force: Boolean = false) {
         thread {
+            if (force || repo.shouldRefreshPeers()) {
+                repo.refreshIfNeeded(force = force)
+            }
             val r = runCatching { repo.api.peers() }.getOrNull()
-            main.post { res = r }
+            main.post {
+                res = r
+                if (r?.ok() == true) prefs.peersFetchedAtMs = System.currentTimeMillis()
+            }
         }
     }
 
@@ -70,6 +76,12 @@ fun ColleaguesScreen(
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("Colleagues", style = OpType.Title, color = p.ink)
+        Text(
+            OpFormat.updatedAgo(prefs.peersFetchedAtMs.takeIf { it > 0 } ?: prefs.lastSyncAtMs),
+            style = OpType.Meta,
+            color = p.ink3,
+            modifier = Modifier.padding(top = 4.dp),
+        )
         Spacer(Modifier.height(12.dp))
         RowSearch(query = query, onChange = { query = it })
         Spacer(Modifier.height(16.dp))
@@ -78,6 +90,20 @@ fun ColleaguesScreen(
             res == null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = OpColor.Accent)
+                }
+            }
+            res?.optInt("_httpStatus") == 403 -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Colleagues not available", style = OpType.Heading, color = p.ink)
+                        Text(
+                            "This list is only for admins.",
+                            style = OpType.Body,
+                            color = p.ink2,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp, start = 24.dp, end = 24.dp),
+                        )
+                    }
                 }
             }
             res?.ok() != true -> Text(res?.optString("error") ?: "Could not load", color = p.ink2)
@@ -102,7 +128,7 @@ fun ColleaguesScreen(
                     ) {
                         Text("You are hidden from colleagues", style = OpType.Heading, color = p.ink)
                         Text(
-                            "If you share, they see In or Out, since when, and the office name. Never your location, hours, or days counted.",
+                            "If you share, they see In or Out, since when, and the office name. Never your location, hours, or points counted.",
                             style = OpType.Body,
                             color = p.ink2,
                             modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
