@@ -6,7 +6,7 @@
 4. New build: work through `PROMPTS.md`. Existing build: start with `PROMPT-AUDIT.md` to find and fix gaps.
 
 Contents
-- SPEC.md: vocabulary (days), navigation, components, screens and states, corrections flow
+- SPEC.md: vocabulary (points), navigation, components, screens and states, corrections flow
 - frames/: 50 PNGs named like the design file; prototype.html to click through them
 - android/theme/: Color.kt, Theme.kt to merge into com.pwc.officepresence.ui.theme (Material 3, dynamic color off)
 - android/components/OpComponents.kt: StatusHero, DaysMeter, HoursFyiRow, StatusBadge, buttons, OpBottomBar

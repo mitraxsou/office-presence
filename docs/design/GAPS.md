@@ -207,6 +207,37 @@ Handoff import (2026-10-27): replaced design frames (78 pre-v8 backed up in `doc
 - [ ] Path aliases aligning `/api/corrections` with existing `/api/me/corrections` (optional).
 - Acceptance: endpoints exist; screens use them; no API field renames for points.
 
+## Handoff v12 (2026-10-28)
+
+- SPEC §§17-23, frames, `OpMotion.kt`, Today-Day-Motion PDF, and motion MP4 ingested into `docs/design/`.
+- Points wording (§§19-20): meter uses points; visit days FYI; office weights from API (migration sets Gurugram/Pune = 4, Kolkata/Bengaluru = 1 by name).
+- Today (§21): Today card (points, visit rows, Hours FYI) + compact month line opens Month tab.
+- Month day detail (§21): points badge + Visits / Hours or Offices / First In / Last Out stats (Android + web drawer).
+- Motion (§22): `ui/compose/OpMotion.kt` wired into StatusHero and DaysMeter (reduced-motion aware).
+- §23 status word options still deferred.
+
+## Firebase FCM + Analytics (2026-10-28)
+
+Shipped: FCM force-logout on admin delete/deactivate, `DeviceToken.fcmToken`, Android MessagingService + Analytics/Performance (Spark). Work-hours `presence_check` ping via `/api/cron/presence-ping` + `CRON_SECRET` (external hourly cron; Hobby Vercel cron is daily-only). BootReceiver restarts FGS if still In. See `docs/design/FIREBASE.md`. Force stop still needs a manual app open.
+
+## Year + refresh (2026-10-28)
+
+Shipped: Year tab (Android + web), `GET /api/me/year` + `year-stats`, admin-only Colleagues nav, refresh rules (Today/Month/Year stale paths, daily `SyncRefreshWorker`), design PDF at `docs/design/Office-Presence-Year-and-refresh.pdf`.
+
+Remaining gaps vs Year/refresh PDF and SPEC:
+
+- Dirty-month push not wired to FCM yet (FCM used for force-logout first; client still refreshes on open).
+- Web Colleagues freshness is lighter than the 15 min phone rule (no matching stale-cache UX).
+- Offline Sync is cooldown-only (no richer offline queue UX).
+- Heatmap month-tap is approximate (opens Month near that region, not a precise day cell).
+
+## Performance and settings notes (2026-10-27)
+
+- Month on phone: `GET /api/me/reports` skips `recomputeUserPresence` for past months; current-month stale path reuses one recompute (no double `computeForRange`). `MonthScreen` loads reports and corrections in parallel and uses cached `prefs.offices()` (no third offices fetch).
+- Notification channel detail (frame 45): Vibrate, Pop on screen, Show on lock screen, and Override DND open Android channel settings; values refresh on resume. Sound stays in-app.
+- Office nicknames: Compose You > Office nicknames rows are editable via dialog + `PUT /api/me/aliases`.
+- Admin Users drawer: per-device Recent API activity from `DeviceApiActivity` (`GET /api/admin/users/[id]/api-activity`).
+
 ## Top remaining gaps
 
 1. Pixel polish across remaining partial phone and desktop screens (Login, Correction steps, Colleagues/You, Roster columns) - not blocking; core IA and SPEC states present.

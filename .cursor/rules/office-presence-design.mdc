@@ -18,16 +18,17 @@ Before changing a screen, open the matching frame PNG by its frame name (for exa
 ## Tokens
 - Use tokens only. Web: `docs/design/tokens.css`. Android: `docs/design/android/Color.kt` and `Theme.kt`.
 - Never hardcode hex values in components.
-- Orange `#FD5108` is only for: the primary action, the days bar, the wordmark, selected nav. Text on orange is `#1A1A1A`.
+- Orange `#FD5108` is only for: the primary action, the points meter bar, the wordmark, selected nav. Text on orange is `#1A1A1A`.
 - Green `#2ECC71` only means In or Goal met. Out is neutral grey. No red anywhere.
 - No purple, indigo, teal, gradients, glass blur, or decorative shadows. Shadows only on sheets and drawers.
 
 ## Language
-- Say "days", never "points" in UI strings. Monthly target is "8 days". Office weight is "Counts as 2 days".
+- Meter and office weight use "points" (SPEC §§19-20): "8 points" target, "5 / 8 points", "Counts as N points" from API. Calendar copy may still say visit day.
+- Visit days are informational: "2 visit days". Never "days counted". Never "N more days at ..." hints. Do not show an FYI badge or the word FYI.
 - Buttons start with a verb: "Send code", "Check now", "Sync now", "Request a correction", "Approve", "Reject request".
 - Use In and Out. Never "checked in".
 - No em dash or en dash in any UI string. Use a hyphen, comma, colon, "to", or parentheses.
-- Hours are always labeled FYI and never colored, never a progress bar, never a warning.
+- Hours are informational (e.g. "Hours today") and never colored, never a progress bar, never a warning. Do not show an FYI badge or the word FYI.
 
 ## Navigation
 - Android: bottom bar with Today, Month, Colleagues, You. Remove the toolbar overflow menu. Admin console row lives in You, admins only. Developer screen opens by tapping Version 7 times.
@@ -35,7 +36,7 @@ Before changing a screen, open the matching frame PNG by its frame name (for exa
 
 ## Privacy
 - Colleagues see only: In or Out, since when, office name.
-- Never show live GPS, coordinates, hours, or days counted to colleagues. Admin review screens show office, times, and phone sync times, never coordinates.
+- Never show live GPS, coordinates, hours, or points counted to colleagues. Admin review screens show office, times, and phone sync times, never coordinates.
 
 ## Done means
 - Matches the frame in light and dark.

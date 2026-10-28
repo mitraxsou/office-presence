@@ -6,7 +6,7 @@ Frames: `docs/design/frames/NN_<Frame-name>.png`. Interactive: open `docs/design
 Stack: Android Jetpack Compose with Material 3 (theme in `com.pwc.officepresence.ui.theme`); web Next.js 15, React 19, plain CSS custom properties and CSS Modules.
 Tokens: `docs/design/web/tokens.css`, `docs/design/android/theme/`. Reference components: `docs/design/android/components/`, `docs/design/web/components/`.
 
-## 1. Vocabulary change: points become days
+## 1. Vocabulary (superseded by section 19: points and days)
 
 | Old (backend field, keep as is) | New UI text |
 |---|---|
@@ -15,7 +15,7 @@ Tokens: `docs/design/web/tokens.css`, `docs/design/android/theme/`. Reference co
 | points earned this month | "days counted" |
 | visit days | "visits" |
 
-Only UI strings change. Do not rename API fields. Add a small mapper (`formatDays(n)`, `countsAs(n)`) so screens never read the word "points".
+Superseded: see section 19. Use formatters `formatPoints(n)`, `pointsPerDay(n)` and `daysHint(remaining)`.
 
 ## 2. Navigation
 
@@ -57,7 +57,7 @@ API proposal: `docs/design/corrections-api.md`.
 
 ## 6. Copy rules
 
-Verbs on buttons. In and Out. "days", never "points". No em dash or en dash in any string.
+Verbs on buttons. In and Out. Points for target and progress, days for visits (section 19). No em dash or en dash in any string.
 Check: `rg -n "[\u2013\u2014]" --glob "*.{ts,tsx,kt,xml}"` should return nothing.
 
 ## 7. Users (web admin)
@@ -132,3 +132,77 @@ Frames: Responsive / Breakpoints and every M / ... frame (390 wide).
 - 720 to 1099 px: rail collapses to 72 px icons; tables drop Phone and Last seen.
 - 1100 px and up: the desktop layout.
 - Use CSS container or media queries in the CSS Modules; do not fork pages. Touch targets 44 px, inputs 16 px text, sticky bars use env(safe-area-inset-bottom). Sheet and drawer state stays in the URL.
+
+## 17. Quiet hours and rows that survive large text
+
+Quiet hours (phone: You > Notifications > Quiet hours; web: Settings > Notifications):
+- Use quiet hours on or off. Start and End times (Material 3 time input, 12 or 24 h per phone setting, quick picks). End earlier than Start means the next day.
+- Days: Every day, Weekdays, or Custom (day toggles, at least one on).
+- Still alert me for: Tracking problems (on by default, recommended), Correction decisions (off by default).
+- Summary line in plain words, for example "Silent Monday to Friday from 9:00 pm to 8:00 am."
+- Stored on the account, applied by each phone in its own time zone. Quiet means silent (no sound, no vibration) and no heads-up; the notification still lands in the shade.
+
+Row rules (from device bugs):
+- Never place two flexible texts in one Row. Text column gets weight(1f); value goes on the second line (OpNavRow), not beside the title.
+- Tags (FYI, Recommended, Admin, Test) never wrap inside: maxLines 1, softWrap false. Title and tag sit in a FlowRow so they wrap as a unit.
+- Names and emails are single line with ellipsis. Header name uses displayFirstName(); initials use initials().
+- Test every screen at font scale 1.3 and 1.5 and at the largest display size. Frame "P / You / Notifications, large text" shows the expected result.
+- "Devices: 0 phones" while tracking is on means this phone is not registered as a device. The current phone must always be counted.
+
+## 18. Year tab, admin-only Colleagues, data refresh
+
+Navigation: employees Today, Month, Year, You. Admins Today, Month, Year, Colleagues, You. Web rail: My month, My year, Settings, plus Colleagues for admins. Colleague endpoints return 403 for non-admins.
+
+Year (P / Year*, W / My year, M / My year): days counted and visit days this year, months met, target so far, to go this month; days counted per month with the target line (current month striped, future empty, green dot only on met months); weekday heatmap; offices with days; visit days by weekday; usual arrival and leaving and average hours (FYI); days with several offices; correction requests; days edited by an admin. Tapping a month or cell opens Month for that month. Year selector shows years with data.
+
+Refresh (Flow / Data refresh rules):
+- Cache first, always with "Updated N ago". Never show a number without its time.
+- Auto refresh on open when older than 24 h, plus one daily WorkManager job (any network, battery not low, backoff).
+- Sync sends cached month versions; server returns changed months only, or 304. Sync is disabled for 5 min after success.
+- Push for correction decisions and admin edits marks that month changed. No polling.
+- Offline: Sync disabled, cache shown. Error: Try again, automatic retries with backoff.
+- Colleagues (admins): same cache, 15 min freshness.
+
+
+## 19. Points and days (replaces the days-only wording in sections 1, 3 and 18)
+
+- Target: 8 points a month (Rules). Office value: points per visit day (Offices). Gurugram Tower B, Gurugram Cyber City, Pune Kharadi = 4; Kolkata Plot Y14, Bengaluru Prestige = 1.
+- Meter: "5 / 8 points", "3 to go" or "Goal met". No hint about days or offices still needed (removed in section 20).
+- Visit days are shown beside points as counts. A day counts once; with several offices, the highest office value that day.
+- Calendar cells show the day's points. Roster: Month points. Reports: Visit days and Points. Year: Points by month with the 8 point line, offices with visit days and points, weekdays in visit days.
+- Copy: say points for target and progress, days for visits. Never "days counted".
+- Frame: "Points and days" (Foundations page). Focused PDF: Office-Presence-Points-and-days.pdf.
+
+
+## 20. Points are the target, days are FYI
+
+- Remove every "N more days at ..." hint and any days-to-go text. People know the office values.
+- Visit days always carry the FYI tag, like hours: "2 visit days FYI".
+
+## 21. Today is about today; Month day detail has everything
+
+Today (P / Today / In, Out, In second office):
+- Hero status as before. Then a Today card: points earned today (the office value; with several offices, the highest), each visit row with office, In and Out times (or "still In"), time per visit, and Hours today FYI.
+- Month progress is one compact line under it: "5 / 8 points", the bar, visit days FYI. Tapping it opens Month.
+- Before any visit: "0 points" and "No visits yet today. Points appear when you arrive at an office."
+
+Month day detail (P / Month / Day detail, Day with several offices; web drawer the same):
+- Every visit day is tappable. Sheet shows: date, points badge, a stat row (Visits, Hours FYI, First In, Last Out; with several offices: Visits, Offices, First In, Last Out), the timeline for several offices, each office with its visits and times, total in office FYI, and Request a correction.
+
+## 22. Motion
+
+Frame "Motion" plus docs/design/Office-Presence-motion.mp4. Compose reference: docs/design/android/components/OpMotion.kt.
+- Status change: word rises 8 dp and fades (300 ms), dot pops once with one halo, light haptic.
+- Points: count up (600 ms), bar spring fill with small overshoot, "+N" chip rises and fades when a visit day counts.
+- First open of a tab: cards stagger in, 50 ms apart, max 5.
+- Sheets: Material 3 ModalBottomSheet spring, scrim fade, drag to close.
+- Tabs: indicator slide, content cross-fade with 8 dp shift.
+- Calendar day: press scale 0.9, selected ring grows, then the sheet.
+- Goal met: badge scales in and one sweep on the bar, first time per month only, success haptic.
+- Sync: icon turns only while the request is open, then "Up to date".
+- Tokens: fast 150 ms, base 300 ms, slow 420 to 600 ms, spring damping 0.8. Reduced motion or animator scale 0: fades only.
+- Web: same timings with CSS keyframes and prefers-reduced-motion.
+
+## 23. Status word (decision pending)
+
+Options on the "Status word options" frame: In / Out (current), Here / Away, On site / Off site, office name as the hero, At work / Not in. Keep In and Out until the product owner chooses; then replace the pair everywhere (Today, notifications, Colleagues, Roster, Reports, badges).

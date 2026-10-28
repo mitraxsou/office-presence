@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,11 +66,12 @@ fun StatusBadge(kind: OpBadge, modifier: Modifier = Modifier, small: Boolean = t
     }
 }
 
+/** Small outline pill for non-FYI labels (e.g. Recommended, Admin). Do not pass "FYI". */
 @Composable
-fun FyiTag(text: String = "FYI") {
+fun FyiTag(text: String) {
     val p = OpTheme.palette
     Text(
-        text, style = MaterialTheme.typography.labelSmall, color = p.ink2,
+        text, style = MaterialTheme.typography.labelSmall, color = p.ink2, maxLines = 1, softWrap = false,
         modifier = Modifier.border(1.dp, p.lineStrong, MaterialTheme.shapes.extraSmall).padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }
@@ -136,7 +138,7 @@ fun DaysMeter(
     }
 }
 
-/* ---------- Hours FYI row ---------- */
+/* ---------- Hours row (informational) ---------- */
 
 @Composable
 fun HoursFyiRow(value: String, modifier: Modifier = Modifier, caption: String = "Suggested 5 h a day. Does not affect days.") {
@@ -145,10 +147,7 @@ fun HoursFyiRow(value: String, modifier: Modifier = Modifier, caption: String = 
         HorizontalDivider(color = p.line)
         Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Hours today", style = MaterialTheme.typography.labelLarge, color = p.ink)
-                    FyiTag()
-                }
+                Text("Hours today", style = MaterialTheme.typography.labelLarge, color = p.ink)
                 Text(caption, style = MaterialTheme.typography.labelMedium, color = p.ink2)
             }
             // Never colored, never bold, never a bar.
@@ -214,4 +213,65 @@ fun OpBottomBar(items: List<OpNavItem>, selectedRoute: String, onSelect: (OpNavI
             }
         }
     }
+}
+
+/* ---------- Rows that survive large text ----------
+ * Bug seen on device: label squeezed to one letter per line because two Texts shared a Row
+ * without weights, and the "Recommended" tag wrapped inside a pill.
+ * Rule: the text column takes weight(1f) with min width; trailing content never shrinks text below that.
+ */
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun OpSwitchRow(
+    title: String, subtitle: String?, checked: Boolean, onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier, tag: String? = null, enabled: Boolean = true,
+) {
+    val p = OpTheme.palette
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            // Title and tag wrap as whole words, never letter by letter.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, color = p.ink)
+                if (tag != null) FyiTag(tag) // FyiTag text uses maxLines = 1, softWrap = false
+            }
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.labelMedium, color = p.ink2)
+        }
+        Switch(
+            checked = checked, onCheckedChange = onCheckedChange, enabled = enabled,
+            colors = SwitchDefaults.colors(checkedTrackColor = OpColor.Accent, checkedThumbColor = Color.White,
+                uncheckedTrackColor = p.lineStrong, uncheckedThumbColor = Color.White, uncheckedBorderColor = Color.Transparent),
+        )
+    }
+}
+
+/** Navigation row: title on top, value below (never beside it), chevron at the end. */
+@Composable
+fun OpNavRow(title: String, value: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val p = OpTheme.palette
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = p.ink)
+            if (value != null) Text(value, style = MaterialTheme.typography.labelMedium, color = p.ink2,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = p.ink3)
+    }
+}
+
+/* ---------- Names ---------- */
+
+/** Greeting and header name: preferred, then first, then "soumitra.m.mandal@pwc.com" -> "Soumitra". */
+fun displayFirstName(preferred: String?, first: String?, email: String): String =
+    preferred?.takeIf { it.isNotBlank() } ?: first?.takeIf { it.isNotBlank() }
+        ?: email.substringBefore("@").substringBefore(".").replaceFirstChar { it.uppercase() }
+
+/** Initials: first and last name, else first and last email parts ("SM"). */
+fun initials(first: String?, last: String?, email: String): String {
+    if (!first.isNullOrBlank() && !last.isNullOrBlank()) return "${first.first()}${last.first()}".uppercase()
+    val parts = email.substringBefore("@").split('.', '_', '-').filter { it.isNotBlank() }
+    return (parts.firstOrNull()?.take(1).orEmpty() + (parts.drop(1).lastOrNull()?.take(1).orEmpty())).uppercase()
 }

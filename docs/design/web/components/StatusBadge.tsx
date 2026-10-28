@@ -22,8 +22,9 @@ export function StatusBadge({ kind, small = true, compact = false }: { kind: Bad
   );
 }
 
+/** @deprecated FYI badges were removed from UI; kept as a no-op for imports. */
 export function FyiTag() {
-  return <span className={styles.fyi}>FYI</span>;
+  return null;
 }
 
 export function CorrectedTag() {

@@ -7,7 +7,7 @@ type Props = { days: number; target: number; size?: "lg" | "md" | "inline"; capt
 export function DaysMeter({ days, target, size = "lg", caption }: Props) {
   const met = days >= target;
   const pct = target > 0 ? Math.min(days / target, 1) * 100 : 0;
-  const label = `${days} of ${target} days, ${met ? "goal met" : `${target - days} to go`}`;
+  const label = `${days} of ${target} points, ${met ? "goal met" : `${target - days} to go`}`;
 
   if (size === "inline") {
     return (
@@ -24,7 +24,7 @@ export function DaysMeter({ days, target, size = "lg", caption }: Props) {
       <div className={styles.top}>
         <div>
           <span className={styles.number}>{days}</span>
-          <span className={styles.den}>/ {target} days</span>
+          <span className={styles.den}>/ {target} points</span>
         </div>
         {met ? <StatusBadge kind="goalMet" /> : <span className={styles.toGo}>{target - days} to go</span>}
       </div>

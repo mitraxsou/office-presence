@@ -9,25 +9,26 @@ Source of truth: `docs/design/SPEC.md`, frames in `docs/design/frames/` (open th
 
 ## Scope
 - UI and information architecture only. Keep data fetching, sync, geofence, auth, and APIs working.
-- Do not rename API fields, database columns, or background jobs. "Points" stays in the API; only UI text says "days".
+- Do not rename API fields, database columns, or background jobs. API keeps points fields; UI also says "points" for the monthly meter (see SPEC §1).
 - The only backend addition is correction requests (`docs/design/corrections-api.md`), and only when a task says so.
 - One screen or one component per task.
 
 ## Brand
 - Tokens only, no hex values in screens or components.
-- Orange `#FD5108` only for: primary action, days bar, wordmark, selected nav. Text on orange is `#1A1A1A`.
+- Orange `#FD5108` only for: primary action, points meter bar, wordmark, selected nav. Text on orange is `#1A1A1A`.
 - Green `#2ECC71` only for In and Goal met. Out is neutral grey. No red anywhere, including errors.
 - No purple, indigo, teal, gradients, blur, or decorative shadow. Shadow only on sheets and drawers.
-- Motion: status change (fade plus 6 px rise, 320 ms) and days bar fill (900 ms). No loops except a spinner during a request.
+- Motion: status change (fade plus 6 px rise, 320 ms) and points meter fill (900 ms). No loops except a spinner during a request.
 
 ## Language
-- "days", never "points". "8 days" target, "5 / 8 days", "3 to go", "Goal met", "Counts as 2 days".
+- Meter and office weight use "points": "8 points" target, "5 / 8 points", "3 to go", "Goal met", "Counts as N points" from API `pointsPerVisitDay` (never hardcode).
+- Visit days are informational: "2 visit days". Never "days counted". Never "N more days at ..." or days-to-go office hints. Do not show an FYI badge or the word FYI.
 - Buttons start with a verb. In and Out, never "checked in".
 - No em dash or en dash in any UI string.
-- Hours are always labeled FYI and never colored, never a bar, never a warning.
+- Hours are informational (e.g. "Hours today") and never colored, never a bar, never a warning. Do not show an FYI badge or the word FYI.
 
 ## Privacy
-- Colleagues see only In or Out, since when, office name. Never GPS, coordinates, hours, or days counted.
+- Colleagues see only In or Out, since when, office name. Never GPS, coordinates, hours, or points counted.
 - Admin screens never show coordinates.
 
 ## Done means
