@@ -3,6 +3,8 @@ import Mark from "@/components/Mark";
 import { getPolicy } from "@/lib/policy";
 
 const VERSION = "2.0.2";
+const DEFAULT_APK_URL =
+  "https://github.com/mitraxsou/office-presence/releases/download/v2.0.2-pilot/app-release.apk";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +15,7 @@ export const metadata = {
 
 export default async function DownloadPage() {
   let version = VERSION;
-  let apkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim() || "";
+  let apkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim() || DEFAULT_APK_URL;
   try {
     const policy = await getPolicy();
     if (policy.appVersionName?.trim()) version = policy.appVersionName.trim();
