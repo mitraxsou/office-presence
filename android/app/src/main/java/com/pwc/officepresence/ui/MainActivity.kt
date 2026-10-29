@@ -29,6 +29,7 @@ import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.presence.ArrivalDetect
 import com.pwc.officepresence.presence.GeofenceHelper
 import kotlin.concurrent.thread
 
@@ -276,6 +277,11 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         GeofenceHelper.registerAll(this, prefs.offices())
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            ArrivalDetect.request(this, "permission")
+        }
         if (::trackingChip.isInitialized) trackingChip.text = compactTracking()
         if (requestCode == 100 && Build.VERSION.SDK_INT >= 29) {
             ActivityCompat.requestPermissions(

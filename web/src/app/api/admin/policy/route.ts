@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getPolicy, updatePolicy } from "@/lib/policy";
 import { prisma } from "@/lib/db";
+import { pushOutdatedAppUpdates, pushRulesChanged } from "@/lib/firebase-admin";
 
 export async function GET() {
   try {
@@ -32,5 +33,7 @@ export async function PATCH(request: Request) {
       afterJson: policy,
     },
   });
+  await pushRulesChanged();
+  await pushOutdatedAppUpdates(policy.appVersionCode ?? 0);
   return NextResponse.json({ policy });
 }

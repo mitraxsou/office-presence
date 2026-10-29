@@ -5,6 +5,7 @@ import { composeFullName, parseColleagueDisplayMode } from "@/lib/display-name";
 import { recomputeUserPresence } from "@/lib/presence";
 import { clampName, validateAdminUserEmail } from "@/lib/users-admin";
 import type { Prisma, Role } from "@prisma/client";
+import { pushForceSignOut } from "@/lib/firebase-admin";
 
 const DUMMY_SEED = [
   { email: "dummy.in@example.pwc.local", name: "Demo In Office", inOffice: true },
@@ -389,6 +390,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Cannot remove the last admin" }, { status: 400 });
     }
   }
+  await pushForceSignOut(id, "deleted");
   await prisma.user.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

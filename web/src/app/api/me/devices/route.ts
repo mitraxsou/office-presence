@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
 import { recordApiActivity } from "@/lib/device-api-activity";
+import { maybeNotifyDeviceUpdate } from "@/lib/firebase-admin";
 import { cleanDeviceLabel } from "@/lib/otp";
 
 export async function GET(request: Request) {
@@ -24,34 +25,46 @@ export async function PATCH(request: Request) {
   if (blocked) return blocked;
   const body = await request.json().catch(() => ({}));
   const id = String(body.id ?? actor.device?.id ?? "");
-  const fcmToken =
-    typeof body.fcmToken === "string" ? body.fcmToken.trim().slice(0, 4096) : "";
+  const fcmToken = typeof body.fcmToken === "string" ? body.fcmToken.trim().slice(0, 4096) : "";
+  const versionRaw = body.appVersionCode;
+  const appVersionCode =
+    typeof versionRaw === "number"
+      ? Math.max(0, Math.floor(versionRaw))
+      : typeof versionRaw === "string" && versionRaw.trim() !== "" && Number.isFinite(Number(versionRaw))
+        ? Math.max(0, Math.floor(Number(versionRaw)))
+        : null;
   const labelRaw = body.label;
-  const label =
-    labelRaw === undefined || labelRaw === null ? null : cleanDeviceLabel(labelRaw);
-
+  const label = labelRaw === undefined || labelRaw === null ? null : cleanDeviceLabel(labelRaw);
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  if (!fcmToken && !label) {
+  if (!fcmToken && !label && appVersionCode == null) {
     return NextResponse.json({ error: "label or fcmToken required" }, { status: 400 });
   }
-
   const row = await prisma.deviceToken.findFirst({ where: { id, userId: actor.user.id, revokedAt: null } });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const data: { label?: string; fcmToken?: string } = {};
-  if (label) data.label = label;
-  if (fcmToken) data.fcmToken = fcmToken;
-
-  const device = await prisma.deviceToken.update({ where: { id }, data });
+  const device = await prisma.deviceToken.update({
+    where: { id },
+    data: {
+      ...(label ? { label } : {}),
+      ...(fcmToken ? { fcmToken } : {}),
+      ...(appVersionCode != null ? { appVersionCode } : {}),
+    },
+  });
   recordApiActivity({
     userId: actor.user.id,
     deviceTokenId: actor.device?.id,
     method: "PATCH",
     path: "/api/me/devices",
     statusCode: 200,
-    note: fcmToken ? "fcmToken" : "label",
+    note: fcmToken ? "fcmToken" : appVersionCode != null ? "appVersion" : "label",
     throttle: false,
   });
+  if (fcmToken || appVersionCode != null) {
+    try {
+      await maybeNotifyDeviceUpdate(device.id);
+    } catch (e) {
+      console.warn("[devices] app update push failed", e instanceof Error ? e.message : e);
+    }
+  }
   return NextResponse.json({
     device: { id: device.id, label: device.label, fcmRegistered: Boolean(device.fcmToken) },
   });

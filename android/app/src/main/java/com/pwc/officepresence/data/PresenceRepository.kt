@@ -3,6 +3,7 @@ package com.pwc.officepresence.data
 import android.content.Context
 import com.pwc.officepresence.BuildConfig
 import com.pwc.officepresence.notify.Notifier
+import com.pwc.officepresence.notify.FcmTokenSync
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
 import com.pwc.officepresence.presence.VisitCalculator
@@ -353,6 +354,7 @@ class PresenceRepository(private val context: Context) {
         if (prefs.cachedInOffice && !prefs.cachedOfficeName.isBlank()) {
             prefs.lastOfficeName = prefs.cachedOfficeName
         }
+        FcmTokenSync.refreshIfNeeded(context)
         return cached()
     }
 
@@ -455,5 +457,20 @@ class PresenceRepository(private val context: Context) {
             }
         }
         return uploadAndSync()
+    }
+
+    /**
+     * Sign-in check: if this fix is inside an office, record enter the same way forceDetect does.
+     * A fix outside the fence, or less accurate than the fence, records nothing.
+     */
+    fun arriveIfInside(lat: Double, lng: Double, accuracy: Double): SyncState {
+        if (prefs.isViewAsReadonly) {
+            return cached("Not available while viewing as ${prefs.viewAsTargetName.ifBlank { "another user" }}", ok = false)
+        }
+        val matched = VisitCalculator.matchNearestOffice(
+            lat, lng, accuracy, prefs.offices().map { it.toFence() }, prefs.rules(),
+        )
+        if (matched == null) return cached("Out of office")
+        return forceDetect(lat, lng, accuracy)
     }
 }

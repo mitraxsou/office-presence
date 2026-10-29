@@ -52,7 +52,9 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.PresenceRepository
+import com.pwc.officepresence.notify.FcmTokenSync
 import com.pwc.officepresence.notify.Notifier
+import com.pwc.officepresence.presence.ArrivalDetect
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
 import com.pwc.officepresence.ui.compose.ColleaguesScreen
@@ -76,8 +78,11 @@ class ShellActivity : AppCompatActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
+    ) { granted ->
         GeofenceHelper.registerAll(this, prefs.offices())
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            ArrivalDetect.request(this, "permission")
+        }
         maybeBackgroundAndBattery()
     }
 
@@ -109,6 +114,8 @@ class ShellActivity : AppCompatActivity() {
             PresenceService.stop(this)
         }
         Notifier.ensureAllChannels(this)
+        ArrivalDetect.request(this, "signin")
+        FcmTokenSync.refreshIfNeeded(this)
         setContent {
             val dark = when (prefs.themeMode) {
                 "dark" -> true

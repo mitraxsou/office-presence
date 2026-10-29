@@ -8,6 +8,10 @@ export type PresenceRules = {
   sampleIntervalMinutes?: number;
   gapSeconds?: number;
   correctionWindowDays?: number;
+  correctionRequiresApproval?: boolean;
+  appVersionCode?: number;
+  appVersionName?: string;
+  appApkUrl?: string | null;
 };
 
 export type PresenceEventInput = {
@@ -510,4 +514,8 @@ export const DEFAULT_RULES: PresenceRules = {
   fenceRadiusMeters: 100,
   sampleIntervalMinutes: 10,
   correctionWindowDays: 5,
+  correctionRequiresApproval: false,
+  appVersionCode: 0,
+  appVersionName: "",
+  appApkUrl: null,
 };

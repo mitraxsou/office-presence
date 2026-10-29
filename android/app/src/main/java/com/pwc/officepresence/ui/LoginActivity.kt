@@ -94,6 +94,7 @@ class LoginActivity : AppCompatActivity() {
                     prefs = prefs,
                     forcedSignOutMessage = forcedMessage,
                     onSignedIn = {
+                        com.pwc.officepresence.presence.ArrivalDetect.request(this, "signin")
                         startActivity(Intent(this, ShellActivity::class.java))
                         finish()
                     },

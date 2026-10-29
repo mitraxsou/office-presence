@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordApiActivity } from "@/lib/device-api-activity";
-import { recomputeUserPresence } from "@/lib/presence";
-import { previewEffect, type RequestedSnapshot } from "@/lib/corrections";
+import { decideCorrection, previewEffect, type RequestedSnapshot } from "@/lib/corrections";
 import { canDecideOwnCorrection } from "@/lib/corrections-rules";
 import { phoneSyncPerDevice } from "@/lib/phone-sync";
 import { getPolicy } from "@/lib/policy";
@@ -191,80 +190,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Reject note required" }, { status: 400 });
   }
 
-  let visitId: string | null = null;
-  const applied = body.applied ?? row.requested ?? null;
-
-  if (decision === "approve") {
-    const remove = applied && typeof applied === "object" && "remove" in applied && applied.remove === true;
-    if (remove || row.issue === "should_not_count") {
-      const dayStart = new Date(`${row.dayKey}T00:00:00.000Z`);
-      const dayEnd = new Date(`${row.dayKey}T23:59:59.999Z`);
-      await prisma.visitExclusion.create({
-        data: {
-          userId: row.userId,
-          startAt: dayStart,
-          endAt: dayEnd,
-          reason: `Correction ${row.id}: ${row.reason}`,
-        },
-      });
-    } else {
-      const inAt = new Date(
-        (applied && typeof applied === "object" && "in_at" in applied && applied.in_at
-          ? String(applied.in_at)
-          : row.proposedStart.toISOString()),
-      );
-      const outAt = new Date(
-        (applied && typeof applied === "object" && "out_at" in applied && applied.out_at
-          ? String(applied.out_at)
-          : row.proposedEnd.toISOString()),
-      );
-      const officeId =
-        applied && typeof applied === "object" && "office_id" in applied
-          ? (applied.office_id ? String(applied.office_id) : null)
-          : row.officeLocationId;
-      const office = officeId
-        ? await prisma.officeLocation.findUnique({ where: { id: officeId } })
-        : null;
-      const visit = await prisma.visit.create({
-        data: {
-          userId: row.userId,
-          startAt: inAt,
-          endAt: outAt,
-          source: "correction",
-          reason: `Correction: ${row.reason}`,
-          editedBy: admin.id,
-          officeLocationId: office?.id ?? null,
-          pointsAwarded: office?.pointsPerVisitDay ?? 0,
-          correctionId: row.id,
-        },
-      });
-      visitId = visit.id;
-    }
-  }
-
-  const updated = await prisma.visitCorrectionRequest.update({
-    where: { id },
-    data: {
-      status: decision === "approve" ? "approved" : "rejected",
-      reviewedById: admin.id,
-      reviewedAt: new Date(),
-      reviewNote,
-      applied: decision === "approve" ? applied : undefined,
-    },
-  });
-  await prisma.auditLog.create({
-    data: {
-      actorId: admin.id,
-      action: `correction.${decision}`,
-      targetType: "VisitCorrectionRequest",
-      targetId: id,
-      beforeJson: row,
-      afterJson: { ...updated, visitId },
-      reason: reviewNote ?? undefined,
-    },
+  const decided = await decideCorrection({
+    row,
+    actorId: admin.id,
+    decision: decision === "reject" ? "reject" : "approve",
+    applied: body.applied ?? row.requested ?? null,
+    reviewNote,
   });
   invalidatePendingCorrectionsCount();
-  if (decision === "approve") await recomputeUserPresence(row.userId, { flushAlerts: true });
   recordApiActivity({
     userId: admin.id,
     method: "POST",
@@ -273,5 +206,5 @@ export async function POST(request: Request) {
     note: decision,
     throttle: false,
   });
-  return NextResponse.json({ request: updated });
+  return NextResponse.json({ request: decided.request });
 }

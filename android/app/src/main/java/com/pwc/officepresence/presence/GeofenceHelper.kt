@@ -57,6 +57,7 @@ object GeofenceHelper {
                 client.addGeofences(req, pi)
                     .addOnSuccessListener {
                         prefs.geofenceStatus = "Watching ${fences.size} office geofence${if (fences.size == 1) "" else "s"}."
+                        ArrivalDetect.request(context, "geofence")
                     }
                     .addOnFailureListener { e ->
                         prefs.geofenceStatus =

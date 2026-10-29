@@ -145,6 +145,8 @@ model DeviceToken {
   platform    String             @default("android")
   /** Firebase Cloud Messaging registration token for remote force-logout. */
   fcmToken    String?
+  appVersionCode            Int?
+  updateNotifiedVersionCode Int?
   lastSeenAt  DateTime?
   revokedAt   DateTime?
   createdAt   DateTime           @default(now())
@@ -182,9 +184,13 @@ model Policy {
   monthlyPointsTarget   Int      @default(8)
   timezone              String   @default("Asia/Kolkata")
   fenceRadiusMeters     Float    @default(100)
-  sampleIntervalMinutes Int      @default(5)
-  correctionWindowDays  Int      @default(5)
-  updatedAt             DateTime @updatedAt
+  sampleIntervalMinutes      Int      @default(5)
+  correctionWindowDays       Int      @default(5)
+  correctionRequiresApproval Boolean  @default(false)
+  appVersionCode             Int      @default(0)
+  appVersionName             String   @default("")
+  appApkUrl                  String?
+  updatedAt                  DateTime @updatedAt
 }
 
 model OfficeLocation {

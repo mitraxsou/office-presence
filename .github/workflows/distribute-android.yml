@@ -1,0 +1,81 @@
+# Manual pilot APK upload to Firebase App Distribution.
+# Secrets: FIREBASE_TOKEN (from `firebase login:ci`)
+# Optional vars: FIREBASE_ANDROID_APP_ID, FIREBASE_DISTRIBUTE_GROUP
+name: Distribute Android pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: Optional notes override. Empty uses docs/releases for versionName.
+        required: false
+        default: ""
+
+jobs:
+  distribute:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Missing ANDROID_KEYSTORE_BASE64 secret; skip signed CI build."
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > office-presence-pilot.jks
+          cat > keystore.properties <<EOF
+storeFile=office-presence-pilot.jks
+storePassword=$ANDROID_KEYSTORE_PASSWORD
+keyAlias=$ANDROID_KEY_ALIAS
+keyPassword=$ANDROID_KEY_PASSWORD
+EOF
+
+      - name: Place google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "Missing GOOGLE_SERVICES_JSON secret"
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+
+      - name: Assemble release
+        run: ./gradlew assembleRelease --console=plain
+
+      - name: Upload to App Distribution
+        working-directory: .
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_DISTRIBUTE_GROUP: ${{ vars.FIREBASE_DISTRIBUTE_GROUP }}
+          FIREBASE_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: |
+          npm i -g firebase-tools
+          APP_ID="${FIREBASE_ANDROID_APP_ID:-1:444745156088:android:0a8e8296ed2794f356420d}"
+          GROUP="${FIREBASE_DISTRIBUTE_GROUP:-pilot}"
+          if [ -n "$FIREBASE_RELEASE_NOTES" ]; then
+            NOTES_ARGS=(--release-notes "$FIREBASE_RELEASE_NOTES")
+          else
+            node scripts/android-release-notes.mjs --text > "$RUNNER_TEMP/release-notes.txt"
+            NOTES_ARGS=(--release-notes-file "$RUNNER_TEMP/release-notes.txt")
+          fi
+          firebase appdistribution:distribute android/app/build/outputs/apk/release/app-release.apk \
+            --app "$APP_ID" \
+            --groups "$GROUP" \
+            "${NOTES_ARGS[@]}" \
+            --token "$FIREBASE_TOKEN"

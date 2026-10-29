@@ -37,6 +37,7 @@ object Notifier {
     const val ID_CORRECTIONS = 1005
     const val ID_TRACKING = 1006
     const val ID_SIGNED_OUT = 1007
+    const val ID_UPDATE = 1008
     const val ID_TEST = 1099
 
     const val CHANNEL_ARRIVALS = "arrivals_leaving"
@@ -44,6 +45,7 @@ object Notifier {
     const val CHANNEL_WEEKLY = "weekly_summary"
     const val CHANNEL_CORRECTIONS = "correction_requests"
     const val CHANNEL_TRACKING = "tracking_problems"
+    const val CHANNEL_UPDATE = "app_updates"
 
     const val ALERT_DEBOUNCE_MS = 3 * 60_000L
 
@@ -61,6 +63,7 @@ object Notifier {
         ChannelSpec(CHANNEL_WEEKLY, "Weekly summary", "Monday 9:00 am: points so far this month"),
         ChannelSpec(CHANNEL_CORRECTIONS, "Correction requests", "When an admin decides on your request"),
         ChannelSpec(CHANNEL_TRACKING, "Tracking problems", "Location off, or no sync for 24 h", NotificationManager.IMPORTANCE_HIGH),
+        ChannelSpec(CHANNEL_UPDATE, "App updates", "When a newer version is published", NotificationManager.IMPORTANCE_HIGH),
     )
 
     val TONES = linkedMapOf(
@@ -423,6 +426,34 @@ object Notifier {
             if (approved) "Correction approved" else "Correction not approved",
             dayLabel,
         )
+    }
+
+    fun appUpdate(context: Context, url: String) {
+        if (!canPost(context)) return
+        ensureAllChannels(context)
+        val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val launch = PendingIntent.getActivity(
+            context, ID_UPDATE, view,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val text = "A new version is ready to install."
+        val n = NotificationCompat.Builder(context, CHANNEL_UPDATE)
+            .setSmallIcon(R.drawable.ic_stat_presence)
+            .setColor(ContextCompat.getColor(context, R.color.pwc_orange))
+            .setContentTitle("Update the app")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(launch)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(ID_UPDATE, n)
+        } catch (_: SecurityException) {
+        }
     }
 
     fun trackingProblem(context: Context, text: String) {

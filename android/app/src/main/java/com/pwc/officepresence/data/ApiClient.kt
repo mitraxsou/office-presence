@@ -68,6 +68,16 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
         send("PATCH", "/api/me/devices", JSONObject().put("id", id).put("label", label))
     fun updateFcmToken(fcmToken: String): JSONObject =
         send("PATCH", "/api/me/devices", JSONObject().put("fcmToken", fcmToken))
+
+    fun registerFcm(id: String, fcmToken: String, appVersionCode: Int): JSONObject =
+        send(
+            "PATCH",
+            "/api/me/devices",
+            JSONObject()
+                .put("id", id)
+                .put("fcmToken", fcmToken)
+                .put("appVersionCode", appVersionCode),
+        )
     fun revokeDevice(id: String): JSONObject = send("DELETE", "/api/me/devices?id=${enc(id)}")
     fun setPrivacy(share: Boolean): JSONObject =
         send("PATCH", "/api/me/privacy", JSONObject().put("sharePresenceWithPeers", share).put("consent", share))

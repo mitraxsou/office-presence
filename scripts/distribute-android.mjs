@@ -3,6 +3,10 @@
  * Auth: FIREBASE_SERVICE_ACCOUNT_JSON env, or the same key in web/.env.local.
  * Does not write the service account to disk.
  *
+ * Release notes: always loaded from docs/releases/<versionName>.md
+ * (versionName from android/app/build.gradle.kts). Fails if that file is missing.
+ * Optional env FIREBASE_RELEASE_NOTES overrides the file text after the file check.
+ *
  * Optional env:
  *   FIREBASE_ANDROID_APP_ID (default: 1:444745156088:android:0a8e8296ed2794f356420d)
  *   FIREBASE_DISTRIBUTE_GROUP (default: pilot)
@@ -13,13 +17,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GoogleAuth } from "google-auth-library";
+import { loadReleaseNotes } from "./android-release-notes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const apkPath = path.join(root, "android", "app", "build", "outputs", "apk", "release", "app-release.apk");
 const appId = process.env.FIREBASE_ANDROID_APP_ID || "1:444745156088:android:0a8e8296ed2794f356420d";
 const group = process.env.FIREBASE_DISTRIBUTE_GROUP || "pilot";
-const notes = process.env.FIREBASE_RELEASE_NOTES || "Pilot build 2.0.1";
 const testerEmails = (process.env.FIREBASE_TESTER_EMAILS || "")
   .split(",")
   .map((e) => e.trim())
@@ -57,6 +61,10 @@ function loadServiceAccount() {
 }
 
 async function main() {
+  const { versionName, notesPath, notes: fileNotes } = loadReleaseNotes(root);
+  const notes = (process.env.FIREBASE_RELEASE_NOTES || fileNotes).trim();
+  console.log(`versionName ${versionName}; release notes: ${notesPath}`);
+
   if (!fs.existsSync(apkPath)) {
     throw new Error(`Missing APK at ${apkPath}. Run: npm run android:release`);
   }
@@ -94,7 +102,7 @@ async function main() {
       console.log(`Tester group '${group}' already exists`);
     } else if (groupRes.status === 403) {
       console.warn(`Could not create group (${groupRes.status}): ${errText}`);
-      console.warn("Create group 'pilot' in Firebase Console → App Distribution if missing.");
+      console.warn("Create group 'pilot' in Firebase Console > App Distribution if missing.");
     } else {
       console.warn(`Group create response ${groupRes.status}: ${errText}`);
     }
@@ -167,7 +175,7 @@ async function main() {
   }
   console.log("Distributed to group:", group);
   if (testerEmails.length) console.log("Also invited:", testerEmails.join(", "));
-  console.log("Done. Testers: Firebase Console → App Distribution, or invite email / App Tester.");
+  console.log("Done. Testers: Firebase Console > App Distribution, or invite email / App Tester.");
 }
 
 async function pollOperation(headers, opName) {

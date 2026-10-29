@@ -1,0 +1,15 @@
+---
+description: Every Android versionName bump needs docs/releases notes before distribute or GitHub release.
+alwaysApply: true
+---
+
+# Android release notes
+
+When bumping `versionCode` or `versionName` in `android/app/build.gradle.kts`, or preparing Firebase App Distribution / a GitHub APK release:
+
+1. Create `docs/releases/<versionName>.md` (must match `versionName`). Short user-facing bullets; include an install note if the signing key differs from debug.
+2. Do not delete older `docs/releases/*.md` files. Keep history (move or link old one-off paths such as `docs/release-notes-v2.0.1-pilot.md`).
+3. `npm run distribute:android` and `scripts/distribute-android.*` load that file and fail if it is missing. `assembleRelease` only prints the path; missing notes do not fail compile.
+4. GitHub releases use `--notes-file docs/releases/<versionName>.md` (see `docs/create-github-release-apk.md`). Documented also in `docs/design/FIREBASE.md`.
+5. No em dash or en dash in release notes or UI strings.
+6. If `web/src/app/download/page.tsx` hardcodes a version label, update it to the new `versionName` when shipping that APK.

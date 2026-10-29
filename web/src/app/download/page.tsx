@@ -1,15 +1,26 @@
 import Link from "next/link";
 import Mark from "@/components/Mark";
+import { getPolicy } from "@/lib/policy";
 
-const VERSION = "2.0.1";
+const VERSION = "2.0.2";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Download Android app - Office Presence",
   description: "Download the Office Presence Android APK for the PwC pilot.",
 };
 
-export default function DownloadPage() {
-  const apkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim() || "";
+export default async function DownloadPage() {
+  let version = VERSION;
+  let apkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim() || "";
+  try {
+    const policy = await getPolicy();
+    if (policy.appVersionName?.trim()) version = policy.appVersionName.trim();
+    if (policy.appApkUrl?.trim()) apkUrl = policy.appApkUrl.trim();
+  } catch {
+    // Keep the env fallback when policy cannot be read.
+  }
   const published = Boolean(apkUrl);
 
   return (
@@ -24,7 +35,7 @@ export default function DownloadPage() {
         <div className="op-login-card" style={{ maxWidth: 480 }}>
           <h1 className="op-login-title">Download the Android app</h1>
           <p className="op-login-lead">
-            Pilot build for phones. Version {VERSION} (signed release).
+            Pilot build for phones. Version {version} (signed release).
           </p>
 
           {published ? (

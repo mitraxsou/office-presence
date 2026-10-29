@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ImportCard from "./ImportCard";
 
 type Policy = {
   gapMinutes: number;
@@ -10,6 +11,10 @@ type Policy = {
   fenceRadiusMeters: number;
   sampleIntervalMinutes?: number;
   correctionWindowDays?: number;
+  correctionRequiresApproval?: boolean;
+  appVersionCode?: number;
+  appVersionName?: string;
+  appApkUrl?: string | null;
 };
 
 const TIMEZONES = [
@@ -47,6 +52,10 @@ export default function SettingsClient({
         ...data.policy,
         monthlyPointsTarget: data.policy.monthlyPointsTarget ?? 8,
         correctionWindowDays: data.policy.correctionWindowDays ?? 5,
+        correctionRequiresApproval: data.policy.correctionRequiresApproval === true,
+        appVersionCode: data.policy.appVersionCode ?? 0,
+        appVersionName: data.policy.appVersionName ?? "",
+        appApkUrl: data.policy.appApkUrl ?? "",
       });
       setMessage("Rules saved");
       setMessageKind("ok");
@@ -165,6 +174,20 @@ export default function SettingsClient({
           </div>
 
           <div className="k">
+            <b>Require approval for corrections</b>
+            <small>When on, an admin reviews each correction. When off, it applies immediately and stays in the history.</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.correctionRequiresApproval === true}
+              onChange={(e) => setPolicy({ ...policy, correctionRequiresApproval: e.target.checked })}
+              disabled={busy}
+              aria-label="Require approval for corrections"
+            />
+          </div>
+
+          <div className="k">
             <b>Who decides corrections</b>
             <small>Every decision is logged</small>
           </div>
@@ -192,6 +215,47 @@ export default function SettingsClient({
               ))}
             </select>
           </div>
+
+          <div className="k">
+            <b>Android version code</b>
+            <small>Phones on an older version code get a notification to update.</small>
+          </div>
+          <div className="v">
+            <input
+              type="number"
+              min={0}
+              value={policy.appVersionCode ?? 0}
+              onChange={(e) => setPolicy({ ...policy, appVersionCode: Number(e.target.value) })}
+              disabled={busy}
+              aria-label="Android version code"
+            />
+          </div>
+
+          <div className="k">
+            <b>Android version name</b>
+            <small>Shown on the download page</small>
+          </div>
+          <div className="v">
+            <input
+              value={policy.appVersionName ?? ""}
+              onChange={(e) => setPolicy({ ...policy, appVersionName: e.target.value })}
+              disabled={busy}
+              aria-label="Android version name"
+            />
+          </div>
+
+          <div className="k">
+            <b>APK URL</b>
+            <small>Download file link. The notification opens the download page.</small>
+          </div>
+          <div className="v">
+            <input
+              value={policy.appApkUrl ?? ""}
+              onChange={(e) => setPolicy({ ...policy, appApkUrl: e.target.value })}
+              disabled={busy}
+              aria-label="APK URL"
+            />
+          </div>
         </div>
       </div>
 
@@ -199,6 +263,7 @@ export default function SettingsClient({
         A day counts once, even when several phones report it. The latest location wins.
       </p>
       {message ? <p className={`status-msg ${messageKind}`}>{message}</p> : null}
+      <ImportCard />
     </div>
   );
 }

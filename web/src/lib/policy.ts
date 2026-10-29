@@ -10,6 +10,10 @@ function toRules(row: {
   fenceRadiusMeters: number;
   sampleIntervalMinutes: number;
   correctionWindowDays?: number;
+  correctionRequiresApproval?: boolean;
+  appVersionCode?: number;
+  appVersionName?: string;
+  appApkUrl?: string | null;
 }): PresenceRules {
   return {
     gapMinutes: row.gapMinutes,
@@ -20,6 +24,10 @@ function toRules(row: {
     fenceRadiusMeters: row.fenceRadiusMeters,
     sampleIntervalMinutes: row.sampleIntervalMinutes,
     correctionWindowDays: row.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
+    correctionRequiresApproval: row.correctionRequiresApproval === true,
+    appVersionCode: row.appVersionCode ?? 0,
+    appVersionName: row.appVersionName ?? "",
+    appApkUrl: row.appApkUrl ?? null,
   };
 }
 
@@ -48,6 +56,10 @@ export async function updatePolicy(
       sampleIntervalMinutes:
         input.sampleIntervalMinutes ?? DEFAULT_RULES.sampleIntervalMinutes ?? 5,
       correctionWindowDays: input.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
+      correctionRequiresApproval: input.correctionRequiresApproval === true,
+      appVersionCode: input.appVersionCode ?? DEFAULT_RULES.appVersionCode ?? 0,
+      appVersionName: input.appVersionName ?? DEFAULT_RULES.appVersionName ?? "",
+      appApkUrl: cleanApkUrl(input.appApkUrl),
     },
     update: {
       ...(input.gapMinutes != null ? { gapMinutes: input.gapMinutes } : {}),
@@ -68,7 +80,22 @@ export async function updatePolicy(
       ...(input.correctionWindowDays != null
         ? { correctionWindowDays: input.correctionWindowDays }
         : {}),
+      ...(typeof input.correctionRequiresApproval === "boolean"
+        ? { correctionRequiresApproval: input.correctionRequiresApproval }
+        : {}),
+      ...(input.appVersionCode != null
+        ? { appVersionCode: Math.max(0, Math.floor(input.appVersionCode)) }
+        : {}),
+      ...(input.appVersionName != null
+        ? { appVersionName: input.appVersionName.trim().slice(0, 40) }
+        : {}),
+      ...(input.appApkUrl !== undefined ? { appApkUrl: cleanApkUrl(input.appApkUrl) } : {}),
     },
   });
   return toRules(row);
+}
+
+function cleanApkUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed.slice(0, 2000) : null;
 }

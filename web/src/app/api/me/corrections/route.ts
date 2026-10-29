@@ -3,12 +3,14 @@ import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
 import { recordApiActivity } from "@/lib/device-api-activity";
 import {
-  assertCanCreate,
+  assertNoPendingCorrection,
   dayVisitSnapshot,
+  decideCorrection,
   previewEffect,
   type CorrectionIssue,
   type RequestedSnapshot,
 } from "@/lib/corrections";
+import { getPolicy } from "@/lib/policy";
 
 const ISSUES = new Set<CorrectionIssue>([
   "missing_visit",
@@ -74,7 +76,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid issue" }, { status: 400 });
   }
 
-  const gate = await assertCanCreate(actor.user.id, dayKey);
+  const gate = await assertNoPendingCorrection(actor.user.id, dayKey);
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let requested: RequestedSnapshot;
@@ -141,5 +143,18 @@ export async function POST(request: Request) {
     note: "create",
     throttle: false,
   });
-  return NextResponse.json({ request: row, effect });
+
+  const policy = await getPolicy();
+  if (policy.correctionRequiresApproval) {
+    return NextResponse.json({ request: row, effect, appliedImmediately: false });
+  }
+
+  const decided = await decideCorrection({
+    row,
+    actorId: actor.user.id,
+    decision: "approve",
+    applied: requested,
+    reviewNote: "Applied immediately",
+  });
+  return NextResponse.json({ request: decided.request, effect, appliedImmediately: true });
 }

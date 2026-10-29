@@ -3,9 +3,11 @@ package com.pwc.officepresence.notify
 import android.content.Intent
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.pwc.officepresence.BuildConfig
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.ui.LoginActivity
 import com.pwc.officepresence.ui.analytics.OpAnalytics
+import kotlin.concurrent.thread
 
 /** Handles remote force-logout (and future data pushes) while the app may be backgrounded. */
 class OfficeFirebaseMessagingService : FirebaseMessagingService() {
@@ -36,6 +38,19 @@ class OfficeFirebaseMessagingService : FirebaseMessagingService() {
                 startActivity(launch)
             }
             "presence_check" -> PresenceCheckAction.run(this)
+            "rules_changed" -> thread {
+                runCatching { PresenceRepository(this).syncOnly() }
+            }
+            "app_update" -> showUpdate(message)
         }
+    }
+
+    private fun showUpdate(message: RemoteMessage) {
+        val published = message.data["versionCode"]?.toIntOrNull()
+        if (published != null && published <= BuildConfig.VERSION_CODE) return
+        val url = message.data["url"]?.trim().orEmpty().ifBlank {
+            BuildConfig.API_BASE_URL.trimEnd('/') + "/download"
+        }
+        Notifier.appUpdate(this, url)
     }
 }
