@@ -24,6 +24,7 @@ import com.pwc.officepresence.ui.PointsFormat
 import com.pwc.officepresence.ui.ShellActivity
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 /**
  * Local notifications. One Android NotificationChannel per SPEC type.
@@ -277,7 +278,7 @@ object Notifier {
         return "${st.soundLabel}, $vib"
     }
 
-    /** Quiet hours silence most alerts; tracking problems still alert. */
+    /** Quiet hours silence most alerts. Tracking and correction decisions can stay audible. */
     fun inQuietHours(prefs: AppPrefs, nowMs: Long = System.currentTimeMillis()): Boolean {
         val start = prefs.quietHoursStart
         val end = prefs.quietHoursEnd
@@ -290,6 +291,7 @@ object Notifier {
             ZoneId.of("Asia/Kolkata")
         }
         val local = Instant.ofEpochMilli(nowMs).atZone(zone)
+        if (!quietDayActive(prefs, local)) return false
         val nowMin = local.hour * 60 + local.minute
         return if (startMin <= endMin) {
             nowMin in startMin until endMin
@@ -297,6 +299,21 @@ object Notifier {
             nowMin >= startMin || nowMin < endMin
         }
     }
+
+    private fun quietDayActive(prefs: AppPrefs, local: ZonedDateTime): Boolean {
+        val day = local.dayOfWeek.value
+        return when (prefs.quietHoursDays) {
+            "weekdays" -> day in 1..5
+            "custom" -> day in parseCustomDays(prefs.quietHoursCustomDays)
+            else -> true
+        }
+    }
+
+    private fun parseCustomDays(raw: String): Set<Int> =
+        raw.split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 1..7 }
+            .toSet()
 
     private fun parseHm(hm: String): Int? {
         val parts = hm.split(":")
@@ -425,6 +442,7 @@ object Notifier {
             context, CHANNEL_CORRECTIONS, ID_CORRECTIONS,
             if (approved) "Correction approved" else "Correction not approved",
             dayLabel,
+            respectQuietHours = !prefs.quietAlertCorrections,
         )
     }
 
@@ -464,7 +482,7 @@ object Notifier {
             "Tracking problem",
             text,
             high = true,
-            respectQuietHours = false,
+            respectQuietHours = !prefs.quietAlertTracking,
         )
     }
 

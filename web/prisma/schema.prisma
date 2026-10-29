@@ -243,6 +243,12 @@ model UserNotificationPrefs {
   /** "22:00" style local time; null means quiet hours off. */
   quietHoursStart            String?
   quietHoursEnd              String?
+  /** all, weekdays, or custom. Custom uses quietHoursCustomDays. */
+  quietHoursDays             String   @default("all")
+  /** Comma-separated weekday numbers, Monday = 1 through Sunday = 7. */
+  quietHoursCustomDays       String   @default("1,2,3,4,5")
+  quietAlertTracking         Boolean  @default(true)
+  quietAlertCorrections      Boolean  @default(false)
   /** Legacy single tone; kept as fallback when a per-kind tone is unset. */
   notificationToneId         String   @default("default")
   toneEnterId                String   @default("chime")

@@ -729,6 +729,7 @@ fun SettingsRow(
     value: String? = null,
     onClick: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
+    stackValue: Boolean = false,
 ) {
     val p = LocalOpPalette.current
     Row(
@@ -738,16 +739,30 @@ fun SettingsRow(
             .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = OpType.Body, color = p.ink, modifier = Modifier.weight(1f))
-        if (trailing != null) {
-            trailing()
-        } else if (!value.isNullOrBlank()) {
-            Text(value, style = OpType.Label, color = p.ink2)
-            if (onClick != null) {
-                Text("  >", color = p.ink3)
+        if (stackValue) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = OpType.Body, color = p.ink)
+                if (!value.isNullOrBlank()) {
+                    Text(value, style = OpType.Meta, color = p.ink2, modifier = Modifier.padding(top = 2.dp))
+                }
             }
-        } else if (onClick != null) {
-            Text(">", color = p.ink3)
+            if (trailing != null) {
+                trailing()
+            } else if (onClick != null) {
+                Text(">", color = p.ink3)
+            }
+        } else {
+            Text(title, style = OpType.Body, color = p.ink, modifier = Modifier.weight(1f))
+            if (trailing != null) {
+                trailing()
+            } else if (!value.isNullOrBlank()) {
+                Text(value, style = OpType.Label, color = p.ink2, maxLines = 1)
+                if (onClick != null) {
+                    Text("  >", color = p.ink3)
+                }
+            } else if (onClick != null) {
+                Text(">", color = p.ink3)
+            }
         }
     }
 }

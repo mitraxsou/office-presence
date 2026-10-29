@@ -268,8 +268,35 @@ class AppPrefs(context: Context) {
         get() = str("quietHoursEnd", "")
         set(v) = putStr("quietHoursEnd", v)
 
+    /** Last start/end shown while quiet hours are off. Not sent to the server. */
+    var quietHoursStartKept: String
+        get() = str("quietHoursStartKept", "21:00")
+        set(v) = putStr("quietHoursStartKept", v)
+
+    var quietHoursEndKept: String
+        get() = str("quietHoursEndKept", "08:00")
+        set(v) = putStr("quietHoursEndKept", v)
+
     val quietHoursEnabled: Boolean
         get() = quietHoursStart.isNotBlank() && quietHoursEnd.isNotBlank()
+
+    /** all, weekdays, or custom. */
+    var quietHoursDays: String
+        get() = str("quietHoursDays", "all")
+        set(v) = putStr("quietHoursDays", v)
+
+    /** Comma-separated weekday numbers, Monday = 1 through Sunday = 7. */
+    var quietHoursCustomDays: String
+        get() = str("quietHoursCustomDays", "1,2,3,4,5")
+        set(v) = putStr("quietHoursCustomDays", v)
+
+    var quietAlertTracking: Boolean
+        get() = bool("quietAlertTracking", true)
+        set(v) = putBool("quietAlertTracking", v)
+
+    var quietAlertCorrections: Boolean
+        get() = bool("quietAlertCorrections", false)
+        set(v) = putBool("quietAlertCorrections", v)
 
     var notificationToneId: String
         get() = str("notificationToneId", "default")

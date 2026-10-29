@@ -378,10 +378,24 @@ class PresenceRepository(private val context: Context) {
         if (p.has("quietHoursStart")) {
             val s = p.optString("quietHoursStart", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
             prefs.quietHoursStart = s
+            if (s.isNotBlank()) prefs.quietHoursStartKept = s
         }
         if (p.has("quietHoursEnd")) {
             val e = p.optString("quietHoursEnd", "").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
             prefs.quietHoursEnd = e
+            if (e.isNotBlank()) prefs.quietHoursEndKept = e
+        }
+        if (p.has("quietHoursDays")) {
+            val d = p.optString("quietHoursDays", "all")
+            prefs.quietHoursDays = if (d == "weekdays" || d == "custom") d else "all"
+        }
+        if (p.has("quietHoursCustomDays")) {
+            val c = p.optString("quietHoursCustomDays", "").takeIf { it.isNotBlank() && it != "null" }
+            if (c != null) prefs.quietHoursCustomDays = c
+        }
+        if (p.has("quietAlertTracking")) prefs.quietAlertTracking = p.optBoolean("quietAlertTracking", true)
+        if (p.has("quietAlertCorrections")) {
+            prefs.quietAlertCorrections = p.optBoolean("quietAlertCorrections", false)
         }
         prefs.notificationToneId = p.optString("notificationToneId", "default")
         prefs.toneEnterId = p.optString("toneEnterId", prefs.toneEnterId.ifBlank { "chime" })

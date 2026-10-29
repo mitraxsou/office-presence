@@ -7,14 +7,14 @@ Spark / free. Used for remote force-logout, work-hours presence wake, client ana
 | Channel | Who it is for | How |
 |---|---|---|
 | Firebase App Distribution (Console or CLI) | Invited testers via App Tester | Upload APK to project `office-presence-f8100`, group `pilot` (see App Distribution below). Scaffolding stays in repo: `firebase.json`, `.firebaserc`, `scripts/distribute-android.ps1`, `npm run distribute:android`. |
-| GitHub Release | Anyone with repo/release access; also the source URL for the public page | Tag e.g. `v2.0.2-pilot`, attach `app-release.apk`, notes from `docs/releases/<versionName>.md`. Do not commit the APK into the tree. |
+| GitHub Release | Anyone with repo/release access; also the source URL for the public page | Tag e.g. `v2.0.3-pilot`, attach `app-release.apk`, notes from `docs/releases/<versionName>.md`. Do not commit the APK into the tree. |
 | Public `/download` page | Anyone who can open the pilot web app | `https://office-presence-psi.vercel.app/download`. Button uses `NEXT_PUBLIC_ANDROID_APK_URL` (set on Vercel to the GitHub Release asset browser URL, then redeploy). Login footer links here. |
 
 ## Release notes (required for every new version)
 
 Before bumping `versionCode` / `versionName` in `android/app/build.gradle.kts` and shipping:
 
-1. Add `docs/releases/<versionName>.md` (example: `docs/releases/2.0.2.md`). Short user-facing bullets plus an install note if the signing key differs from debug.
+1. Add `docs/releases/<versionName>.md` (example: `docs/releases/2.0.3.md`). Short user-facing bullets plus an install note if the signing key differs from debug.
 2. `npm run distribute:android` and the distribute scripts read that file (parsed from `versionName`) and pass it as Firebase release notes. They **fail** if the file is missing.
 3. GitHub releases use the same file via `--notes-file` (see `docs/create-github-release-apk.md`).
 4. `assembleRelease` only **prints** the notes path; a missing file does not fail compile (so debug builds stay easy).
@@ -28,7 +28,7 @@ Uninstall a debug-signed build before installing a release APK if the signing ke
 Production variable (set for pilot):
 
 ```
-NEXT_PUBLIC_ANDROID_APK_URL=https://github.com/mitraxsou/office-presence/releases/download/v2.0.2-pilot/app-release.apk
+NEXT_PUBLIC_ANDROID_APK_URL=https://github.com/mitraxsou/office-presence/releases/download/v2.0.3-pilot/app-release.apk
 ```
 
 After changing it, redeploy Production so the Next.js build inlines the public URL. The `/download` route ships with the web app; commit and push the page, then redeploy (or `vercel --prod` from `web/`) before it appears live.

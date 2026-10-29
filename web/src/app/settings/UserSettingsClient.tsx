@@ -20,6 +20,10 @@ type Prefs = {
   notifyTrackingProblems?: boolean;
   quietHoursStart?: string | null;
   quietHoursEnd?: string | null;
+  quietHoursDays?: string;
+  quietHoursCustomDays?: string;
+  quietAlertTracking?: boolean;
+  quietAlertCorrections?: boolean;
 };
 
 type Office = {
@@ -613,7 +617,7 @@ export default function UserSettingsClient({
                 <div className="op-set-row">
                   <div>
                     <div className="op-set-h">Quiet hours</div>
-                    <div className="op-meta">Tracking problems still alert during quiet hours.</div>
+                    <div className="op-meta">Notifications arrive silently during these hours. They still show in the app.</div>
                   </div>
                   <Switch
                     checked={quietOn}
@@ -629,31 +633,11 @@ export default function UserSettingsClient({
                   />
                 </div>
                 {quietOn && prefs ? (
-                  <div className="row" style={{ gap: 10, marginTop: 14, display: "flex", alignItems: "center" }}>
-                    <span className="op-meta">From</span>
-                    <input
-                      className="op-input op-input-sm"
-                      style={{ width: 120 }}
-                      type="time"
-                      value={prefs.quietHoursStart ?? "21:00"}
-                      disabled={viewAsReadonly}
-                      onChange={(e) => void patchPrefs({ quietHoursStart: e.target.value })}
-                      aria-label="Quiet hours start"
-                    />
-                    <span className="op-meta">to</span>
-                    <input
-                      className="op-input op-input-sm"
-                      style={{ width: 120 }}
-                      type="time"
-                      value={prefs.quietHoursEnd ?? "08:00"}
-                      disabled={viewAsReadonly}
-                      onChange={(e) => void patchPrefs({ quietHoursEnd: e.target.value })}
-                      aria-label="Quiet hours end"
-                    />
-                    <span className="op-meta">
-                      {fmtClockHm(prefs.quietHoursStart)} to {fmtClockHm(prefs.quietHoursEnd)}
-                    </span>
-                  </div>
+                  <QuietHoursEditor
+                    prefs={prefs}
+                    disabled={viewAsReadonly}
+                    onPatch={(patch) => void patchPrefs(patch)}
+                  />
                 ) : null}
               </div>
 
@@ -824,6 +808,165 @@ export default function UserSettingsClient({
         </div>
       </div>
     </>
+  );
+}
+
+const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function quietMinutes(hm?: string | null) {
+  if (!hm || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hm)) return null;
+  const [h, m] = hm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function customDayList(raw?: string | null) {
+  const nums = (raw || "1,2,3,4,5")
+    .split(",")
+    .map((n) => Number(n.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 7);
+  return [...new Set(nums)].sort((a, b) => a - b);
+}
+
+function QuietHoursEditor({
+  prefs,
+  disabled,
+  onPatch,
+}: {
+  prefs: Prefs;
+  disabled: boolean;
+  onPatch: (patch: Partial<Prefs>) => void;
+}) {
+  const mode = prefs.quietHoursDays === "weekdays" || prefs.quietHoursDays === "custom" ? prefs.quietHoursDays : "all";
+  const custom = customDayList(prefs.quietHoursCustomDays);
+  const selected = mode === "weekdays" ? [1, 2, 3, 4, 5] : mode === "custom" ? custom : [1, 2, 3, 4, 5, 6, 7];
+  const startMin = quietMinutes(prefs.quietHoursStart);
+  const endMin = quietMinutes(prefs.quietHoursEnd);
+  const nextDay = startMin != null && endMin != null && endMin < startMin;
+
+  function selectMode(next: string) {
+    const patch: Partial<Prefs> = { quietHoursDays: next };
+    if (next === "custom" && mode !== "custom") {
+      patch.quietHoursCustomDays = mode === "weekdays" ? "1,2,3,4,5" : "1,2,3,4,5,6,7";
+    }
+    onPatch(patch);
+  }
+
+  function toggleDay(day: number) {
+    if (mode !== "custom") return;
+    const set = new Set(custom);
+    if (set.has(day)) {
+      if (set.size <= 1) return;
+      set.delete(day);
+    } else {
+      set.add(day);
+    }
+    onPatch({ quietHoursCustomDays: [...set].sort((a, b) => a - b).join(",") });
+  }
+
+  return (
+    <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <span className="op-meta">From</span>
+        <input
+          className="op-input op-input-sm"
+          style={{ width: 120 }}
+          type="time"
+          value={prefs.quietHoursStart ?? "21:00"}
+          disabled={disabled}
+          onChange={(e) => onPatch({ quietHoursStart: e.target.value })}
+          aria-label="Quiet hours start"
+        />
+        <span className="op-meta">to</span>
+        <input
+          className="op-input op-input-sm"
+          style={{ width: 120 }}
+          type="time"
+          value={prefs.quietHoursEnd ?? "08:00"}
+          disabled={disabled}
+          onChange={(e) => onPatch({ quietHoursEnd: e.target.value })}
+          aria-label="Quiet hours end"
+        />
+        <span className="op-meta">
+          {fmtClockHm(prefs.quietHoursStart)} to {fmtClockHm(prefs.quietHoursEnd)}
+          {nextDay ? ", next day" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {(
+          [
+            ["all", "Every day"],
+            ["weekdays", "Weekdays"],
+            ["custom", "Custom"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={mode === id ? "op-chip on" : "op-chip"}
+            disabled={disabled}
+            onClick={() => selectMode(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {DAY_LETTERS.map((letter, index) => {
+          const day = index + 1;
+          const on = selected.includes(day);
+          return (
+            <button
+              key={DAY_NAMES[index]}
+              type="button"
+              aria-pressed={on}
+              aria-label={DAY_NAMES[index]}
+              disabled={disabled || mode !== "custom"}
+              onClick={() => toggleDay(day)}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                border: "1px solid var(--op-line-strong)",
+                background: on ? "var(--op-ink)" : "var(--op-surface)",
+                color: on ? "var(--op-bg)" : "var(--op-ink-2)",
+                fontWeight: 700,
+              }}
+            >
+              {letter}
+            </button>
+          );
+        })}
+      </div>
+      <div className="op-set-row">
+        <div>
+          <div className="op-set-h" style={{ fontSize: 15 }}>
+            Still alert for tracking problems
+            <span className="op-badge fyi" style={{ marginLeft: 8 }}>
+              Recommended
+            </span>
+          </div>
+        </div>
+        <Switch
+          checked={prefs.quietAlertTracking !== false}
+          disabled={disabled}
+          label="Still alert for tracking problems"
+          onChange={(v) => onPatch({ quietAlertTracking: v })}
+        />
+      </div>
+      <div className="op-set-row">
+        <div className="op-set-h" style={{ fontSize: 15 }}>
+          Still alert for correction decisions
+        </div>
+        <Switch
+          checked={!!prefs.quietAlertCorrections}
+          disabled={disabled}
+          label="Still alert for correction decisions"
+          onChange={(v) => onPatch({ quietAlertCorrections: v })}
+        />
+      </div>
+      <div className="op-meta">Saved to your account. Each phone applies it in its own time zone.</div>
+    </div>
   );
 }
 

@@ -30,12 +30,12 @@ gh release create $tag $apk `
   --latest=$false
 ```
 
-Release URL example: https://github.com/mitraxsou/office-presence/releases/tag/v2.0.2-pilot
+Release URL example: https://github.com/mitraxsou/office-presence/releases/tag/v2.0.3-pilot
 
 Asset URL (for `NEXT_PUBLIC_ANDROID_APK_URL`):
 
 ```
-https://github.com/mitraxsou/office-presence/releases/download/v2.0.2-pilot/app-release.apk
+https://github.com/mitraxsou/office-presence/releases/download/v2.0.3-pilot/app-release.apk
 ```
 
 Also update `web/src/app/download/page.tsx` `VERSION` when that page hardcodes the pilot version label, then set the Vercel env and redeploy.

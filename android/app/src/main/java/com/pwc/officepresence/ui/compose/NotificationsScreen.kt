@@ -1,15 +1,16 @@
 package com.pwc.officepresence.ui.compose
 
 import android.Manifest
-import android.app.Activity
-import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
@@ -30,7 +30,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,7 +56,7 @@ import com.pwc.officepresence.ui.theme.OpType
 import org.json.JSONObject
 import kotlin.concurrent.thread
 
-private enum class NotifSub { Main, Channel }
+private enum class NotifSub { Main, Channel, Quiet }
 
 @Composable
 fun NotificationsScreen(
@@ -64,15 +66,35 @@ fun NotificationsScreen(
 ) {
     var sub by remember { mutableStateOf(NotifSub.Main) }
     var channelId by remember { mutableStateOf(Notifier.CHANNEL_ARRIVALS) }
+    var prefsTick by remember { mutableIntStateOf(0) }
+    val main = remember { Handler(Looper.getMainLooper()) }
+    LaunchedEffect(Unit) {
+        thread {
+            val prefsJson = runCatching { repo.api.notificationPrefs() }.getOrNull()?.optJSONObject("prefs")
+            if (prefsJson != null) {
+                main.post {
+                    repo.applyPrefs(prefsJson)
+                    prefsTick++
+                }
+            }
+        }
+    }
     when (sub) {
         NotifSub.Main -> NotificationsMain(
             repo = repo,
             prefs = prefs,
+            prefsTick = prefsTick,
             onBack = onBack,
+            onOpenQuiet = { sub = NotifSub.Quiet },
             onOpenChannel = {
                 channelId = it
                 sub = NotifSub.Channel
             },
+        )
+        NotifSub.Quiet -> QuietHoursScreen(
+            repo = repo,
+            prefs = prefs,
+            onBack = { sub = NotifSub.Main },
         )
         NotifSub.Channel -> ChannelDetailScreen(
             channelId = channelId,
@@ -85,19 +107,20 @@ fun NotificationsScreen(
 private fun NotificationsMain(
     repo: PresenceRepository,
     prefs: AppPrefs,
+    prefsTick: Int,
     onBack: () -> Unit,
+    onOpenQuiet: () -> Unit,
     onOpenChannel: (String) -> Unit,
 ) {
     val p = LocalOpPalette.current
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var permissionOk by remember { mutableStateOf(Notifier.canPost(ctx)) }
-    var arrivals by remember { mutableStateOf(prefs.notifyOfficeEnter || prefs.notifyOfficeLeave) }
-    var goal by remember { mutableStateOf(prefs.notifyGoalMet) }
-    var weekly by remember { mutableStateOf(prefs.notifyDailySummary) }
-    var corrections by remember { mutableStateOf(prefs.notifyCorrections) }
-    var tracking by remember { mutableStateOf(prefs.notifyTrackingProblems) }
-    var quiet by remember { mutableStateOf(prefs.quietHoursEnabled) }
+    var arrivals by remember(prefsTick) { mutableStateOf(prefs.notifyOfficeEnter || prefs.notifyOfficeLeave) }
+    var goal by remember(prefsTick) { mutableStateOf(prefs.notifyGoalMet) }
+    var weekly by remember(prefsTick) { mutableStateOf(prefs.notifyDailySummary) }
+    var corrections by remember(prefsTick) { mutableStateOf(prefs.notifyCorrections) }
+    var tracking by remember(prefsTick) { mutableStateOf(prefs.notifyTrackingProblems) }
     val readonly = prefs.isViewAsReadonly
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -240,38 +263,19 @@ private fun NotificationsMain(
         Text("Quiet hours", style = OpType.Meta, color = p.ink3, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         OpCard {
-            val quietLabel = if (quiet) {
-                val start = prefs.quietHoursStart.ifBlank { "21:00" }
-                val end = prefs.quietHoursEnd.ifBlank { "08:00" }
-                "${OpFormat.formatQuietHours(start, end)}. Tracking problems still alert."
-            } else {
-                "Off. Tracking problems still alert when quiet hours are on."
-            }
-            NotifToggleRow(
-                title = "Silence notifications",
-                subtitle = quietLabel,
-                checked = quiet,
-                enabled = permissionOk && !readonly,
-                onCheckedChange = {
-                    quiet = it
-                    if (it) {
-                        prefs.quietHoursStart = "21:00"
-                        prefs.quietHoursEnd = "08:00"
-                        patch(
-                            JSONObject()
-                                .put("quietHoursStart", "21:00")
-                                .put("quietHoursEnd", "08:00"),
-                        )
-                    } else {
-                        prefs.quietHoursStart = ""
-                        prefs.quietHoursEnd = ""
-                        patch(
-                            JSONObject()
-                                .put("quietHoursStart", JSONObject.NULL)
-                                .put("quietHoursEnd", JSONObject.NULL),
-                        )
-                    }
-                },
+            val start = prefs.quietHoursStart.ifBlank { prefs.quietHoursStartKept }
+            val end = prefs.quietHoursEnd.ifBlank { prefs.quietHoursEndKept }
+            SettingsRow(
+                title = "Quiet hours",
+                value = OpFormat.quietListSubtitle(
+                    prefs.quietHoursEnabled,
+                    start,
+                    end,
+                    prefs.quietHoursDays,
+                    prefs.quietHoursCustomDays,
+                ),
+                stackValue = true,
+                onClick = onOpenQuiet,
             )
         }
         Spacer(Modifier.height(20.dp))
@@ -282,6 +286,7 @@ private fun NotificationsMain(
                 SettingsRow(
                     title = ch.name,
                     value = Notifier.channelSummaryLabel(ctx, ch.id),
+                    stackValue = true,
                     onClick = { onOpenChannel(ch.id) },
                 )
                 if (i < Notifier.CHANNELS.lastIndex) DividerLine()
@@ -297,27 +302,6 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val spec = Notifier.CHANNELS.firstOrNull { it.id == channelId }
     var status by remember { mutableStateOf(Notifier.channelStatus(ctx, channelId)) }
-
-    val tonePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
-        val picked = if (Build.VERSION.SDK_INT >= 33) {
-            result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI) as? Uri
-        }
-        when {
-            result.data == null -> Unit
-            picked == null -> Notifier.applyChannelSound(ctx, channelId, uri = null, title = "Silent", silent = true)
-            else -> {
-                val title = Notifier.titleForSoundUri(ctx, picked)
-                Notifier.applyChannelSound(ctx, channelId, uri = picked, title = title, silent = false)
-            }
-        }
-        status = Notifier.channelStatus(ctx, channelId)
-    }
 
     DisposableEffect(lifecycleOwner, channelId) {
         val obs = LifecycleEventObserver { _, event ->
@@ -347,35 +331,31 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
             color = p.ink2,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
+        val openSettings = { Notifier.openChannelSettings(ctx, channelId) }
         OpCard {
-            SettingsRow(
-                "Sound",
-                value = status.soundLabel,
-                onClick = { tonePicker.launch(Notifier.ringtonePickerIntent(ctx, channelId)) },
-            )
+            SettingsRow("Sound", value = status.soundLabel, stackValue = true, onClick = openSettings)
             DividerLine()
             SettingsRow(
                 "Vibrate",
                 value = if (status.vibrate) "On" else "Off",
-                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+                stackValue = true,
+                onClick = openSettings,
             )
             DividerLine()
             SettingsRow(
                 "Pop on screen",
                 value = if (status.popOnScreen) "On" else "Off",
-                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+                stackValue = true,
+                onClick = openSettings,
             )
             DividerLine()
-            SettingsRow(
-                "Show on lock screen",
-                value = status.lockScreen,
-                onClick = { Notifier.openChannelSettings(ctx, channelId) },
-            )
+            SettingsRow("Show on lock screen", value = status.lockScreen, stackValue = true, onClick = openSettings)
             DividerLine()
             SettingsRow(
                 "Override Do Not Disturb",
                 value = if (status.bypassDnd) "On" else "Off",
-                onClick = { Notifier.openChannelSettings(ctx, channelId) },
+                stackValue = true,
+                onClick = openSettings,
             )
         }
         Spacer(Modifier.height(14.dp))
@@ -391,31 +371,16 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
                 label = "Send test notification",
                 onClick = { Notifier.sendTestNotification(ctx, channelId) },
             )
-            Spacer(Modifier.height(10.dp))
-            OpSecondaryButton(
-                label = "Pick notification tone",
-                onClick = { tonePicker.launch(Notifier.ringtonePickerIntent(ctx, channelId)) },
-            )
         }
         Spacer(Modifier.height(24.dp))
         OpPrimaryButton(
             label = "Change in Android settings",
-            onClick = { Notifier.openChannelSettings(ctx, channelId) },
+            onClick = openSettings,
         )
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.OpenInNew, contentDescription = null, tint = p.ink3, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Opens system channel settings", style = OpType.Meta, color = p.ink3)
-        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NotifToggleRow(
     title: String,
@@ -431,7 +396,7 @@ private fun NotifToggleRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = OpType.Label.copy(fontWeight = FontWeight.SemiBold), color = p.ink)
                 if (recommended) {
                     Spacer(Modifier.width(8.dp))
@@ -439,6 +404,7 @@ private fun NotifToggleRow(
                         "Recommended",
                         fontSize = 11.sp,
                         color = p.ink2,
+                        maxLines = 1,
                         modifier = Modifier
                             .clip(OpShape.Pill)
                             .background(p.sunk)

@@ -223,7 +223,11 @@ private fun YouMain(
             .padding(20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarCircle(name, size = 56.dp)
+            Box(
+                Modifier.clickable(onClickLabel = "Open profile", onClick = onProfile),
+            ) {
+                AvatarCircle(name, size = 56.dp)
+            }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(name, style = OpType.Heading, color = p.ink)
@@ -298,7 +302,13 @@ private fun YouMain(
         OpCard {
             SettingsRow("Office nicknames", onClick = onNicknames)
             DividerLine()
-            SettingsRow("Suggest an office", onClick = { suggestOpen = true })
+            SettingsRow(
+                "Suggest an office",
+                onClick = {
+                    if (developerOn || prefs.developerMode) openDeveloperTools()
+                    else suggestOpen = true
+                },
+            )
             DividerLine()
             SettingsRow("Rules", value = "Read only", onClick = onRules)
             DividerLine()

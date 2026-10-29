@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rejectIfReadonlyViewAs, resolveActor, unauthorized } from "@/lib/actor";
-import { parseQuietHours } from "@/lib/users-admin";
+import { parseQuietCustomDays, parseQuietHours, parseQuietHoursDays } from "@/lib/users-admin";
 
 const TONE_KEYS = ["default", "chime", "pulse", "soft"] as const;
 
@@ -49,6 +49,17 @@ export async function PATCH(request: Request) {
   if (body.quietHoursEnd !== undefined && quietEnd === undefined) {
     return NextResponse.json({ error: "quietHoursEnd must be HH:MM" }, { status: 400 });
   }
+  const quietDays = parseQuietHoursDays(body.quietHoursDays);
+  if (body.quietHoursDays !== undefined && quietDays === undefined) {
+    return NextResponse.json({ error: "quietHoursDays must be all, weekdays, or custom" }, { status: 400 });
+  }
+  const quietCustom = parseQuietCustomDays(body.quietHoursCustomDays);
+  if (body.quietHoursCustomDays !== undefined && quietCustom === undefined) {
+    return NextResponse.json(
+      { error: "quietHoursCustomDays must list weekdays 1 to 7" },
+      { status: 400 },
+    );
+  }
 
   const prefs = await prisma.userNotificationPrefs.upsert({
     where: { userId: actor.user.id },
@@ -63,6 +74,10 @@ export async function PATCH(request: Request) {
       notifyTrackingProblems: body.notifyTrackingProblems ?? true,
       quietHoursStart: quietStart ?? null,
       quietHoursEnd: quietEnd ?? null,
+      quietHoursDays: quietDays ?? "all",
+      quietHoursCustomDays: quietCustom ?? "1,2,3,4,5",
+      quietAlertTracking: body.quietAlertTracking ?? true,
+      quietAlertCorrections: body.quietAlertCorrections ?? false,
       notificationToneId: tone(body.notificationToneId, "default"),
       toneEnterId: tone(body.toneEnterId, "chime"),
       toneLeaveId: tone(body.toneLeaveId, "soft"),
@@ -83,6 +98,10 @@ export async function PATCH(request: Request) {
         : {}),
       ...(body.quietHoursStart !== undefined ? { quietHoursStart: quietStart ?? null } : {}),
       ...(body.quietHoursEnd !== undefined ? { quietHoursEnd: quietEnd ?? null } : {}),
+      ...(quietDays != null ? { quietHoursDays: quietDays } : {}),
+      ...(quietCustom != null ? { quietHoursCustomDays: quietCustom } : {}),
+      ...(body.quietAlertTracking != null ? { quietAlertTracking: !!body.quietAlertTracking } : {}),
+      ...(body.quietAlertCorrections != null ? { quietAlertCorrections: !!body.quietAlertCorrections } : {}),
       ...(body.notificationToneId != null ? { notificationToneId: tone(body.notificationToneId, "default") } : {}),
       ...(body.toneEnterId != null ? { toneEnterId: tone(body.toneEnterId, "chime") } : {}),
       ...(body.toneLeaveId != null ? { toneLeaveId: tone(body.toneLeaveId, "soft") } : {}),

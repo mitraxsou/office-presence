@@ -64,6 +64,29 @@ export function parseQuietHours(raw: unknown): string | null | undefined {
   return s;
 }
 
+const QUIET_DAY_MODES = ["all", "weekdays", "custom"] as const;
+export type QuietHoursDays = (typeof QUIET_DAY_MODES)[number];
+
+/** all, weekdays, or custom. undefined means the field was omitted or invalid. */
+export function parseQuietHoursDays(raw: unknown): QuietHoursDays | undefined {
+  if (raw === undefined) return undefined;
+  const s = String(raw).trim();
+  return (QUIET_DAY_MODES as readonly string[]).includes(s) ? (s as QuietHoursDays) : undefined;
+}
+
+/** Comma-separated weekday numbers, Monday = 1 through Sunday = 7. At least one day. */
+export function parseQuietCustomDays(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  const parts = String(raw)
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n) || n < 1 || n > 7)) return undefined;
+  return [...new Set(nums)].sort((a, b) => a - b).join(",");
+}
+
 export function clampName(raw: unknown, max: number): string | null {
   if (raw == null) return null;
   const s = String(raw).trim().slice(0, max);

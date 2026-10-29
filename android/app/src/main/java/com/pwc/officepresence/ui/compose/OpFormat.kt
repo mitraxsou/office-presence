@@ -216,20 +216,75 @@ object OpFormat {
         return DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.US).format(d)
     }
 
-    fun formatQuietHours(start: String, end: String): String {
-        fun label(hm: String): String {
-            val parts = hm.split(":")
-            if (parts.size < 2) return hm
-            val h = parts[0].toIntOrNull() ?: return hm
-            val m = parts[1].toIntOrNull() ?: 0
-            val ampm = if (h < 12) "am" else "pm"
-            val h12 = when {
-                h == 0 -> 12
-                h > 12 -> h - 12
-                else -> h
-            }
-            return if (m == 0) "$h12:00 $ampm" else "$h12:${"%02d".format(m)} $ampm"
+    fun formatClockHm(hm: String): String {
+        val parts = hm.split(":")
+        if (parts.size < 2) return hm
+        val h = parts[0].toIntOrNull() ?: return hm
+        val m = parts[1].toIntOrNull() ?: 0
+        val ampm = if (h < 12) "am" else "pm"
+        val h12 = when {
+            h == 0 -> 12
+            h > 12 -> h - 12
+            else -> h
         }
-        return "${label(start)} to ${label(end)}"
+        return if (m == 0) "$h12:00 $ampm" else "$h12:${"%02d".format(m)} $ampm"
     }
+
+    fun formatQuietHours(start: String, end: String): String {
+        return "${formatClockHm(start)} to ${formatClockHm(end)}"
+    }
+
+    fun quietEndIsNextDay(start: String, end: String): Boolean {
+        val s = hmMinutes(start) ?: return false
+        val e = hmMinutes(end) ?: return false
+        return e < s
+    }
+
+    fun quietListSubtitle(enabled: Boolean, start: String, end: String, days: String, custom: String): String {
+        if (!enabled) return "Off"
+        return "On, ${formatQuietHours(start, end)}, ${quietDayShort(days, custom)}"
+    }
+
+    fun quietFooter(start: String, end: String, days: String, custom: String): String {
+        val window = formatQuietHours(start, end)
+        val zone = "Uses this phone's time zone."
+        return when {
+            days == "weekdays" || (days == "custom" && customDaySet(custom) == WEEKDAYS) ->
+                "Silent Monday to Friday from $window. Weekends follow your normal settings. $zone"
+            days == "custom" && customDaySet(custom) != ALL_DAYS ->
+                "Silent ${customDayPhrase(custom)} from $window. $zone"
+            else -> "Silent every day from $window. $zone"
+        }
+    }
+
+    private fun quietDayShort(days: String, custom: String): String = when {
+        days == "weekdays" || (days == "custom" && customDaySet(custom) == WEEKDAYS) -> "weekdays"
+        days == "custom" && customDaySet(custom) != ALL_DAYS -> customDayPhrase(custom)
+        else -> "every day"
+    }
+
+    private fun customDayPhrase(custom: String): String {
+        val names = customDaySet(custom).sorted().map { DAY_NAMES[it - 1] }
+        return when (names.size) {
+            0 -> "selected days"
+            1 -> names[0]
+            2 -> "${names[0]} and ${names[1]}"
+            else -> names.dropLast(1).joinToString(", ") + ", and " + names.last()
+        }
+    }
+
+    private fun customDaySet(custom: String): Set<Int> =
+        custom.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..7 }.toSet()
+
+    private fun hmMinutes(hm: String): Int? {
+        val parts = hm.split(":")
+        if (parts.size < 2) return null
+        val h = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        return h * 60 + m
+    }
+
+    private val DAY_NAMES = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    private val WEEKDAYS = setOf(1, 2, 3, 4, 5)
+    private val ALL_DAYS = setOf(1, 2, 3, 4, 5, 6, 7)
 }
