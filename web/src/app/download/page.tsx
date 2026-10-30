@@ -2,9 +2,9 @@ import Link from "next/link";
 import Mark from "@/components/Mark";
 import { getPolicy } from "@/lib/policy";
 
-const VERSION = "2.0.4";
+const VERSION = "2.0.5";
 const DEFAULT_APK_URL =
-  "https://github.com/mitraxsou/office-presence/releases/download/v2.0.4-pilot/app-release.apk";
+  "https://github.com/mitraxsou/office-presence/releases/download/v2.0.5-pilot/app-release.apk";
 
 export const dynamic = "force-dynamic";
 
