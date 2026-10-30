@@ -1,0 +1,11 @@
+ALTER TYPE "CorrectionStatus" ADD VALUE IF NOT EXISTS 'auto_approved';
+ALTER TYPE "CorrectionStatus" ADD VALUE IF NOT EXISTS 'reverted';
+ALTER TYPE "CorrectionStatus" ADD VALUE IF NOT EXISTS 'undone';
+
+ALTER TABLE "Policy" ADD COLUMN IF NOT EXISTS "correctionAutoApproveLimit" INTEGER NOT NULL DEFAULT 4;
+ALTER TABLE "Policy" ADD COLUMN IF NOT EXISTS "correctionRequireSync" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "Policy" ADD COLUMN IF NOT EXISTS "correctionDailyDigest" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "Policy" ADD COLUMN IF NOT EXISTS "correctionDigestDay" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "VisitCorrectionRequest" ADD COLUMN IF NOT EXISTS "autoApproved" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "VisitCorrectionRequest" ADD COLUMN IF NOT EXISTS "pendingReason" TEXT;

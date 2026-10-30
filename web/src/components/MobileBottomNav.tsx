@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ThemeSwitch from "./ThemeSwitch";
 import { usePathname } from "next/navigation";
 
 type Props = {
@@ -220,6 +221,7 @@ export default function MobileBottomNav({
               </a>
             </div>
 
+            <ThemeSwitch />
             <form action={signOutAction} className="op-msheet-signout">
               <button type="submit" className="btn btn-secondary" style={{ width: "100%" }}>
                 Sign out

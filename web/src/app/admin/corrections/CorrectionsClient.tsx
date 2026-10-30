@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type StatusTab = "pending" | "approved" | "rejected" | "all";
+type StatusTab = "pending" | "approved" | "auto_approved" | "reverted" | "rejected" | "all";
 
 type RequestRow = {
   id: string;
@@ -10,6 +10,7 @@ type RequestRow = {
   issue: string | null;
   reason: string;
   status: string;
+  pendingReason?: string | null;
   officeName: string | null;
   proposedStart: string;
   proposedEnd: string;
@@ -25,6 +26,8 @@ type RequestRow = {
 type Counts = {
   pending: number;
   approved: number;
+  autoApproved?: number;
+  reverted?: number;
   rejected: number;
   month: string;
   oldestPendingDays: number | null;
@@ -124,6 +127,17 @@ function requestedText(requested: unknown, officeName: string | null): { lines: 
   }
   const r = requested as Record<string, unknown>;
   if (r.remove === true) return { lines: ["Remove this day"], remove: true };
+  if (Array.isArray(r.visits)) {
+    const lines = r.visits.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const v = item as Record<string, unknown>;
+      const office = typeof v.office_name === "string" && v.office_name ? v.office_name : officeName || "Office";
+      const inn = typeof v.in_at === "string" ? fmtClock(v.in_at) : "";
+      const out = v.out_at == null || v.out_at === "" ? "Still In" : typeof v.out_at === "string" ? fmtClock(v.out_at) : "";
+      return inn ? [`${office}, ${inn} to ${out}`] : [];
+    });
+    return { lines: lines.length ? lines : ["Requested change"], remove: false };
+  }
   const lines: string[] = [];
   const office =
     (typeof r.office_name === "string" && r.office_name) ||
@@ -217,10 +231,10 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
     setEditOfficeId(typeof req.office_id === "string" ? req.office_id : "");
   }
 
-  async function decide(decision: "approve" | "reject") {
+  async function decide(decision: "approve" | "reject" | "revert") {
     if (!selected) return;
-    if (decision === "reject" && !note.trim()) {
-      setMsg("Reject note required");
+    if ((decision === "reject" || decision === "revert") && !note.trim()) {
+      setMsg("Note required");
       return;
     }
     setBusy(true);
@@ -258,9 +272,9 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
 
   const tiles = useMemo(
     () => [
-      { key: "pending" as const, n: String(counts.pending), l: "Pending review" },
-      { key: "approved" as const, n: String(counts.approved), l: mon ? `Approved in ${mon}` : "Approved" },
-      { key: "rejected" as const, n: String(counts.rejected), l: mon ? `Not approved in ${mon}` : "Not approved" },
+      { key: "auto_approved" as const, n: String(counts.autoApproved ?? 0), l: mon ? `Auto approved in ${mon}` : "Auto approved" },
+      { key: "pending" as const, n: String(counts.pending), l: "Need approval" },
+      { key: "reverted" as const, n: String(counts.reverted ?? 0), l: "Reverted" },
       {
         key: "oldest" as const,
         n: counts.oldestPendingDays == null ? "None" : `${counts.oldestPendingDays} day${counts.oldestPendingDays === 1 ? "" : "s"}`,
@@ -284,7 +298,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
           <button
             key={t.key}
             type="button"
-            className={`op-stat${(t.key === "pending" && tab === "pending") || (t.key === "approved" && tab === "approved") || (t.key === "rejected" && tab === "rejected") ? " on" : ""}`}
+            className={`op-stat${tab === t.key ? " on" : ""}`}
             onClick={() => {
               if (t.key === "oldest") return;
               setTab(t.key);
@@ -302,10 +316,10 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
         <div className="op-seg" role="tablist" aria-label="Correction status">
           {(
             [
-              ["pending", "Pending"],
-              ["approved", "Approved"],
-              ["rejected", "Not approved"],
               ["all", "All"],
+              ["auto_approved", "Auto approved"],
+              ["pending", "Need approval"],
+              ["reverted", "Reverted"],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -391,7 +405,12 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                     <tr key={r.id} className={selected?.id === r.id ? "hl" : undefined}>
                       <td className="person-name">{r.user.name || r.user.email}</td>
                       <td>{fmtDay(r.dayKey)}</td>
-                      <td>{issueLabel(r.issue)}</td>
+                      <td>
+                        {issueLabel(r.issue)}
+                        {r.status === "pending" && r.pendingReason ? (
+                          <div className="person-email">{r.pendingReason}</div>
+                        ) : null}
+                      </td>
                       <td>
                         <div className="person-email">Recorded: {recordedText(r.recorded)}</div>
                         <div style={{ fontSize: 13.5 }}>Requested: {req.lines.join(", ")}</div>
@@ -400,7 +419,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                       <td className="muted">{fmtSent(r.createdAt)}</td>
                       <td className="r">
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => openReview(r)}>
-                          Review
+                          {r.status === "auto_approved" ? "View" : "Review"}
                         </button>
                       </td>
                     </tr>
@@ -583,6 +602,15 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                     Back
                   </button>
                 </div>
+              ) : selected.status === "auto_approved" && !blockOwnDecide ? (
+                <div>
+                  <p className="op-meta" style={{ marginTop: 0 }}>Nothing to do unless something looks wrong.</p>
+                  {selected.pendingReason ? <p className="op-meta">{selected.pendingReason}</p> : null}
+                  <textarea className="op-ta" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note to the person (required)" rows={3} />
+                  <button type="button" className="btn btn-primary btn-sm" disabled={busy || !note.trim()} onClick={() => void decide("revert")}>
+                    Revert correction
+                  </button>
+                </div>
               ) : selected.status === "pending" ? (
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void decide("approve")}>
@@ -598,7 +626,15 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                   ) : null}
                 </div>
               ) : (
-                <span className="op-badge">{selected.status === "approved" ? "Approved" : "Not approved"}</span>
+                <span className="op-badge">
+                  {selected.status === "auto_approved"
+                    ? "Auto approved"
+                    : selected.status === "reverted"
+                      ? "Reverted"
+                      : selected.status === "approved"
+                        ? "Approved"
+                        : "Not approved"}
+                </span>
               )}
               {msg ? <p className="status-msg error">{msg}</p> : null}
             </div>

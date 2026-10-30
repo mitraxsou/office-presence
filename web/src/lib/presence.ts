@@ -106,10 +106,12 @@ async function computeForRange(userId: string, monthKey?: string) {
       source: "admin" as const,
       officeLocationId: v.officeLocationId,
       pointsPerVisitDay: v.pointsAwarded || undefined,
+      correctionId: v.correctionId,
     }));
   const exclusionInputs: ExclusionInput[] = exclusions.map((e) => ({
     startAt: e.startAt.toISOString(),
     endAt: e.endAt.toISOString(),
+    correctionId: e.reason ? /^Correction ([^:]+):/.exec(e.reason)?.[1] ?? null : null,
   }));
 
   const result = computeVisits({
@@ -322,7 +324,7 @@ export async function recomputeUserPresence(userId: string, opts: RecomputeOpts 
       officeLocationId = matched?.id ?? latest.officeLocationId ?? null;
       inOffice = officeLocationId != null;
       if (inOffice) {
-        sinceAt = continuousStart(result.visits, latest.recordedAt.getTime());
+        sinceAt = continuousStart(result.visits, latest.recordedAt.getTime(), timezone);
       }
     }
   }
@@ -401,8 +403,8 @@ export async function isStatusFresh(userId: string): Promise<boolean> {
   return Date.now() - at.getTime() <= gapMs;
 }
 
-/** Start of the visit chain that contains `atMs`, joining segments split at local midnight. */
-function continuousStart(visits: ComputedVisit[], atMs: number): Date | null {
+/** Start of the visit chain that contains `atMs`, without joining across a local midnight. */
+function continuousStart(visits: ComputedVisit[], atMs: number, timezone: string): Date | null {
   const sorted = [...visits].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
   let idx = -1;
   for (let i = 0; i < sorted.length; i++) {
@@ -411,8 +413,14 @@ function continuousStart(visits: ComputedVisit[], atMs: number): Date | null {
   if (idx < 0) return new Date(atMs);
   let start = Date.parse(sorted[idx].startAt);
   for (let i = idx - 1; i >= 0; i--) {
-    if (Date.parse(sorted[i].endAt) === start) start = Date.parse(sorted[i].startAt);
-    else break;
+    const previousStart = Date.parse(sorted[i].startAt);
+    const sameLocalDay =
+      dayKeyInTz(new Date(previousStart), timezone) === dayKeyInTz(new Date(start), timezone);
+    if (Date.parse(sorted[i].endAt) === start && sameLocalDay) {
+      start = previousStart;
+    } else {
+      break;
+    }
   }
   return new Date(start);
 }

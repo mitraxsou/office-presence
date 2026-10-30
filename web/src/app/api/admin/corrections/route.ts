@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordApiActivity } from "@/lib/device-api-activity";
-import { decideCorrection, previewEffect, type RequestedSnapshot } from "@/lib/corrections";
+import { decideCorrection, previewEffect, revertCorrection, type RequestedSnapshot } from "@/lib/corrections";
 import { canDecideOwnCorrection } from "@/lib/corrections-rules";
 import { phoneSyncPerDevice } from "@/lib/phone-sync";
 import { getPolicy } from "@/lib/policy";
@@ -10,7 +10,7 @@ import { monthKeyInTz } from "@/lib/presence";
 import { invalidatePendingCorrectionsCount } from "@/lib/pending-corrections-cache";
 import type { CorrectionStatus, Prisma } from "@prisma/client";
 
-const STATUS_TABS = ["pending", "approved", "rejected", "cancelled", "all"] as const;
+const STATUS_TABS = ["pending", "approved", "auto_approved", "reverted", "rejected", "cancelled", "all"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
 
 function requestedBounds(r: {
@@ -25,6 +25,14 @@ function requestedBounds(r: {
   };
   if ("remove" in requested && requested.remove) {
     return { inAt: r.proposedStart, outAt: r.proposedEnd, snapshot: requested };
+  }
+  if ("visits" in requested && requested.visits.length) {
+    const first = requested.visits[0];
+    return {
+      inAt: new Date(first.in_at),
+      outAt: new Date(first.out_at ?? first.in_at),
+      snapshot: requested,
+    };
   }
   const inAt = new Date(
     "in_at" in requested && requested.in_at ? String(requested.in_at) : r.proposedStart.toISOString(),
@@ -82,7 +90,7 @@ export async function GET(request: Request) {
     };
   }
 
-  const [requests, total, offices, pendingCount, approvedCount, rejectedCount, oldestPending, activeAdminCount] =
+  const [requests, total, offices, pendingCount, approvedCount, autoCount, revertedCount, rejectedCount, oldestPending, activeAdminCount] =
     await Promise.all([
     prisma.visitCorrectionRequest.findMany({
       where,
@@ -102,6 +110,12 @@ export async function GET(request: Request) {
     }),
     prisma.visitCorrectionRequest.count({
       where: { status: "approved", dayKey: { startsWith: monthPrefix } },
+    }),
+    prisma.visitCorrectionRequest.count({
+      where: { status: "auto_approved", dayKey: { startsWith: monthPrefix } },
+    }),
+    prisma.visitCorrectionRequest.count({
+      where: { status: "reverted", dayKey: { startsWith: monthPrefix } },
     }),
     prisma.visitCorrectionRequest.count({
       where: { status: "rejected", dayKey: { startsWith: monthPrefix } },
@@ -148,6 +162,8 @@ export async function GET(request: Request) {
     counts: {
       pending: pendingCount,
       approved: approvedCount,
+      autoApproved: autoCount,
+      reverted: revertedCount,
       rejected: rejectedCount,
       month: monthKey,
       oldestPendingDays,
@@ -168,11 +184,24 @@ export async function POST(request: Request) {
   const id = String(body.id ?? "");
   const decision = String(body.decision ?? "");
   const reviewNote = body.reviewNote != null ? String(body.reviewNote).trim().slice(0, 500) : null;
-  if (!id || !["approve", "reject"].includes(decision)) {
+  if (!id || !["approve", "reject", "revert"].includes(decision)) {
     return NextResponse.json({ error: "id and decision required" }, { status: 400 });
   }
   const row = await prisma.visitCorrectionRequest.findUnique({ where: { id } });
-  if (!row || row.status !== "pending") {
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (decision === "revert") {
+    if (row.userId === admin.id) {
+      return NextResponse.json(
+        { error: "Admins cannot decide their own correction requests" },
+        { status: 403 },
+      );
+    }
+    const reverted = await revertCorrection(row, admin.id, reviewNote ?? "");
+    if (!reverted.ok) return NextResponse.json({ error: reverted.error }, { status: reverted.status });
+    invalidatePendingCorrectionsCount();
+    return NextResponse.json({ request: reverted.request });
+  }
+  if (row.status !== "pending") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (row.userId === admin.id) {

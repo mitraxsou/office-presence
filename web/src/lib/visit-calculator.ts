@@ -9,6 +9,9 @@ export type PresenceRules = {
   gapSeconds?: number;
   correctionWindowDays?: number;
   correctionRequiresApproval?: boolean;
+  correctionAutoApproveLimit?: number;
+  correctionRequireSync?: boolean;
+  correctionDailyDigest?: boolean;
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
@@ -31,11 +34,13 @@ export type AdminVisitInput = {
   source?: "admin" | "manual";
   officeLocationId?: string | null;
   pointsPerVisitDay?: number | null;
+  correctionId?: string | null;
 };
 
 export type ExclusionInput = {
   startAt: string;
   endAt: string;
+  correctionId?: string | null;
 };
 
 export type OfficeFenceInput = {
@@ -53,6 +58,7 @@ export type ComputedVisit = {
   hours: number;
   officeLocationId?: string | null;
   pointsAwarded?: number;
+  correctionId?: string | null;
 };
 
 export type DayPointsResult = {
@@ -161,11 +167,52 @@ function coveredByExclusion(
   endMs: number,
   exclusions: ExclusionInput[],
 ): boolean {
+  if (startMs === endMs) {
+    return exclusions.some((ex) => startMs >= toMs(ex.startAt) && startMs < toMs(ex.endAt));
+  }
   return exclusions.some((ex) => {
     const exStart = toMs(ex.startAt);
     const exEnd = toMs(ex.endAt);
     return overlaps(startMs, endMs, exStart, exEnd) && startMs >= exStart && endMs <= exEnd;
   });
+}
+
+function trimVisitAroundExclusions(
+  visit: ComputedVisit,
+  exclusions: ExclusionInput[],
+): ComputedVisit[] {
+  const applicable = exclusions.filter(
+    (exclusion) => !visit.correctionId || exclusion.correctionId !== visit.correctionId,
+  );
+  const start = toMs(visit.startAt);
+  const end = toMs(visit.endAt);
+  if (end === start) return coveredByExclusion(start, end, applicable) ? [] : [visit];
+
+  let segments = [{ start, end }];
+  for (const exclusion of applicable) {
+    const exStart = toMs(exclusion.startAt);
+    const exEnd = toMs(exclusion.endAt);
+    const next: Array<{ start: number; end: number }> = [];
+    for (const segment of segments) {
+      if (!overlaps(segment.start, segment.end, exStart, exEnd)) {
+        next.push(segment);
+        continue;
+      }
+      if (segment.start < exStart) {
+        next.push({ start: segment.start, end: Math.min(segment.end, exStart) });
+      }
+      if (segment.end > exEnd) {
+        next.push({ start: Math.max(segment.start, exEnd), end: segment.end });
+      }
+    }
+    segments = next.filter((segment) => segment.end > segment.start);
+  }
+  return segments.map((segment) => ({
+    ...visit,
+    startAt: new Date(segment.start).toISOString(),
+    endAt: new Date(segment.end).toISOString(),
+    hours: hoursBetween(segment.start, segment.end),
+  }));
 }
 
 function trimAroundAdmin(
@@ -256,6 +303,12 @@ export function computeVisits(args: {
     rules.gapSeconds != null && rules.gapSeconds > 0
       ? rules.gapSeconds * 1000
       : rules.gapMinutes * 60_000;
+  // A sample that lands one interval late is still inside, not a leave.
+  // Second-based test gaps stay exact. A real absence past this window still splits.
+  const continueMs =
+    rules.gapSeconds != null && rules.gapSeconds > 0
+      ? gapMs
+      : gapMs + Math.max(0, rules.sampleIntervalMinutes ?? 0) * 60_000;
 
   const adminComputed: ComputedVisit[] = adminVisits.map((v) => {
     const start = toMs(v.startAt);
@@ -267,13 +320,22 @@ export function computeVisits(args: {
       hours: hoursBetween(start, end),
       officeLocationId: v.officeLocationId,
       pointsAwarded: v.pointsPerVisitDay ?? 0,
+      correctionId: v.correctionId ?? null,
     };
   });
 
-  const adminRanges = adminComputed.map((v) => ({
-    start: toMs(v.startAt),
-    end: toMs(v.endAt),
-  }));
+  const adminRanges = adminComputed.flatMap((visit) => {
+    const start = toMs(visit.startAt);
+    const end = toMs(visit.endAt);
+    const dayKeys =
+      end <= start
+        ? [dayKeyInTz(new Date(start), rules.timezone)]
+        : splitAtLocalMidnights(start, end, rules.timezone).map((segment) => segment.dayKey);
+    return [...new Set(dayKeys)].map((dayKey) => {
+      const bounds = localDayBounds(dayKey, rules.timezone);
+      return { start: bounds.startMs, end: bounds.endMs };
+    });
+  });
 
   const realEvents = [...args.events]
     .filter((e) => !e.simulated)
@@ -284,6 +346,16 @@ export function computeVisits(args: {
   let lastGood: number | null = null;
   let openSource: "auto" | "manual" = "auto";
   let openOfficeId: string | null = null;
+  // Geofence exit is often a bad fix. Keep the visit open until the gap passes
+  // with no new inside evidence. A manual check_out still closes immediately.
+  let pendingExit: number | null = null;
+
+  const flushPendingExit = () => {
+    if (pendingExit == null) return;
+    const atExit = pendingExit;
+    pendingExit = null;
+    closeOpen(atExit);
+  };
 
   const closeOpen = (endMs: number) => {
     if (openStart == null || lastGood == null) {
@@ -338,8 +410,13 @@ export function computeVisits(args: {
     const at = toMs(event.at);
     if (Number.isNaN(at)) continue;
 
-    if (event.type === "check_out" || event.type === "exit") {
+    if (event.type === "check_out") {
+      pendingExit = null;
       closeOpen(at);
+      continue;
+    }
+    if (event.type === "exit") {
+      if (openStart != null && pendingExit == null) pendingExit = at;
       continue;
     }
 
@@ -353,14 +430,25 @@ export function computeVisits(args: {
     const inside =
       event.type === "check_in" ||
       event.type === "enter" ||
+      event.officeLocationId != null ||
       matched != null ||
       (office != null && isInsideOffice(event, office, rules));
 
     if (!inside) {
-      if (openStart != null && lastGood != null && at - lastGood > gapMs) {
+      if (pendingExit != null) {
+        if (at - pendingExit > gapMs) flushPendingExit();
+      } else if (openStart != null && lastGood != null && at - lastGood > gapMs) {
         closeOpen(lastGood);
       }
       continue;
+    }
+
+    let bridgedExit = false;
+    if (pendingExit != null) {
+      if (at - pendingExit <= continueMs) {
+        pendingExit = null;
+        bridgedExit = true;
+      } else flushPendingExit();
     }
 
     if (openStart == null) {
@@ -371,7 +459,7 @@ export function computeVisits(args: {
       continue;
     }
 
-    if (lastGood != null && at - lastGood > gapMs) {
+    if (!bridgedExit && lastGood != null && at - lastGood > continueMs) {
       closeOpen(lastGood);
       openStart = at;
       lastGood = at;
@@ -394,15 +482,12 @@ export function computeVisits(args: {
     if (evOffice) openOfficeId = evOffice;
   }
 
-  if (openStart != null && lastGood != null) {
-    closeOpen(lastGood);
-  }
+  if (pendingExit != null) flushPendingExit();
+  else if (openStart != null && lastGood != null) closeOpen(lastGood);
 
-  const filteredAuto = autoVisits.filter(
-    (v) => !coveredByExclusion(toMs(v.startAt), toMs(v.endAt), exclusions),
-  );
-
-  const visits = [...adminComputed, ...filteredAuto].sort(
+  const visits = [...adminComputed, ...autoVisits]
+    .flatMap((visit) => trimVisitAroundExclusions(visit, exclusions))
+    .sort(
     (a, b) => toMs(a.startAt) - toMs(b.startAt),
   );
 
@@ -515,6 +600,9 @@ export const DEFAULT_RULES: PresenceRules = {
   sampleIntervalMinutes: 10,
   correctionWindowDays: 5,
   correctionRequiresApproval: false,
+  correctionAutoApproveLimit: 4,
+  correctionRequireSync: true,
+  correctionDailyDigest: true,
   appVersionCode: 0,
   appVersionName: "",
   appApkUrl: null,

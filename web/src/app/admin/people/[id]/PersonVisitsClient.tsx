@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DaysMeter } from "@/components/op/DesignKit";
+import TimeClock from "@/components/TimeClock";
 
 export type PersonVisitRow = {
   id: string;
@@ -620,24 +621,19 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
                             </option>
                           ))}
                         </select>
-                        <input
-                          className="op-input op-input-sm tab"
-                          type="time"
+                        <TimeClock
+                          label="In"
                           value={v.inTime}
-                          onChange={(e) =>
-                            setEditVisits((list) =>
-                              list.map((x, j) => (j === i ? { ...x, inTime: e.target.value } : x)),
-                            )
+                          onChange={(hm) =>
+                            setEditVisits((list) => list.map((x, j) => (j === i ? { ...x, inTime: hm } : x)))
                           }
                         />
-                        <input
-                          className="op-input op-input-sm tab"
-                          type="time"
+                        <TimeClock
+                          label="Out"
                           value={v.outTime}
-                          onChange={(e) =>
-                            setEditVisits((list) =>
-                              list.map((x, j) => (j === i ? { ...x, outTime: e.target.value } : x)),
-                            )
+                          previous={v.inTime}
+                          onChange={(hm) =>
+                            setEditVisits((list) => list.map((x, j) => (j === i ? { ...x, outTime: hm } : x)))
                           }
                         />
                         <button
@@ -742,13 +738,13 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
                       <span className="op-meta" style={{ display: "block", marginBottom: 6 }}>
                         In
                       </span>
-                      <input className="op-input op-input-sm tab" type="time" value={addIn} onChange={(e) => setAddIn(e.target.value)} />
+                      <TimeClock label="In" value={addIn} onChange={setAddIn} />
                     </label>
                     <label className="field">
                       <span className="op-meta" style={{ display: "block", marginBottom: 6 }}>
                         Out
                       </span>
-                      <input className="op-input op-input-sm tab" type="time" value={addOut} onChange={(e) => setAddOut(e.target.value)} />
+                      <TimeClock label="Out" value={addOut} previous={addIn} onChange={setAddOut} />
                     </label>
                   </div>
                   <label className="field" style={{ display: "block", marginTop: 14 }}>

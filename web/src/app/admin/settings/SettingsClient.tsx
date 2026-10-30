@@ -12,6 +12,9 @@ type Policy = {
   sampleIntervalMinutes?: number;
   correctionWindowDays?: number;
   correctionRequiresApproval?: boolean;
+  correctionAutoApproveLimit?: number;
+  correctionRequireSync?: boolean;
+  correctionDailyDigest?: boolean;
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
@@ -53,6 +56,9 @@ export default function SettingsClient({
         monthlyPointsTarget: data.policy.monthlyPointsTarget ?? 8,
         correctionWindowDays: data.policy.correctionWindowDays ?? 5,
         correctionRequiresApproval: data.policy.correctionRequiresApproval === true,
+        correctionAutoApproveLimit: data.policy.correctionAutoApproveLimit ?? 4,
+        correctionRequireSync: data.policy.correctionRequireSync !== false,
+        correctionDailyDigest: data.policy.correctionDailyDigest !== false,
         appVersionCode: data.policy.appVersionCode ?? 0,
         appVersionName: data.policy.appVersionName ?? "",
         appApkUrl: data.policy.appApkUrl ?? "",
@@ -174,16 +180,72 @@ export default function SettingsClient({
           </div>
 
           <div className="k">
-            <b>Require approval for corrections</b>
-            <small>When on, an admin reviews each correction. When off, it applies immediately and stays in the history.</small>
+            <b>Correction approval</b>
+            <small>Applies to corrections from Month and to fixes made on Today.</small>
+          </div>
+          <div className="v" style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+            <label>
+              <input
+                type="radio"
+                name="correction-approval"
+                checked={policy.correctionRequiresApproval !== true}
+                disabled={busy}
+                onChange={() => setPolicy({ ...policy, correctionRequiresApproval: false })}
+              />{" "}
+              Auto approve
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="correction-approval"
+                checked={policy.correctionRequiresApproval === true}
+                disabled={busy}
+                onChange={() => setPolicy({ ...policy, correctionRequiresApproval: true })}
+              />{" "}
+              Admin approves each one
+            </label>
+          </div>
+
+          <div className="k">
+            <b>Auto approve up to</b>
+            <small>After this, the person&apos;s corrections need an admin that month</small>
+          </div>
+          <div className="v">
+            <input
+              type="number"
+              min={0}
+              value={policy.correctionAutoApproveLimit ?? 4}
+              disabled={busy}
+              aria-label="Auto approve limit"
+              onChange={(e) => setPolicy({ ...policy, correctionAutoApproveLimit: Number(e.target.value) })}
+            />
+            <span>per person per month</span>
+          </div>
+
+          <div className="k">
+            <b>Ask an admin when the phone sent no data that day</b>
           </div>
           <div className="v">
             <input
               type="checkbox"
-              checked={policy.correctionRequiresApproval === true}
-              onChange={(e) => setPolicy({ ...policy, correctionRequiresApproval: e.target.checked })}
+              checked={policy.correctionRequireSync !== false}
               disabled={busy}
-              aria-label="Require approval for corrections"
+              aria-label="Require phone data"
+              onChange={(e) => setPolicy({ ...policy, correctionRequireSync: e.target.checked })}
+            />
+          </div>
+
+          <div className="k">
+            <b>Daily digest of auto approved corrections</b>
+            <small>Teams message to admins at 9:00</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.correctionDailyDigest !== false}
+              disabled={busy}
+              aria-label="Daily digest"
+              onChange={(e) => setPolicy({ ...policy, correctionDailyDigest: e.target.checked })}
             />
           </div>
 

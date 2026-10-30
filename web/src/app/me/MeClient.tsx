@@ -11,6 +11,7 @@ import {
 } from "@/lib/format";
 import { calendarOfficeLabel, groupOfficesFromIntervals, travelMinutes } from "@/lib/office-day";
 import { DayTimeline } from "@/components/op/DayTimeline";
+import TimeClock from "@/components/TimeClock";
 
 type Interval = {
   startAt: string;
@@ -88,6 +89,7 @@ export default function MeClient({
   const [correcting, setCorrecting] = useState(false);
   const [offices, setOffices] = useState<Office[]>([]);
   const [pendingDays, setPendingDays] = useState<Set<string>>(new Set());
+  const [autoIds, setAutoIds] = useState<Record<string, string>>({});
   const viewAsReadonly = viewAs?.mode === "readonly";
 
   useEffect(() => {
@@ -111,9 +113,13 @@ export default function MeClient({
     const res = await fetch(`/api/me/corrections?month=${m}`, { cache: "no-store" });
     if (!res.ok) return;
     const json = (await res.json()) as { requests?: CorrectionRow[] };
-    setPendingDays(
-      new Set((json.requests ?? []).filter((r) => r.status === "pending").map((r) => r.dayKey)),
-    );
+    const rows = json.requests ?? [];
+    setPendingDays(new Set(rows.filter((r) => r.status === "pending").map((r) => r.dayKey)));
+    const next: Record<string, string> = {};
+    for (const r of rows) {
+      if (r.status === "auto_approved" && !next[r.dayKey]) next[r.dayKey] = r.id;
+    }
+    setAutoIds(next);
   }, []);
 
   useEffect(() => {
@@ -148,9 +154,13 @@ export default function MeClient({
       if (cancelled || !res.ok) return;
       const json = (await res.json()) as { requests?: CorrectionRow[] };
       if (cancelled) return;
-      setPendingDays(
-        new Set((json.requests ?? []).filter((r) => r.status === "pending").map((r) => r.dayKey)),
-      );
+      const rows = json.requests ?? [];
+      setPendingDays(new Set(rows.filter((r) => r.status === "pending").map((r) => r.dayKey)));
+      const next: Record<string, string> = {};
+      for (const r of rows) {
+        if (r.status === "auto_approved" && !next[r.dayKey]) next[r.dayKey] = r.id;
+      }
+      setAutoIds(next);
     })();
     return () => {
       cancelled = true;
@@ -408,6 +418,7 @@ export default function MeClient({
               day={sel}
               timezone={tz}
               pending={pendingDays.has(selected)}
+              autoId={autoIds[selected] ?? null}
               viewAsReadonly={viewAsReadonly}
               viewAsName={viewAs?.name}
               onClose={closeDrawer}
@@ -428,6 +439,7 @@ function DayDrawer({
   day,
   timezone,
   pending,
+  autoId,
   viewAsReadonly,
   viewAsName,
   onClose,
@@ -437,6 +449,7 @@ function DayDrawer({
   day?: Day;
   timezone: string;
   pending: boolean;
+  autoId?: string | null;
   viewAsReadonly?: boolean;
   viewAsName?: string;
   onClose: () => void;
@@ -472,6 +485,8 @@ function DayDrawer({
                 ? `${groups.length} offices, ${visits} visit${visits === 1 ? "" : "s"}`
                 : day.officeName || "Office"}
             </span>
+            {autoId ? <span className="op-badge">Corrected by you</span> : null}
+            {autoId ? <span className="op-badge">Auto approved</span> : null}
           </div>
         ) : null}
 
@@ -581,6 +596,31 @@ function DayDrawer({
           <p className="op-badge accent">Pending review</p>
         ) : (
           <>
+            {autoId && !viewAsReadonly ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ marginBottom: 8 }}
+                onClick={() => {
+                  void (async () => {
+                    const res = await fetch("/api/me/corrections", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "undo", id: autoId }),
+                    });
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      window.alert(typeof json.error === "string" ? json.error : "Could not undo");
+                      return;
+                    }
+                    onClose();
+                    window.location.reload();
+                  })();
+                }}
+              >
+                Undo correction
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-secondary"
@@ -630,6 +670,8 @@ function CorrectionDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [previewAfter, setPreviewAfter] = useState<number | null>(null);
+  const [outcome, setOutcome] = useState<"auto_approved" | "pending">("pending");
+  const [outcomeReason, setOutcomeReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (!officeId && offices[0]) setOfficeId(offices[0].id);
@@ -644,6 +686,8 @@ function CorrectionDrawer({
         if (!cancelled && res.ok) {
           const j = await res.json();
           setPreviewAfter(j.effect?.days_after ?? null);
+          if (j.outcome === "auto_approved" || j.outcome === "pending") setOutcome(j.outcome);
+          setOutcomeReason(typeof j.reason === "string" ? j.reason : null);
         }
         return;
       }
@@ -660,6 +704,8 @@ function CorrectionDrawer({
       if (!cancelled && res.ok) {
         const j = await res.json();
         setPreviewAfter(j.effect?.days_after ?? null);
+        if (j.outcome === "auto_approved" || j.outcome === "pending") setOutcome(j.outcome);
+        setOutcomeReason(typeof j.reason === "string" ? j.reason : null);
       }
     }
     void run();
@@ -744,14 +790,8 @@ function CorrectionDrawer({
             </select>
           </label>
           <div className="op-corr-times">
-            <label className="op-field">
-              <span className="op-field-lab">In</span>
-              <input className="op-input op-input-sm tab" type="time" value={inTime} onChange={(e) => setInTime(e.target.value)} />
-            </label>
-            <label className="op-field">
-              <span className="op-field-lab">Out</span>
-              <input className="op-input op-input-sm tab" type="time" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
-            </label>
+            <TimeClock label="In" value={inTime} onChange={setInTime} />
+            <TimeClock label="Out" value={outTime} previous={inTime} onChange={setOutTime} />
           </div>
         </>
       ) : (
@@ -769,7 +809,7 @@ function CorrectionDrawer({
       />
 
       <div className="op-corr-effect">
-        <span className="op-meta">If approved:</span>
+        <span className="op-meta">{outcome === "auto_approved" ? "After saving:" : "If approved:"}</span>
         <div className="op-mini-meter">
           <div className="op-days-track" style={{ width: 64, height: 6, marginTop: 0 }}>
             <div className="op-days-fill" style={{ width: `${afterPct}%` }} />
@@ -780,6 +820,7 @@ function CorrectionDrawer({
         </div>
       </div>
 
+      {outcomeReason ? <p className="op-meta">{outcomeReason}</p> : null}
       {error ? (
         <div className="op-msg-err" style={{ marginTop: 12 }} role="alert">
           {error}
@@ -793,7 +834,7 @@ function CorrectionDrawer({
           disabled={busy || !reason.trim()}
           onClick={() => void submit()}
         >
-          {busy ? "Sending..." : "Send request"}
+          {busy ? "Sending..." : outcome === "auto_approved" ? "Save correction" : "Send for approval"}
         </button>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onCancel}>
           Cancel

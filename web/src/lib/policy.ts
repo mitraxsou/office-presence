@@ -11,6 +11,9 @@ function toRules(row: {
   sampleIntervalMinutes: number;
   correctionWindowDays?: number;
   correctionRequiresApproval?: boolean;
+  correctionAutoApproveLimit?: number;
+  correctionRequireSync?: boolean;
+  correctionDailyDigest?: boolean;
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
@@ -25,6 +28,9 @@ function toRules(row: {
     sampleIntervalMinutes: row.sampleIntervalMinutes,
     correctionWindowDays: row.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
     correctionRequiresApproval: row.correctionRequiresApproval === true,
+    correctionAutoApproveLimit: row.correctionAutoApproveLimit ?? DEFAULT_RULES.correctionAutoApproveLimit ?? 4,
+    correctionRequireSync: row.correctionRequireSync !== false,
+    correctionDailyDigest: row.correctionDailyDigest !== false,
     appVersionCode: row.appVersionCode ?? 0,
     appVersionName: row.appVersionName ?? "",
     appApkUrl: row.appApkUrl ?? null,
@@ -57,6 +63,10 @@ export async function updatePolicy(
         input.sampleIntervalMinutes ?? DEFAULT_RULES.sampleIntervalMinutes ?? 5,
       correctionWindowDays: input.correctionWindowDays ?? DEFAULT_RULES.correctionWindowDays ?? 5,
       correctionRequiresApproval: input.correctionRequiresApproval === true,
+      correctionAutoApproveLimit:
+        input.correctionAutoApproveLimit ?? DEFAULT_RULES.correctionAutoApproveLimit ?? 4,
+      correctionRequireSync: input.correctionRequireSync !== false,
+      correctionDailyDigest: input.correctionDailyDigest !== false,
       appVersionCode: input.appVersionCode ?? DEFAULT_RULES.appVersionCode ?? 0,
       appVersionName: input.appVersionName ?? DEFAULT_RULES.appVersionName ?? "",
       appApkUrl: cleanApkUrl(input.appApkUrl),
@@ -82,6 +92,15 @@ export async function updatePolicy(
         : {}),
       ...(typeof input.correctionRequiresApproval === "boolean"
         ? { correctionRequiresApproval: input.correctionRequiresApproval }
+        : {}),
+      ...(input.correctionAutoApproveLimit != null
+        ? { correctionAutoApproveLimit: Math.max(0, Math.floor(input.correctionAutoApproveLimit)) }
+        : {}),
+      ...(typeof input.correctionRequireSync === "boolean"
+        ? { correctionRequireSync: input.correctionRequireSync }
+        : {}),
+      ...(typeof input.correctionDailyDigest === "boolean"
+        ? { correctionDailyDigest: input.correctionDailyDigest }
         : {}),
       ...(input.appVersionCode != null
         ? { appVersionCode: Math.max(0, Math.floor(input.appVersionCode)) }

@@ -65,6 +65,18 @@
   --op-ink-2: #5E5E5E;
   --op-ink-3: #8C8C8C;
   --op-scrim: rgba(26, 26, 26, 0.32);
+  --background: var(--op-bg);
+  --background-elevated: var(--op-surface);
+  --background-input: var(--op-surface);
+  --foreground: var(--op-ink);
+  --muted: var(--op-ink-2);
+  --muted-strong: var(--op-ink);
+  --border: var(--op-line);
+  --border-strong: var(--op-line-strong);
+  --stat-bg: var(--op-sunk);
+  --skeleton: var(--op-sunk);
+  --skeleton-hi: var(--op-surface);
+  --table-hover: rgba(26, 26, 26, 0.03);
   color-scheme: light;
 }
 
@@ -654,14 +666,70 @@ tbody tr:hover {
 }
 .op-rail-me-text b { font-size: 13.5px; font-weight: 600; }
 .op-rail-me-text span { font-size: 12px; color: var(--op-ink-2); }
-.op-rail-signout-form { margin: 0; padding-left: calc(36px + 10px); min-width: 0; }
+.op-rail-signout-form { margin: 0; padding-left: 0; min-width: 0; width: 100%; }
 .op-rail-signout {
-  font-size: 12px;
-  padding: 0;
-  height: auto;
-  min-height: 0;
-  white-space: nowrap;
+  width: 100%;
+  justify-content: center;
 }
+.op-rail-theme {
+  display: flex;
+  gap: 6px;
+}
+.op-rail-theme button {
+  flex: 1;
+  height: 32px;
+  border-radius: var(--op-radius-pill);
+  border: 1px solid var(--op-line-strong);
+  background: transparent;
+  color: var(--op-ink);
+  font: var(--op-text-meta);
+  cursor: pointer;
+}
+.op-rail-theme button.on {
+  background: var(--op-accent);
+  color: var(--op-on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+.op-clock-field { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.op-clock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--op-line-strong);
+  background: var(--op-surface);
+  color: var(--op-ink);
+  cursor: pointer;
+}
+.op-clock-pop {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  width: 260px;
+  margin-top: 6px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--op-surface);
+  border: 1px solid var(--op-line);
+  box-shadow: 0 12px 32px var(--op-scrim);
+}
+.op-clock-pop-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.op-clock-chip {
+  background: var(--op-accent-wash);
+  color: var(--op-ink);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.op-clock-face { width: 160px; height: 160px; display: block; margin: 8px auto; }
+.op-clock-hm, .op-clock-nudges, .op-clock-actions { display: flex; gap: 8px; }
+.op-clock-hm input { width: 64px; text-align: center; }
+.op-clock-nudges, .op-clock-actions { margin-top: 8px; }
+.op-clock-actions { justify-content: flex-end; }
 .op-main-wrap { flex: 1; min-width: 0; position: relative; }
 .op-main {
   max-width: var(--op-content-max);

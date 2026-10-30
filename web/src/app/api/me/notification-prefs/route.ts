@@ -83,7 +83,7 @@ export async function PATCH(request: Request) {
       toneLeaveId: tone(body.toneLeaveId, "soft"),
       toneGoalId: tone(body.toneGoalId, "pulse"),
       toneSummaryId: tone(body.toneSummaryId, "default"),
-      launchSoundEnabled: body.launchSoundEnabled ?? false,
+      launchSoundEnabled: body.launchSoundEnabled ?? true,
       launchSoundId: tone(body.launchSoundId, "default"),
     },
     update: {

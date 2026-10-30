@@ -6,10 +6,15 @@ import {
   assertNoPendingCorrection,
   dayVisitSnapshot,
   decideCorrection,
+  isMonthLocked,
+  judgeCorrection,
   previewEffect,
+  undoOwnCorrection,
+  visitTimes,
   type CorrectionIssue,
-  type RequestedSnapshot,
 } from "@/lib/corrections";
+import { futureTimeError } from "@/lib/correction-approval";
+import { parseCorrectionRequest } from "@/lib/correction-request";
 import { getPolicy } from "@/lib/policy";
 
 const ISSUES = new Set<CorrectionIssue>([
@@ -66,6 +71,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ request: updated });
   }
 
+  if (action === "undo") {
+    const id = String(body.id ?? "");
+    const row = await prisma.visitCorrectionRequest.findFirst({
+      where: { id, userId: actor.user.id },
+    });
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const undone = await undoOwnCorrection(row, actor.user.id);
+    if (!undone.ok) return NextResponse.json({ error: undone.error }, { status: undone.status });
+    return NextResponse.json({ request: undone.request, outcome: "undone" });
+  }
+
   const dayKey = String(body.day ?? body.dayKey ?? "");
   const reason = String(body.reason ?? "").trim().slice(0, 500);
   const issueRaw = String(body.issue ?? "wrong_times") as CorrectionIssue;
@@ -76,38 +92,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid issue" }, { status: 400 });
   }
 
+  const policy = await getPolicy();
+  if (isMonthLocked(dayKey, policy.correctionWindowDays ?? 5)) {
+    return NextResponse.json({ error: "This month is locked" }, { status: 400 });
+  }
   const gate = await assertNoPendingCorrection(actor.user.id, dayKey);
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-  let requested: RequestedSnapshot;
-  let proposedStart: Date;
-  let proposedEnd: Date;
-  let officeLocationId: string | null = null;
-
-  if (issueRaw === "should_not_count" || body.requested?.remove === true) {
-    requested = { remove: true };
-    proposedStart = new Date(`${dayKey}T00:00:00.000Z`);
-    proposedEnd = new Date(`${dayKey}T00:01:00.000Z`);
-  } else {
-    const req = body.requested ?? {};
-    const inAt = String(req.in_at ?? body.proposedStart ?? "");
-    const outAt = String(req.out_at ?? body.proposedEnd ?? "");
-    officeLocationId = req.office_id != null
-      ? String(req.office_id)
-      : body.officeLocationId
-        ? String(body.officeLocationId)
-        : null;
-    proposedStart = new Date(inAt);
-    proposedEnd = new Date(outAt);
-    if (Number.isNaN(proposedStart.getTime()) || Number.isNaN(proposedEnd.getTime()) || proposedEnd <= proposedStart) {
-      return NextResponse.json({ error: "Valid in_at and out_at required" }, { status: 400 });
+  const parsed = parseCorrectionRequest(body, dayKey);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const { requested, proposedStart, proposedEnd, officeLocationId } = parsed;
+  if (parsed.officeIds.length) {
+    const active = await prisma.officeLocation.findMany({
+      where: { id: { in: parsed.officeIds }, status: "active" },
+      select: { id: true },
+    });
+    if (active.length !== parsed.officeIds.length) {
+      return NextResponse.json({ error: "Office not found" }, { status: 404 });
     }
-    if (officeLocationId) {
-      const office = await prisma.officeLocation.findUnique({ where: { id: officeLocationId } });
-      if (!office) return NextResponse.json({ error: "Office not found" }, { status: 404 });
-    }
-    requested = { office_id: officeLocationId, in_at: proposedStart.toISOString(), out_at: proposedEnd.toISOString() };
   }
+
+  const future = futureTimeError(visitTimes(requested), new Date());
+  if (future) return NextResponse.json({ error: future }, { status: 400 });
 
   const recorded = await dayVisitSnapshot(actor.user.id, dayKey);
   const effect = await previewEffect(actor.user.id, dayKey, requested);
@@ -144,17 +150,34 @@ export async function POST(request: Request) {
     throttle: false,
   });
 
-  const policy = await getPolicy();
-  if (policy.correctionRequiresApproval) {
-    return NextResponse.json({ request: row, effect, appliedImmediately: false });
+  const judged = await judgeCorrection(actor.user.id, actor.user.role, dayKey);
+  if (judged.outcome === "pending") {
+    const pending = await prisma.visitCorrectionRequest.update({
+      where: { id: row.id },
+      data: { pendingReason: judged.reason },
+    });
+    return NextResponse.json({
+      request: pending,
+      effect,
+      outcome: "pending",
+      reason: judged.reason,
+      appliedImmediately: false,
+    });
   }
 
   const decided = await decideCorrection({
     row,
-    actorId: actor.user.id,
+    actorId: null,
     decision: "approve",
     applied: requested,
     reviewNote: "Applied immediately",
+    asAuto: true,
   });
-  return NextResponse.json({ request: decided.request, effect, appliedImmediately: true });
+  return NextResponse.json({
+    request: decided.request,
+    effect,
+    outcome: "auto_approved",
+    reason: null,
+    appliedImmediately: true,
+  });
 }

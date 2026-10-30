@@ -1,4 +1,5 @@
 import Mark from "./Mark";
+import ThemeSwitch from "./ThemeSwitch";
 import MobileBottomNav from "./MobileBottomNav";
 import ViewAsBanner from "./ViewAsBanner";
 import { clearSession, getSession } from "@/lib/auth";
@@ -124,8 +125,9 @@ export default async function AppShell({
               <span title={sub}>{sub}</span>
             </div>
           </div>
+          <ThemeSwitch />
           <form action={signOut} className="op-rail-signout-form">
-            <button className="btn btn-ghost op-rail-signout" type="submit">
+            <button className="btn btn-secondary op-rail-signout" type="submit">
               Sign out
             </button>
           </form>

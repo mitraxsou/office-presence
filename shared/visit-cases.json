@@ -503,8 +503,8 @@
         { "id": "kolkata", "lat": 22.57, "lng": 88.36, "radiusMeters": 100, "pointsPerVisitDay": 1 }
       ],
       "expected": {
-        "visitCount": 2,
-        "totalHours": 0.916667,
+        "visitCount": 1,
+        "totalHours": 1,
         "dayMet": false,
         "visitDays": 1,
         "totalPoints": 1,

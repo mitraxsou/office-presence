@@ -9,6 +9,7 @@ import {
   type ColleagueDisplayMode,
 } from "@/lib/display-name";
 import { fmtClockHm, fmtSyncAgo, initials } from "@/lib/format";
+import TimeClock from "@/components/TimeClock";
 
 type Prefs = {
   notifyOfficeDetected: boolean;
@@ -867,25 +868,16 @@ function QuietHoursEditor({
   return (
     <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-        <span className="op-meta">From</span>
-        <input
-          className="op-input op-input-sm"
-          style={{ width: 120 }}
-          type="time"
-          value={prefs.quietHoursStart ?? "21:00"}
-          disabled={disabled}
-          onChange={(e) => onPatch({ quietHoursStart: e.target.value })}
-          aria-label="Quiet hours start"
+        <TimeClock
+          label="From"
+          value={(prefs.quietHoursStart ?? "21:00").slice(0, 5)}
+          onChange={(hm) => onPatch({ quietHoursStart: hm })}
         />
-        <span className="op-meta">to</span>
-        <input
-          className="op-input op-input-sm"
-          style={{ width: 120 }}
-          type="time"
-          value={prefs.quietHoursEnd ?? "08:00"}
-          disabled={disabled}
-          onChange={(e) => onPatch({ quietHoursEnd: e.target.value })}
-          aria-label="Quiet hours end"
+        <TimeClock
+          label="To"
+          value={(prefs.quietHoursEnd ?? "08:00").slice(0, 5)}
+          previous={(prefs.quietHoursStart ?? "21:00").slice(0, 5)}
+          onChange={(hm) => onPatch({ quietHoursEnd: hm })}
         />
         <span className="op-meta">
           {fmtClockHm(prefs.quietHoursStart)} to {fmtClockHm(prefs.quietHoursEnd)}

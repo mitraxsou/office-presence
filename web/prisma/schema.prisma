@@ -48,6 +48,9 @@ enum CorrectionStatus {
   approved
   rejected
   cancelled
+  auto_approved
+  reverted
+  undone
 }
 
 enum CorrectionIssue {
@@ -187,6 +190,10 @@ model Policy {
   sampleIntervalMinutes      Int      @default(5)
   correctionWindowDays       Int      @default(5)
   correctionRequiresApproval Boolean  @default(false)
+  correctionAutoApproveLimit Int      @default(4)
+  correctionRequireSync      Boolean  @default(true)
+  correctionDailyDigest      Boolean  @default(true)
+  correctionDigestDay        String   @default("")
   appVersionCode             Int      @default(0)
   appVersionName             String   @default("")
   appApkUrl                  String?
@@ -257,7 +264,7 @@ model UserNotificationPrefs {
   toneLeaveId                String   @default("soft")
   toneGoalId                 String   @default("pulse")
   toneSummaryId              String   @default("default")
-  launchSoundEnabled         Boolean  @default(false)
+  launchSoundEnabled         Boolean  @default(true)
   launchSoundId              String   @default("default")
   updatedAt                  DateTime @updatedAt
   user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -331,6 +338,8 @@ model VisitCorrectionRequest {
   requested        Json?
   applied          Json?
   status           CorrectionStatus @default(pending)
+  autoApproved     Boolean          @default(false)
+  pendingReason    String?
   reviewedById     String?
   reviewedAt       DateTime?
   reviewNote       String?
