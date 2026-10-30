@@ -10,6 +10,7 @@ import {
   type KeptDayRows,
 } from "@/lib/corrections-rules";
 import { classifyCorrection, futureTimeError, type ClassifyResult, type VisitTime } from "@/lib/correction-approval";
+import { officeIdsOnRequest, pointsForCorrectionOffices } from "@/lib/correction-request";
 import { getPolicy } from "@/lib/policy";
 import { localDayBounds } from "@/lib/visit-calculator";
 
@@ -58,15 +59,14 @@ export async function previewEffect(
     return { days_before: daysBefore, days_after: Math.max(0, daysBefore - currentPts) };
   }
 
-  const officeId = "visits" in requested
-    ? requested.visits.find((v) => v.office_id)?.office_id ?? null
-    : "office_id" in requested
-      ? requested.office_id
-      : null;
-  let add = 1;
-  if (officeId) {
-    const office = await prisma.officeLocation.findUnique({ where: { id: officeId } });
-    add = office?.pointsPerVisitDay ?? 1;
+  const officeIds = officeIdsOnRequest(requested);
+  let add = 0;
+  if (officeIds.length) {
+    const offices = await prisma.officeLocation.findMany({
+      where: { id: { in: officeIds } },
+      select: { pointsPerVisitDay: true },
+    });
+    add = pointsForCorrectionOffices(offices.map((o) => o.pointsPerVisitDay ?? 0));
   }
   return { days_before: daysBefore, days_after: daysBefore - currentPts + add };
 }

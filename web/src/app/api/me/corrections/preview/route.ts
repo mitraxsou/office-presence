@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveActor, unauthorized } from "@/lib/actor";
 import { futureTimeError, buttonLabel } from "@/lib/correction-approval";
+import { officeIdsFromQuery } from "@/lib/correction-request";
 import { judgeCorrection, previewEffect, visitTimes, type RequestedSnapshot } from "@/lib/corrections";
 
 export async function GET(request: Request) {
@@ -15,13 +16,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "day required" }, { status: 400 });
   }
   const outRaw = sp.get("out_at");
+  const inAt = sp.get("in_at") ?? `${day}T09:30:00.000Z`;
+  const outAt = outRaw === "" || sp.get("still_in") === "1" ? null : outRaw ?? `${day}T17:30:00.000Z`;
+  const officeIds = officeIdsFromQuery(sp.get("office_ids"), officeId);
   const requested: RequestedSnapshot = remove
     ? { remove: true }
-    : {
-        office_id: officeId,
-        in_at: sp.get("in_at") ?? `${day}T09:30:00.000Z`,
-        out_at: outRaw === "" || sp.get("still_in") === "1" ? null : outRaw ?? `${day}T17:30:00.000Z`,
-      };
+    : officeIds.length > 1
+      ? { visits: officeIds.map((id) => ({ office_id: id, in_at: inAt, out_at: outAt })) }
+      : { office_id: officeIds[0] ?? null, in_at: inAt, out_at: outAt };
   const future = futureTimeError(visitTimes(requested), new Date());
   if (future) return NextResponse.json({ error: future }, { status: 400 });
   const [effect, judged] = await Promise.all([

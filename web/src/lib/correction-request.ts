@@ -30,6 +30,37 @@ function officeIdOf(raw: unknown): string | null {
   return id && id !== "null" && id !== "unknown" ? id : null;
 }
 
+/** Offices named on a correction. A visits list keeps every office, not only the first. */
+export function officeIdsOnRequest(requested: { remove?: unknown; visits?: unknown; office_id?: unknown }): string[] {
+  if (requested.remove === true) return [];
+  if (Array.isArray(requested.visits)) {
+    const ids = requested.visits.map((v) => officeIdOf((v as RawVisit)?.office_id));
+    return [...new Set(ids.filter((id): id is string => id != null))];
+  }
+  const one = officeIdOf(requested.office_id);
+  return one ? [one] : [];
+}
+
+/**
+ * Preview query. `office_ids` is the Fix today list. A single `office_id` is the Month wrong-office pick.
+ * Blank, "null", and "unknown" are dropped. Duplicates count once.
+ */
+export function officeIdsFromQuery(officeIds: string | null, officeId: string | null): string[] {
+  const many = (officeIds ?? "")
+    .split(",")
+    .map((s) => officeIdOf(s))
+    .filter((id): id is string => id != null);
+  if (many.length) return [...new Set(many)];
+  const one = officeIdOf(officeId);
+  return one ? [one] : [];
+}
+
+/** A corrected day counts as the highest office weight on that day. No office counts as 0. */
+export function pointsForCorrectionOffices(weights: number[]): number {
+  if (weights.length === 0) return 0;
+  return weights.reduce((max, n) => (n > max ? n : max), 0);
+}
+
 function outOf(raw: unknown): string | null {
   return raw == null || raw === "" ? null : String(raw);
 }

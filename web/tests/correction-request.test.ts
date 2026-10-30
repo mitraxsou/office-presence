@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseCorrectionRequest } from "../src/lib/correction-request";
+import {
+  officeIdsFromQuery,
+  officeIdsOnRequest,
+  parseCorrectionRequest,
+  pointsForCorrectionOffices,
+} from "../src/lib/correction-request";
 import { computeVisits, type PresenceRules } from "../src/lib/visit-calculator";
 
 const day = "2026-10-30";
@@ -187,6 +192,44 @@ describe("Fix today request body", () => {
     const r = ok(parseCorrectionRequest({ issue: "should_not_count", requested: { remove: true } }, day));
     expect(r.requested).toEqual({ remove: true });
     expect(ok(parseCorrectionRequest({ requested: { remove: true } }, day)).requested).toEqual({ remove: true });
+  });
+});
+
+describe("office weight on a correction", () => {
+  it("counts the highest office, and no office as 0", () => {
+    expect(pointsForCorrectionOffices([])).toBe(0);
+    expect(pointsForCorrectionOffices([0])).toBe(0);
+    expect(pointsForCorrectionOffices([1])).toBe(1);
+    expect(pointsForCorrectionOffices([2])).toBe(2);
+    expect(pointsForCorrectionOffices([1, 2])).toBe(2);
+    expect(pointsForCorrectionOffices([2, 1, 2])).toBe(2);
+    expect(pointsForCorrectionOffices([0, 1])).toBe(1);
+  });
+
+  it("keeps every office on a visits list and one office on a wrong office request", () => {
+    expect(
+      officeIdsOnRequest({
+        visits: [
+          { office_id: "egl" },
+          { office_id: "salt" },
+          { office_id: "egl" },
+          { office_id: "" },
+          { office_id: "unknown" },
+        ],
+      }),
+    ).toEqual(["egl", "salt"]);
+    expect(officeIdsOnRequest({ office_id: "salt" })).toEqual(["salt"]);
+    expect(officeIdsOnRequest({ office_id: "null" })).toEqual([]);
+    expect(officeIdsOnRequest({ remove: true, office_id: "egl" })).toEqual([]);
+  });
+
+  it("reads the preview office list and falls back to one office", () => {
+    expect(officeIdsFromQuery("egl,salt,egl", "other")).toEqual(["egl", "salt"]);
+    expect(officeIdsFromQuery("egl,unknown,salt", null)).toEqual(["egl", "salt"]);
+    expect(officeIdsFromQuery(" ,unknown,null", "salt")).toEqual(["salt"]);
+    expect(officeIdsFromQuery(null, "salt")).toEqual(["salt"]);
+    expect(officeIdsFromQuery("", "unknown")).toEqual([]);
+    expect(officeIdsFromQuery(null, null)).toEqual([]);
   });
 });
 
