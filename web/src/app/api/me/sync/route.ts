@@ -6,6 +6,7 @@ import { getPolicy } from "@/lib/policy";
 import { isStatusFresh, monthKeyInTz, recomputeUserPresence } from "@/lib/presence";
 import { officesForUser } from "@/lib/offices-view";
 import { dayKeyInTz } from "@/lib/visit-calculator";
+import { groupTodayOffices } from "@/lib/today-offices";
 import { monthContentVersion, parseClientMonthVersions } from "@/lib/year-stats";
 
 export async function GET(request: Request) {
@@ -66,7 +67,12 @@ export async function GET(request: Request) {
     clientVersions.size > 0 &&
     monthKeys.every((m) => clientVersions.has(m) && clientVersions.get(m) === monthVersions[m]);
 
-  if (!force && fresh && allVersionsMatch) {
+  // A decided correction for today must not leave the phone on a 304 with an empty
+  // todayOffices cache from the pending period. Month versions usually bump on
+  // approve; this keeps the full body when today itself was decided recently.
+  const todayHasDecision = decided.some((r) => r.dayKey === todayKey);
+
+  if (!force && fresh && allVersionsMatch && !todayHasDecision) {
     recordApiActivity({
       userId: user.id,
       deviceTokenId: device?.id,
@@ -208,47 +214,3 @@ async function statusFromCache(userId: string) {
   };
 }
 
-function groupTodayOffices(
-  visits: Array<{
-    startAt: Date;
-    endAt: Date | null;
-    officeLocationId: string | null;
-  }>,
-  todayKey: string,
-  tz: string,
-  names: Map<string, string>,
-) {
-  type Row = {
-    office_id: string | null;
-    name: string;
-    minutes: number;
-    visits: Array<{ in_at: string; out_at: string; minutes: number }>;
-  };
-  const order: string[] = [];
-  const map = new Map<string, Row>();
-  const now = Date.now();
-  for (const v of [...visits].sort((a, b) => a.startAt.getTime() - b.startAt.getTime())) {
-    if (dayKeyInTz(v.startAt, tz) !== todayKey) continue;
-    const key = v.officeLocationId || "unknown";
-    let g = map.get(key);
-    if (!g) {
-      g = {
-        office_id: v.officeLocationId,
-        name: (v.officeLocationId && names.get(v.officeLocationId)) || "Office",
-        minutes: 0,
-        visits: [],
-      };
-      map.set(key, g);
-      order.push(key);
-    }
-    const endMs = v.endAt?.getTime() ?? now;
-    const mins = Math.max(0, Math.round((endMs - v.startAt.getTime()) / 60_000));
-    g.minutes += mins;
-    g.visits.push({
-      in_at: v.startAt.toISOString(),
-      out_at: (v.endAt ?? new Date(endMs)).toISOString(),
-      minutes: mins,
-    });
-  }
-  return order.map((k) => map.get(k)!);
-}

@@ -2,6 +2,7 @@ package com.pwc.officepresence
 
 import com.pwc.officepresence.ui.compose.FixTodayPayload
 import com.pwc.officepresence.ui.compose.FixVisit
+import com.pwc.officepresence.ui.compose.MergedStay
 import com.pwc.officepresence.ui.compose.VisitFragment
 import com.pwc.officepresence.ui.compose.buildFixTodayBody
 import com.pwc.officepresence.ui.compose.editorGapMinutes
@@ -9,6 +10,7 @@ import com.pwc.officepresence.ui.compose.localHm
 import com.pwc.officepresence.ui.compose.mergeVisitFragments
 import com.pwc.officepresence.ui.compose.parseHmStrict
 import com.pwc.officepresence.ui.compose.splitHm
+import com.pwc.officepresence.ui.compose.staysToFixVisits
 import com.pwc.officepresence.ui.compose.visitOrderError
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -144,6 +146,18 @@ class FixTodayMergeTest {
         val body = ready(emptyList())
         assertEquals("should_not_count", body.getString("issue"))
         assertTrue(body.getJSONObject("requested").getBoolean("remove"))
+    }
+
+    @Test
+    fun emptyStaysOpenFixTodayWithNoInventedRow() {
+        assertTrue(staysToFixVisits(emptyList(), ist).isEmpty())
+        val rows = staysToFixVisits(
+            listOf(MergedStay("egl", "EGL", min(9, 0), min(10, 0), stillIn = false)),
+            ZoneOffset.UTC,
+        )
+        assertEquals(1, rows.size)
+        assertEquals("egl", rows[0].officeId)
+        assertEquals("09:00", rows[0].inHm)
     }
 
     @Test

@@ -42,6 +42,24 @@ export function officeIdsOnRequest(requested: { remove?: unknown; visits?: unkno
 }
 
 /**
+ * Admin review label for one requested visit. Prefer the visit's own office_id in
+ * officesById. Never substitute the request-level (first) office name when this
+ * visit already names a different office_id.
+ */
+export function officeLabelForRequestedVisit(
+  visit: { office_id?: unknown; office_name?: unknown },
+  officesById: Map<string, string>,
+  requestOfficeName: string | null,
+): string {
+  if (typeof visit.office_name === "string" && visit.office_name.trim()) {
+    return visit.office_name.trim();
+  }
+  const id = officeIdOf(visit.office_id);
+  if (id) return officesById.get(id) ?? "Office";
+  return requestOfficeName?.trim() || "Office";
+}
+
+/**
  * Preview query. `office_ids` is the Fix today list. A single `office_id` is the Month wrong-office pick.
  * Blank, "null", and "unknown" are dropped. Duplicates count once.
  */

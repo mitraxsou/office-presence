@@ -225,6 +225,18 @@ fun mergeCaption(rawCount: Int, stayCount: Int, gapMinutes: Int): String {
     }
 }
 
+/** Editor rows from merged stays. Empty stays means no invented default visit. */
+fun staysToFixVisits(stays: List<MergedStay>, zone: ZoneId): List<FixVisit> =
+    stays.map { stay ->
+        FixVisit(
+            officeId = stay.officeId,
+            officeName = stay.officeName,
+            inHm = localHm(stay.inMs, zone),
+            outHm = localHm(stay.outMs, zone),
+            stillIn = stay.stillIn,
+        )
+    }
+
 private fun sameOffice(stay: MergedStay, fragment: VisitFragment): Boolean {
     if (stay.officeId.isNotBlank() && fragment.officeId.isNotBlank()) {
         return stay.officeId == fragment.officeId

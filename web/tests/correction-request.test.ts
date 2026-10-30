@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   officeIdsFromQuery,
   officeIdsOnRequest,
+  officeLabelForRequestedVisit,
   parseCorrectionRequest,
   pointsForCorrectionOffices,
 } from "../src/lib/correction-request";
@@ -39,6 +40,17 @@ describe("Fix today request body", () => {
     expect(r.requested.visits.map((v) => v.office_id)).toEqual(["egl", "salt", "egl"]);
     expect(r.officeIds.sort()).toEqual(["egl", "salt"]);
     expect(r.officeLocationId).toBe("egl");
+  });
+
+  it("names each visit from its own office_id, not the request-level first office", () => {
+    const byId = new Map([
+      ["egl", "My EGL"],
+      ["blr", "Fake BLR Office"],
+    ]);
+    expect(officeLabelForRequestedVisit({ office_id: "blr" }, byId, "My EGL")).toBe("Fake BLR Office");
+    expect(officeLabelForRequestedVisit({ office_id: "egl" }, byId, "My EGL")).toBe("My EGL");
+    expect(officeLabelForRequestedVisit({ office_id: "missing" }, byId, "My EGL")).toBe("Office");
+    expect(officeLabelForRequestedVisit({}, byId, "My EGL")).toBe("My EGL");
   });
 
   it("uses the visits list when the single pair names a different first visit", () => {

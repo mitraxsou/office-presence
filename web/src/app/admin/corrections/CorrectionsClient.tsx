@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { officeLabelForRequestedVisit } from "@/lib/correction-request";
 
 type StatusTab = "pending" | "approved" | "auto_approved" | "reverted" | "rejected" | "all";
 
@@ -121,7 +122,11 @@ function recordedText(recorded: unknown): string {
   return "Visit recorded";
 }
 
-function requestedText(requested: unknown, officeName: string | null): { lines: string[]; remove: boolean } {
+function requestedText(
+  requested: unknown,
+  officeName: string | null,
+  officesById: Map<string, string>,
+): { lines: string[]; remove: boolean } {
   if (!requested || typeof requested !== "object") {
     return { lines: [officeName ?? "Requested change"], remove: false };
   }
@@ -131,7 +136,7 @@ function requestedText(requested: unknown, officeName: string | null): { lines: 
     const lines = r.visits.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
       const v = item as Record<string, unknown>;
-      const office = typeof v.office_name === "string" && v.office_name ? v.office_name : officeName || "Office";
+      const office = officeLabelForRequestedVisit(v, officesById, officeName);
       const inn = typeof v.in_at === "string" ? fmtClock(v.in_at) : "";
       const out = v.out_at == null || v.out_at === "" ? "Still In" : typeof v.out_at === "string" ? fmtClock(v.out_at) : "";
       return inn ? [`${office}, ${inn} to ${out}`] : [];
@@ -139,10 +144,7 @@ function requestedText(requested: unknown, officeName: string | null): { lines: 
     return { lines: lines.length ? lines : ["Requested change"], remove: false };
   }
   const lines: string[] = [];
-  const office =
-    (typeof r.office_name === "string" && r.office_name) ||
-    officeName ||
-    (typeof r.office_id === "string" ? "Office" : null);
+  const office = officeLabelForRequestedVisit(r, officesById, officeName);
   if (office) lines.push(office);
   if (r.in_at && r.out_at) lines.push(`${fmtClock(String(r.in_at))} to ${fmtClock(String(r.out_at))}`);
   if (typeof r.counts_as === "number") {
@@ -216,6 +218,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
 
   const mon = monthName(counts.month);
   const closeText = counts.month ? closeLabel(counts.month, counts.correctionWindowDays) : "";
+  const officesById = useMemo(() => new Map(offices.map((o) => [o.id, o.name])), [offices]);
 
   const ownSelected = selected != null && selected.userId === adminUserId;
   const blockOwnDecide = ownSelected && !canDecideOwn;
@@ -400,7 +403,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                 </tr>
               ) : (
                 rows.map((r) => {
-                  const req = requestedText(r.requested, r.officeName);
+                  const req = requestedText(r.requested, r.officeName, officesById);
                   return (
                     <tr key={r.id} className={selected?.id === r.id ? "hl" : undefined}>
                       <td className="person-name">{r.user.name || r.user.email}</td>
@@ -467,7 +470,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                   </div>
                   <div className="req">
                     <div className="h">Requested</div>
-                    {requestedText(selected.requested, selected.officeName).lines.map((l) => (
+                    {requestedText(selected.requested, selected.officeName, officesById).lines.map((l) => (
                       <div key={l} className="person-name" style={{ fontSize: 15 }}>
                         {l}
                       </div>
@@ -520,7 +523,7 @@ export default function CorrectionsClient({ adminUserId }: { adminUserId: string
                         <input type="datetime-local" value={editOut} onChange={(e) => setEditOut(e.target.value)} />
                       </div>
                     ) : (
-                      requestedText(selected.requested, selected.officeName).lines.map((l) => (
+                      requestedText(selected.requested, selected.officeName, officesById).lines.map((l) => (
                         <div key={l} className="person-name" style={{ fontSize: 15 }}>
                           {l}
                         </div>

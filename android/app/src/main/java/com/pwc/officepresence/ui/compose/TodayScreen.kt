@@ -34,6 +34,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -95,6 +96,8 @@ fun TodayScreen(
     var tick by remember { mutableStateOf(0) }
     var fixing by remember { mutableStateOf(false) }
     var editedToday by remember { mutableStateOf(false) }
+    var pendingToday by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableIntStateOf(0) }
 
     val fineOk = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
@@ -113,25 +116,36 @@ fun TodayScreen(
             // #region agent log
             val correctionSummary = (0 until arr.length()).joinToString(";") { i ->
                 val row = arr.getJSONObject(i)
-                "${row.optString("dayKey")}:${row.optString("status")}:${row.optString("issue")}"
+                val pendingReason = row.optString("pendingReason").takeIf { it.isNotBlank() }
+                "${row.optString("dayKey")}:${row.optString("status")}:${row.optString("issue")}" +
+                    if (pendingReason != null) "(${pendingReason.take(40)})" else ""
             }
             DebugTrace.write(
                 "H4",
                 "TodayScreen.kt:111",
                 "correction requests for month",
-                mapOf("count" to arr.length(), "rows" to correctionSummary.take(500)),
+                mapOf("count" to arr.length(), "rows" to correctionSummary.take(500), "role" to prefs.role, "today" to day),
             )
             // #endregion
             var edited = false
+            var pending: String? = null
             for (i in 0 until arr.length()) {
                 val row = arr.getJSONObject(i)
-                if (row.optString("dayKey") == day && row.optString("status") == "auto_approved") edited = true
+                if (row.optString("dayKey") != day) continue
+                when (row.optString("status")) {
+                    "pending" -> pending = row.optString("pendingReason").ifBlank { "Waiting for an admin." }
+                    "auto_approved" -> edited = true
+                }
+                break
             }
-            if (edited) main.post { editedToday = true }
+            main.post {
+                editedToday = edited && pending == null
+                pendingToday = pending
+            }
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reload) {
         thread {
             val s = repo.uploadAndSync()
             if (s.unauthorized) {
@@ -256,6 +270,7 @@ fun TodayScreen(
                     hoursToday = state.hoursToday,
                     advised = prefs.dayHours.toDouble(),
                     edited = editedToday,
+                    pendingReason = pendingToday,
                     onFix = { fixing = true },
                 )
                 Spacer(Modifier.height(8.dp))
@@ -349,10 +364,17 @@ fun TodayScreen(
             repo = repo,
             prefs = prefs,
             onClose = { fixing = false },
-            onSaved = { message ->
+            onSaved = { message, pendingReason ->
                 fixing = false
-                editedToday = true
+                if (pendingReason != null) {
+                    pendingToday = pendingReason
+                    editedToday = false
+                } else {
+                    pendingToday = null
+                    editedToday = true
+                }
                 Toast.makeText(ctx, message, Toast.LENGTH_LONG).show()
+                reload += 1
             },
         )
     }
@@ -365,6 +387,7 @@ private fun TodayPointsCard(
     hoursToday: Double,
     advised: Double,
     edited: Boolean,
+    pendingReason: String?,
     onFix: () -> Unit,
 ) {
     val p = LocalOpPalette.current
@@ -392,7 +415,14 @@ private fun TodayPointsCard(
             color = p.ink3,
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
         )
-        if (edited) {
+        if (pendingReason != null) {
+            Text(
+                "Sent for approval. $pendingReason",
+                style = OpType.Meta,
+                color = p.ink2,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        } else if (edited) {
             Text("Edited by you", style = OpType.Meta, color = OpColor.Accent, modifier = Modifier.padding(bottom = 8.dp))
         }
         if (visits.isEmpty()) {
@@ -621,7 +651,7 @@ private fun FixTodayDialog(
     repo: PresenceRepository,
     prefs: AppPrefs,
     onClose: () -> Unit,
-    onSaved: (String) -> Unit,
+    onSaved: (String, String?) -> Unit,
 ) {
     val p = LocalOpPalette.current
     val ctx = LocalContext.current
@@ -636,8 +666,8 @@ private fun FixTodayDialog(
         formatHm(n.hour, n.minute)
     }
     val gapMinutes = remember { editorGapMinutes(prefs.gapMinutes) }
-    val loaded = remember {
-        val fragments = fragmentsFromTodayOffices(prefs.cachedTodayOfficesJson, offices)
+    fun loadFromCache(json: String): Pair<Int, List<FixVisit>> {
+        val fragments = fragmentsFromTodayOffices(json, offices)
         val stays = mergeVisitFragments(
             fragments,
             gapMinutes,
@@ -653,26 +683,13 @@ private fun FixTodayDialog(
             mapOf("raw" to fragments.size, "merged" to stays.size, "gapMinutes" to gapMinutes),
         )
         // #endregion
-        fragments.size to stays
+        return fragments.size to staysToFixVisits(stays, zone)
     }
-    val caption = remember { mergeCaption(loaded.first, loaded.second.size, gapMinutes) }
-    var rows by remember {
-        mutableStateOf(
-            if (loaded.second.isEmpty()) {
-                listOf(defaultFixVisit(offices, nowHm))
-            } else {
-                loaded.second.map { stay ->
-                    FixVisit(
-                        officeId = stay.officeId,
-                        officeName = stay.officeName,
-                        inHm = localHm(stay.inMs, zone),
-                        outHm = localHm(stay.outMs, zone),
-                        stillIn = stay.stillIn,
-                    )
-                }
-            },
-        )
-    }
+    val loaded = remember { loadFromCache(prefs.cachedTodayOfficesJson) }
+    var caption by remember { mutableStateOf(mergeCaption(loaded.first, loaded.second.size, gapMinutes)) }
+    var rows by remember { mutableStateOf(loaded.second) }
+    var rowsDirty by remember { mutableStateOf(false) }
+    var cacheFingerprint by remember { mutableStateOf(prefs.cachedTodayOfficesJson) }
     var reason by remember { mutableStateOf("") }
     var button by remember { mutableStateOf("Save changes") }
     var note by remember { mutableStateOf("Applies right away. Admins can see this change.") }
@@ -680,6 +697,37 @@ private fun FixTodayDialog(
     var busy by remember { mutableStateOf(false) }
     var clock by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var officePicker by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(750)
+            val json = prefs.cachedTodayOfficesJson
+            if (json == cacheFingerprint) continue
+            cacheFingerprint = json
+            if (rowsDirty) {
+                // #region agent log
+                DebugTrace.write(
+                    "H4",
+                    "TodayScreen.kt:fixCache",
+                    "today cache changed but edits kept",
+                    mapOf("jsonLength" to json.length, "rowCount" to rows.size),
+                )
+                // #endregion
+                continue
+            }
+            val next = loadFromCache(json)
+            rows = next.second
+            caption = mergeCaption(next.first, next.second.size, gapMinutes)
+            // #region agent log
+            DebugTrace.write(
+                "H4",
+                "TodayScreen.kt:fixCache",
+                "refreshed fix today from cache",
+                mapOf("raw" to next.first, "rows" to next.second.size),
+            )
+            // #endregion
+        }
+    }
 
     fun iso(hm: String): String? {
         val (h, m) = parseHmStrict(hm) ?: return null
@@ -773,7 +821,10 @@ private fun FixTodayDialog(
                                 when (offices.size) {
                                     0 -> Toast.makeText(ctx, "No offices are on this phone. Sync, then try again.", Toast.LENGTH_LONG).show()
                                     1 -> Toast.makeText(ctx, "Only one office is available.", Toast.LENGTH_SHORT).show()
-                                    else -> officePicker = index
+                                    else -> {
+                                        rowsDirty = true
+                                        officePicker = index
+                                    }
                                 }
                             },
                         )
@@ -799,6 +850,7 @@ private fun FixTodayDialog(
                         Switch(
                             checked = row.stillIn,
                             onCheckedChange = { on ->
+                                rowsDirty = true
                                 rows = rows.toMutableList().also { it[index] = row.copy(stillIn = on) }
                             },
                             colors = SwitchDefaults.colors(
@@ -820,6 +872,7 @@ private fun FixTodayDialog(
                                     if (mid == null) {
                                         Toast.makeText(ctx, "This visit is too short to split", Toast.LENGTH_SHORT).show()
                                     } else {
+                                        rowsDirty = true
                                         val next = rows.toMutableList()
                                         next[index] = row.copy(outHm = mid, stillIn = false)
                                         next.add(
@@ -835,7 +888,10 @@ private fun FixTodayDialog(
                             "Remove visit",
                             style = OpType.Label,
                             color = p.ink,
-                            modifier = Modifier.clickable { rows = rows.filterIndexed { i, _ -> i != index } },
+                            modifier = Modifier.clickable {
+                                rowsDirty = true
+                                rows = rows.filterIndexed { i, _ -> i != index }
+                            },
                         )
                     }
                 }
@@ -845,6 +901,7 @@ private fun FixTodayDialog(
                 style = OpType.Label,
                 color = p.ink,
                 modifier = Modifier.clickable {
+                    rowsDirty = true
                     val office = offices.firstOrNull()
                     val previous = rows.lastOrNull()
                     val start = when {
@@ -924,7 +981,9 @@ private fun FixTodayDialog(
                             mapOf(
                                 "httpStatus" to (res?.optInt("_httpStatus") ?: -1),
                                 "outcome" to (res?.optString("outcome") ?: ""),
+                                "reason" to (res?.optString("reason") ?: ""),
                                 "error" to (res?.optString("error") ?: ""),
+                                "role" to prefs.role,
                                 "sentVisits" to (sentVisits?.length() ?: 0),
                                 "sentOffices" to (sentVisits?.let { a -> (0 until a.length()).joinToString(",") { a.getJSONObject(it).optString("office_id") } } ?: ""),
                                 "storedVisits" to (storedReq?.optJSONArray("visits")?.length() ?: if (storedReq?.has("in_at") == true) 1 else 0),
@@ -935,12 +994,16 @@ private fun FixTodayDialog(
                         main.post {
                             busy = false
                             if (res?.ok() == true) {
-                                val msg = if (res.optString("outcome") == "auto_approved") {
+                                val pendingReason = res.optString("reason").takeIf { it.isNotBlank() }
+                                val pending = res.optString("outcome") != "auto_approved"
+                                val msg = if (!pending) {
                                     "Today updated. Admins can see this change."
+                                } else if (pendingReason != null) {
+                                    "Sent for approval. $pendingReason"
                                 } else {
                                     "Sent for approval."
                                 }
-                                onSaved(msg)
+                                onSaved(msg, if (pending) pendingReason ?: "Waiting for an admin." else null)
                             } else {
                                 Toast.makeText(
                                     ctx,
@@ -965,6 +1028,7 @@ private fun FixTodayDialog(
             offices = offices,
             selectedId = rows.getOrNull(picking)?.officeId.orEmpty(),
             onPick = { office ->
+                rowsDirty = true
                 rows = rows.toMutableList().also { list ->
                     val row = list.getOrNull(picking) ?: return@also
                     list[picking] = row.copy(officeId = office.id, officeName = office.displayName)
@@ -991,6 +1055,7 @@ private fun FixTodayDialog(
                     clock = null
                     return@OpClockDialog
                 }
+                rowsDirty = true
                 rows = rows.toMutableList().also {
                     it[pick.first] = if (which == "in") row.copy(inHm = hm) else row.copy(outHm = hm)
                 }
@@ -1044,15 +1109,3 @@ fun OfficePickDialog(
     }
 }
 
-private fun defaultFixVisit(offices: List<Office>, nowHm: String): FixVisit {
-    val nowMin = hmToMinutes(nowHm) ?: (9 * 60)
-    val inMin = if (nowMin > 9 * 60) 9 * 60 else (nowMin - 60).coerceAtLeast(0)
-    val office = offices.firstOrNull()
-    return FixVisit(
-        officeId = office?.id.orEmpty(),
-        officeName = office?.displayName ?: "Office",
-        inHm = "%02d:%02d".format(inMin / 60, inMin % 60),
-        outHm = nowHm,
-        stillIn = nowMin <= inMin,
-    )
-}
