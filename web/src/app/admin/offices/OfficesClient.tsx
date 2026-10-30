@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { isListedOffice } from "@/lib/office-list";
 import { countsAs } from "@/lib/points-format";
 
 const OfficeMap = dynamic(() => import("@/components/OfficeMap"), {
@@ -18,8 +19,11 @@ type Office = {
   pointsPerVisitDay: number;
   addressLabel: string | null;
   status: "active" | "inactive" | "pending" | "rejected";
+  deletedAt?: string | null;
   createdBy?: { email: string } | null;
 };
+
+type OfficeAction = "deactivate" | "delete" | "activate";
 
 type PlaceHit = { name: string; address: string; lat: number; lng: number };
 
@@ -54,7 +58,9 @@ export default function OfficesClient() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<{ id: string; action: OfficeAction } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const msgRef = useRef<HTMLParagraphElement>(null);
 
   async function load() {
     const [offRes, statusRes] = await Promise.all([
@@ -81,8 +87,12 @@ export default function OfficesClient() {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (msg) msgRef.current?.scrollIntoView({ block: "nearest" });
+  }, [msg]);
+
   const listed = useMemo(
-    () => (offices ?? []).filter((o) => o.status === "active" || o.status === "inactive"),
+    () => (offices ?? []).filter((o) => isListedOffice(o)),
     [offices],
   );
   const pending = useMemo(() => (offices ?? []).filter((o) => o.status === "pending"), [offices]);
@@ -109,6 +119,7 @@ export default function OfficesClient() {
 
   function selectOffice(o: Office) {
     setAdding(false);
+    setConfirm(null);
     // Keep dirty draft when re-selecting the already expanded office (Enter in Name must not clobber).
     if (selectedId === o.id && !adding) {
       setSelectedId(o.id);
@@ -128,6 +139,7 @@ export default function OfficesClient() {
 
   function startAdd() {
     setAdding(true);
+    setConfirm(null);
     setSelectedId(null);
     setDraft(emptyDraft());
     setSearchQ("");
@@ -193,17 +205,58 @@ export default function OfficesClient() {
     }
   }
 
-  async function softDelete(o: Office) {
-    if (!window.confirm(`Delete office ${o.name}? It will stop matching new visits. Past days stay.`)) return;
-    const res = await fetch("/api/admin/offices", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: o.id, status: "inactive" }),
-    });
-    setMsg(res.ok ? { kind: "ok", text: `${o.name} deleted` } : { kind: "error", text: "Delete failed" });
-    if (selectedId === o.id) {
-      setSelectedId(null);
-      setDraft(emptyDraft());
+  function confirmCopy(action: OfficeAction, name: string) {
+    if (action === "deactivate") {
+      return `Deactivate ${name}? It will stop matching new visits. Past days stay. You can activate it again.`;
+    }
+    if (action === "delete") {
+      return `Delete ${name}? It will leave this list and stop matching new visits. Past days stay.`;
+    }
+    return `Activate ${name}? It will match new visits again.`;
+  }
+
+  async function runOfficeAction(o: Office, action: OfficeAction) {
+    setBusy(true);
+    setMsg(null);
+    const res = action === "delete"
+      ? await fetch(`/api/admin/offices?id=${encodeURIComponent(o.id)}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: o.id }),
+        })
+      : await fetch("/api/admin/offices", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: o.id, status: action === "deactivate" ? "inactive" : "active" }),
+        });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setMsg({ kind: "error", text: typeof j.error === "string" ? j.error : "Request failed" });
+      return;
+    }
+    setConfirm(null);
+    if (action === "delete") {
+      setMsg({ kind: "ok", text: `${o.name} deleted` });
+      if (selectedId === o.id) {
+        setSelectedId(null);
+        setDraft(emptyDraft());
+      }
+      setOffices((prev) =>
+        (prev ?? []).map((row) =>
+          row.id === o.id ? { ...row, status: "inactive", deletedAt: new Date().toISOString() } : row,
+        ),
+      );
+    } else if (action === "deactivate") {
+      setMsg({ kind: "ok", text: `${o.name} deactivated` });
+      setOffices((prev) =>
+        (prev ?? []).map((row) => (row.id === o.id ? { ...row, status: "inactive", deletedAt: null } : row)),
+      );
+    } else {
+      setMsg({ kind: "ok", text: `${o.name} activated` });
+      setOffices((prev) =>
+        (prev ?? []).map((row) => (row.id === o.id ? { ...row, status: "active", deletedAt: null } : row)),
+      );
     }
     await load();
   }
@@ -272,6 +325,8 @@ export default function OfficesClient() {
           Add office
         </button>
       </div>
+
+      {msg ? <p ref={msgRef} className={`status-msg ${msg.kind}`} role="status">{msg.text}</p> : null}
 
       {pending.length ? (
         <div className="card" style={{ marginBottom: 16 }}>
@@ -380,7 +435,10 @@ export default function OfficesClient() {
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                         <b style={{ fontWeight: 700 }}>{o.name}</b>
-                        <span className="op-badge out">{inCount} In</span>
+                        <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {o.status === "inactive" ? <span className="op-badge out">Deactivated</span> : null}
+                          <span className="op-badge out">{inCount} In</span>
+                        </span>
                       </div>
                       <div className="op-meta-row" style={{ marginTop: 4 }}>
                         {o.addressLabel ?? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}`}
@@ -409,8 +467,9 @@ export default function OfficesClient() {
                             aria-label="Office name"
                           />
                         </label>
-                        <span className="op-badge out" style={{ marginTop: 22 }}>
-                          {inCount} In
+                        <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", marginTop: 22 }}>
+                          {o.status === "inactive" ? <span className="op-badge out">Deactivated</span> : null}
+                          <span className="op-badge out">{inCount} In</span>
                         </span>
                       </div>
                       <div className="op-meta-row" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
@@ -447,21 +506,72 @@ export default function OfficesClient() {
                           />
                         </label>
                       </div>
+                      {confirm?.id === o.id ? (
+                        <p className="op-meta-row" style={{ marginTop: 14 }} onClick={(e) => e.stopPropagation()}>
+                          {confirmCopy(confirm.action, o.name)}
+                        </p>
+                      ) : null}
                       <div
-                        style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}
+                        style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, flexWrap: "wrap" }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void softDelete(o)}>
-                          Delete office
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          disabled={busy || !draft.name.trim()}
-                          onClick={() => void save()}
-                        >
-                          Save office
-                        </button>
+                        {confirm?.id === o.id ? (
+                          <>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setConfirm(null)}>
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={busy}
+                              onClick={() => void runOfficeAction(o, confirm.action)}
+                            >
+                              {confirm.action === "deactivate"
+                                ? "Deactivate office"
+                                : confirm.action === "delete"
+                                  ? "Delete office"
+                                  : "Activate office"}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {o.status === "inactive" ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={busy}
+                                onClick={() => setConfirm({ id: o.id, action: "activate" })}
+                              >
+                                Activate office
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={busy}
+                                onClick={() => setConfirm({ id: o.id, action: "deactivate" })}
+                              >
+                                Deactivate office
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={busy}
+                              onClick={() => setConfirm({ id: o.id, action: "delete" })}
+                            >
+                              Delete office
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              disabled={busy || !draft.name.trim()}
+                              onClick={() => void save()}
+                            >
+                              Save office
+                            </button>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
@@ -522,8 +632,6 @@ export default function OfficesClient() {
           </div>
         </div>
       </div>
-
-      {msg ? <p className={`status-msg ${msg.kind}`}>{msg.text}</p> : null}
     </div>
   );
 }

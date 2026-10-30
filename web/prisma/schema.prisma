@@ -202,6 +202,8 @@ model OfficeLocation {
   pointsPerVisitDay Int               @default(1)
   addressLabel      String?
   status            OfficeStatus      @default(active)
+  /** Set when an admin deletes the office from the list. Status stays inactive so past points remain. Null means it is still listed. */
+  deletedAt         DateTime?
   createdByUserId   String?
   approvedByAdminId String?
   approvedAt        DateTime?

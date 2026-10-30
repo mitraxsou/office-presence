@@ -70,6 +70,25 @@ export async function POST(request: Request) {
   return NextResponse.json({ office });
 }
 
+const OFFICE_STATUSES = ["active", "inactive", "pending", "rejected"] as const;
+type OfficeStatusValue = (typeof OFFICE_STATUSES)[number];
+
+function isOfficeStatus(value: string): value is OfficeStatusValue {
+  return (OFFICE_STATUSES as readonly string[]).includes(value);
+}
+
+/** Status change only: do not re-check radius or coordinates, and do not rewrite them. */
+function isStatusOnly(body: Record<string, unknown>) {
+  if (body.status == null) return false;
+  return Object.keys(body).every((key) => key === "id" || key === "status" || body[key] == null);
+}
+
+function statusAction(before: OfficeStatusValue, next: OfficeStatusValue) {
+  if (next === "inactive" && before !== "inactive") return "office.deactivate";
+  if (next === "active" && before !== "active") return "office.activate";
+  return "office.update";
+}
+
 export async function PATCH(request: Request) {
   let admin;
   try { admin = await requireAdmin(); } catch (res) { return res as Response; }
@@ -78,12 +97,39 @@ export async function PATCH(request: Request) {
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const before = await prisma.officeLocation.findUnique({ where: { id } });
   if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const merged = parseOfficeInput({ ...before, ...body });
-  if (typeof merged === "string") return NextResponse.json({ error: merged }, { status: 400 });
+  if (before.deletedAt) {
+    return NextResponse.json({ error: "This office was deleted" }, { status: 400 });
+  }
   const status = body.status != null ? String(body.status) : before.status;
-  if (!["active", "inactive", "pending", "rejected"].includes(status)) {
+  if (!isOfficeStatus(status)) {
     return NextResponse.json({ error: "status invalid" }, { status: 400 });
   }
+
+  if (isStatusOnly(body)) {
+    const office = await prisma.officeLocation.update({
+      where: { id },
+      data: {
+        status,
+        ...(status === "active" && before.status !== "active"
+          ? { approvedByAdminId: admin.id, approvedAt: new Date() }
+          : {}),
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: admin.id,
+        action: statusAction(before.status, status),
+        targetType: "OfficeLocation",
+        targetId: id,
+        beforeJson: before,
+        afterJson: office,
+      },
+    });
+    return NextResponse.json({ office });
+  }
+
+  const merged = parseOfficeInput({ ...before, ...body });
+  if (typeof merged === "string") return NextResponse.json({ error: merged }, { status: 400 });
   const moved = merged.latitude !== before.latitude || merged.longitude !== before.longitude;
   const office = await prisma.officeLocation.update({
     where: { id },
@@ -95,19 +141,29 @@ export async function PATCH(request: Request) {
           : moved
             ? await reverseGeocode(merged.latitude, merged.longitude)
             : before.addressLabel,
-      status: status as "active" | "inactive" | "pending" | "rejected",
+      status,
       ...(status === "active" && before.status !== "active"
         ? { approvedByAdminId: admin.id, approvedAt: new Date() }
         : {}),
     },
   });
   await prisma.auditLog.create({
-    data: { actorId: admin.id, action: "office.update", targetType: "OfficeLocation", targetId: id, beforeJson: before, afterJson: office },
+    data: {
+      actorId: admin.id,
+      action: statusAction(before.status, status),
+      targetType: "OfficeLocation",
+      targetId: id,
+      beforeJson: before,
+      afterJson: office,
+    },
   });
   return NextResponse.json({ office });
 }
 
-/** Soft delete: set status inactive. Never hard-delete office rows. */
+/**
+ * Remove the office from the admin list. Sets deletedAt and status inactive.
+ * The row stays so past visits, events, and home-office links remain valid.
+ */
 export async function DELETE(request: Request) {
   let admin;
   try { admin = await requireAdmin(); } catch (res) { return res as Response; }
@@ -117,17 +173,17 @@ export async function DELETE(request: Request) {
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const before = await prisma.officeLocation.findUnique({ where: { id } });
   if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (before.status === "inactive") {
+  if (before.deletedAt) {
     return NextResponse.json({ office: before });
   }
   const office = await prisma.officeLocation.update({
     where: { id },
-    data: { status: "inactive" },
+    data: { status: "inactive", deletedAt: new Date() },
   });
   await prisma.auditLog.create({
     data: {
       actorId: admin.id,
-      action: "office.deactivate",
+      action: "office.delete",
       targetType: "OfficeLocation",
       targetId: id,
       beforeJson: before,

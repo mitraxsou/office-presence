@@ -25,7 +25,7 @@ export async function listActiveOffices(): Promise<OfficeFenceInput[]> {
   return rows.map(toFence);
 }
 
-/** Active plus deactivated offices: deactivated sites no longer match new fixes but keep past points. */
+/** Active plus inactive offices. Inactive covers deactivated and deleted sites: they no longer match new fixes, and past points stay. */
 export async function listPointOffices() {
   return prisma.officeLocation.findMany({
     where: { status: { in: ["active", "inactive"] } },
