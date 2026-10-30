@@ -2,6 +2,8 @@ package com.pwc.officepresence.ui.compose
 
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +68,7 @@ import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OpColor
 import com.pwc.officepresence.ui.theme.OpShape
 import com.pwc.officepresence.ui.theme.OpType
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -109,6 +112,7 @@ fun MonthScreen(
     onInitialMonthConsumed: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
+    val ctx = LocalContext.current
     val main = remember { Handler(Looper.getMainLooper()) }
     var monthKey by remember { mutableStateOf(initialMonthKey ?: YearMonth.now().toString()) }
     var requestedMonth by remember { mutableStateOf(initialMonthKey ?: YearMonth.now().toString()) }
@@ -263,7 +267,9 @@ fun MonthScreen(
                     val hasDoubleDay = days.values.any { it.points >= 2 }
                     val mk = data.optString("month", monthKey)
                     val pendingCount = corrections.count { it.status == "pending" && it.dayKey.startsWith(mk) }
-                    val correctedCount = corrections.count { it.status == "approved" && it.dayKey.startsWith(mk) }
+                    val correctedCount = corrections.count {
+                        (it.status == "approved" || it.status == "auto_approved") && it.dayKey.startsWith(mk)
+                    }
                     val footer = buildString {
                         append(PointsFormat.visitDaysFyi(visitDays))
                         if (pendingCount > 0) append(". $pendingCount day${if (pendingCount == 1) "" else "s"} pending review")
@@ -323,7 +329,9 @@ fun MonthScreen(
     if (day != null && report != null && report?.optString("month").orEmpty() == monthKey) {
         val info = dayMap(report)[day]
         val pending = corrections.firstOrNull { it.dayKey == day && it.status == "pending" }
-        val decided = corrections.firstOrNull { it.dayKey == day && it.status in setOf("approved", "rejected") }
+        val decided = corrections.firstOrNull {
+            it.dayKey == day && it.status in setOf("approved", "rejected", "auto_approved")
+        }
         val approvedToast = if (decided?.status == "approved") {
             val pts = report?.optInt("monthPoints") ?: 0
             val tgt = report?.optInt("pointsTarget") ?: 8
@@ -360,6 +368,28 @@ fun MonthScreen(
                         main.post {
                             selectedDay = null
                             reload(monthKey)
+                        }
+                    }
+                },
+                onUndo = { id ->
+                    thread {
+                        val res = runCatching { repo.api.undoCorrection(id) }.getOrNull()
+                        main.post {
+                            if (res?.ok() == true) {
+                                val dirty = prefs.dirtyMonthsCsv.split(",")
+                                    .map { it.trim() }
+                                    .filter { it.isNotBlank() }
+                                    .toMutableSet()
+                                dirty.add(monthKey)
+                                prefs.dirtyMonthsCsv = dirty.joinToString(",")
+                                reload(monthKey)
+                            } else {
+                                Toast.makeText(
+                                    ctx,
+                                    res?.optString("error")?.takeIf { it.isNotBlank() } ?: "Could not undo",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
                         }
                     }
                 },
@@ -401,6 +431,7 @@ private fun DayDetailSheet(
     onRequestCorrection: () -> Unit,
     onRequestAgain: () -> Unit,
     onCancelRequest: (String) -> Unit,
+    onUndo: (String) -> Unit = {},
 ) {
     val p = LocalOpPalette.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
@@ -449,6 +480,7 @@ private fun DayDetailSheet(
             when {
                 pending != null -> PendingBadge()
                 decided?.status == "approved" -> NeutralBadge("Approved", check = true)
+                decided?.status == "auto_approved" -> NeutralBadge("Auto approved", check = true)
                 decided?.status == "rejected" -> NeutralBadge("Not approved")
                 info != null && info.points > 0 -> Text(
                     PointsFormat.countsAs(info.points),
@@ -499,20 +531,18 @@ private fun DayDetailSheet(
                     ) {
                         Text("Requested", style = OpType.Meta, color = p.ink2)
                         val req = pending.requested
+                        val visitLines = requestedVisitLines(req, info?.officeName, tz)
                         if (req?.optBoolean("remove") == true) {
                             Text("Should not count", style = OpType.Label.copy(fontWeight = FontWeight.Bold), color = p.ink)
                         } else {
-                            Text(
-                                officeNameFromId(req?.optString("office_id"), info?.officeName) ?: "Office",
-                                style = OpType.Label.copy(fontWeight = FontWeight.Bold),
-                                color = p.ink,
-                            )
-                            Text(
-                                "${OpFormat.fmtTime(req?.optString("in_at"), tz)} to ${OpFormat.fmtTime(req?.optString("out_at"), tz)}",
-                                style = OpType.Meta,
-                                color = p.ink,
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
+                            visitLines.forEach { line ->
+                                Text(
+                                    line,
+                                    style = OpType.Label.copy(fontWeight = FontWeight.Bold),
+                                    color = p.ink,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -587,7 +617,7 @@ private fun DayDetailSheet(
                                     style = OpType.Body,
                                     color = p.ink,
                                 )
-                                if (info?.corrected == true || decided?.status == "approved") {
+                                if (info?.corrected == true || decided?.status == "approved" || decided?.status == "auto_approved") {
                                     Spacer(Modifier.width(8.dp))
                                     CorrectedTag()
                                 }
@@ -628,18 +658,31 @@ private fun DayDetailSheet(
                 } else if (pending == null) {
                     Text("No visit recorded for this day.", style = OpType.Body, color = p.ink2)
                 }
-                if (decided?.status == "approved") {
+                if (decided?.status == "approved" || decided?.status == "auto_approved") {
                     Text(
-                        "Approved. The original record is kept in history.",
+                        if (decided?.status == "auto_approved") "Corrected by you. The original record is kept."
+                        else "Approved. The original record is kept in history.",
                         style = OpType.Meta,
                         color = p.ink3,
                         modifier = Modifier.padding(top = 10.dp),
                     )
                 }
-                if (pending == null && decided?.status != "rejected") {
+                if (decided?.status == "auto_approved" && !readonly) {
+                    Text(
+                        "Undo correction",
+                        textDecoration = TextDecoration.Underline,
+                        modifier = Modifier.padding(top = 10.dp).clickable {
+                            val id = decided?.id ?: return@clickable
+                            onUndo(id)
+                        },
+                        color = p.ink,
+                        style = OpType.Label,
+                    )
+                }
+                if (pending == null) {
                     Spacer(Modifier.height(16.dp))
                     OpSecondaryButton(
-                        "Request a correction",
+                        if (decided?.status == "rejected") "Request again" else "Request a correction",
                         onClick = onRequestCorrection,
                         enabled = !readonly,
                     )
@@ -790,8 +833,10 @@ private fun CorrectionFlow(
     onBackToMonth: () -> Unit,
 ) {
     val p = LocalOpPalette.current
+    val ctx = LocalContext.current
     val main = remember { Handler(Looper.getMainLooper()) }
     var step by remember { mutableStateOf(CorrectionStep.Choose) }
+    var pickOffice by remember { mutableStateOf(false) }
     var issue by remember { mutableStateOf("missing_visit") }
     var officeId by remember { mutableStateOf(offices.firstOrNull()?.id.orEmpty()) }
     var inTime by remember { mutableStateOf("09:30") }
@@ -802,6 +847,12 @@ private fun CorrectionFlow(
     var effectAfter by remember { mutableStateOf(0) }
     var target by remember { mutableStateOf(prefs.monthlyPointsTarget) }
     var sentIssue by remember { mutableStateOf("") }
+    var sendError by remember { mutableStateOf<String?>(null) }
+    var appliedImmediately by remember { mutableStateOf(false) }
+    var reviewButton by remember { mutableStateOf("Save correction") }
+    var reviewReason by remember { mutableStateOf<String?>(null) }
+    var pickField by remember { mutableStateOf<String?>(null) }
+    var sentId by remember { mutableStateOf<String?>(null) }
 
     val issues = listOf(
         "missing_visit" to ("A visit is missing" to "I was in the office, but no visit is shown"),
@@ -823,6 +874,9 @@ private fun CorrectionFlow(
                 effectBefore = effect?.optInt("days_before") ?: effect?.optInt("pointsBefore") ?: 0
                 effectAfter = effect?.optInt("days_after") ?: effect?.optInt("pointsAfter") ?: 0
                 target = effect?.optInt("target") ?: prefs.monthlyPointsTarget
+                reviewButton = res?.optString("button")?.takeIf { it.isNotBlank() }
+                    ?: if (res?.optString("outcome") == "pending") "Send for approval" else "Save correction"
+                reviewReason = res?.optString("reason")?.takeIf { it.isNotBlank() }
             }
         }
     }
@@ -833,7 +887,10 @@ private fun CorrectionFlow(
                 when (step) {
                     CorrectionStep.Choose -> onClose()
                     CorrectionStep.Edit -> step = CorrectionStep.Choose
-                    CorrectionStep.Review -> step = CorrectionStep.Edit
+                    CorrectionStep.Review -> {
+                        step = if (issue == "should_not_count") CorrectionStep.Choose else CorrectionStep.Edit
+                        sendError = null
+                    }
                     CorrectionStep.Sent -> onBackToMonth()
                 }
             }) {
@@ -869,13 +926,19 @@ private fun CorrectionFlow(
                             .padding(bottom = 10.dp)
                             .clip(OpShape.Input)
                             .border(if (selected) 2.dp else 1.dp, if (selected) p.ink else p.line, OpShape.Input)
-                            .clickable { issue = id }
+                            .clickable {
+                                issue = id
+                                sendError = null
+                            }
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
                             selected = selected,
-                            onClick = { issue = id },
+                            onClick = {
+                                issue = id
+                                sendError = null
+                            },
                             colors = RadioButtonDefaults.colors(selectedColor = OpColor.Accent),
                         )
                         Column {
@@ -906,9 +969,10 @@ private fun CorrectionFlow(
                         .background(p.surface)
                         .border(1.dp, p.lineStrong, OpShape.Input)
                         .clickable {
-                            if (offices.isNotEmpty()) {
-                                val idx = offices.indexOfFirst { it.id == officeId }.let { if (it < 0) 0 else it }
-                                officeId = offices[(idx + 1) % offices.size].id
+                            when (offices.size) {
+                                0 -> Toast.makeText(ctx, "No offices are on this phone. Sync, then try again.", Toast.LENGTH_LONG).show()
+                                1 -> Toast.makeText(ctx, "Only one office is available.", Toast.LENGTH_SHORT).show()
+                                else -> pickOffice = true
                             }
                         }
                         .padding(14.dp),
@@ -920,24 +984,10 @@ private fun CorrectionFlow(
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f)) {
-                        Text("In", style = OpType.Meta, color = p.ink3)
-                        TextField(
-                            value = inTime,
-                            onValueChange = { inTime = it },
-                            singleLine = true,
-                            colors = fieldColors(),
-                            modifier = Modifier.fillMaxWidth().clip(OpShape.Input),
-                        )
+                        ClockTimeField("In", inTime) { pickField = "in" }
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("Out", style = OpType.Meta, color = p.ink3)
-                        TextField(
-                            value = outTime,
-                            onValueChange = { outTime = it },
-                            singleLine = true,
-                            colors = fieldColors(),
-                            modifier = Modifier.fillMaxWidth().clip(OpShape.Input),
-                        )
+                        ClockTimeField("Out", outTime) { pickField = "out" }
                     }
                 }
                 Spacer(Modifier.height(14.dp))
@@ -976,7 +1026,7 @@ private fun CorrectionFlow(
                                 color = p.ink,
                             )
                             Text(
-                                PointsFormat.countsAs(offices.firstOrNull { it.id == officeId }?.pointsPerVisitDay ?: 1),
+                                PointsFormat.countsAs(offices.firstOrNull { it.id == officeId }?.pointsPerVisitDay ?: 0),
                                 style = OpType.Meta,
                                 color = p.ink3,
                             )
@@ -1008,11 +1058,12 @@ private fun CorrectionFlow(
                 }
                 Spacer(Modifier.weight(1f))
                 OpPrimaryButton(
-                    label = if (sending) "Sending..." else "Send request",
+                    label = if (sending) "Sending..." else reviewButton,
                     loading = sending,
                     onClick = {
                         if (sending) return@OpPrimaryButton
                         sending = true
+                        sendError = null
                         thread {
                             val remove = issue == "should_not_count"
                             val inIso = localToIso(dayKey, inTime, prefs.timezone) ?: "${dayKey}T04:00:00Z"
@@ -1037,19 +1088,36 @@ private fun CorrectionFlow(
                                 sending = false
                                 if (res?.ok() == true) {
                                     sentIssue = issue
+                                    appliedImmediately = res.optString("outcome") == "auto_approved" || res.optBoolean("appliedImmediately", false)
+                                    sentId = res.optJSONObject("request")?.optString("id")
                                     step = CorrectionStep.Sent
+                                } else {
+                                    sendError = res?.optString("error")?.takeIf { it.isNotBlank() }
+                                        ?: "Could not send request. Check your connection and try again."
                                 }
                             }
                         }
                     },
                 )
+                if (!sendError.isNullOrBlank()) {
+                    Text(
+                        sendError!!,
+                        style = OpType.Meta,
+                        color = p.ink2,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    )
+                }
                 Text(
                     "Edit request",
                     textDecoration = TextDecoration.Underline,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .padding(top = 12.dp)
-                        .clickable { step = if (issue == "should_not_count") CorrectionStep.Choose else CorrectionStep.Edit },
+                        .clickable {
+                            step = if (issue == "should_not_count") CorrectionStep.Choose else CorrectionStep.Edit
+                            sendError = null
+                        },
                     color = p.ink,
                     style = OpType.Label,
                 )
@@ -1067,9 +1135,17 @@ private fun CorrectionFlow(
                         Icon(Icons.Outlined.Check, contentDescription = null, tint = p.ink2, modifier = Modifier.size(32.dp))
                     }
                     Spacer(Modifier.height(20.dp))
-                    Text("Request sent", style = OpType.Title, color = p.ink)
                     Text(
-                        "An admin reviews it. You get a notification with the decision. Your month changes only if it is approved.",
+                        if (appliedImmediately) "Correction applied" else "Request sent",
+                        style = OpType.Title,
+                        color = p.ink,
+                    )
+                    Text(
+                        if (appliedImmediately) {
+                            "Your month has been updated."
+                        } else {
+                            "An admin reviews it. You get a notification with the decision. Your month changes only if it is approved."
+                        },
                         style = OpType.Body,
                         color = p.ink2,
                         textAlign = TextAlign.Center,
@@ -1079,12 +1155,16 @@ private fun CorrectionFlow(
                     OpCard {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(OpFormat.fmtDayTitle(dayKey), style = OpType.Label.copy(fontWeight = FontWeight.Bold), color = p.ink)
-                            PendingBadge()
+                            if (appliedImmediately) NeutralBadge("Auto approved", check = true) else PendingBadge()
                         }
                         Text(
                             listOfNotNull(
                                 issueLabel(sentIssue.ifBlank { issue }),
-                                offices.firstOrNull { it.id == officeId }?.displayName,
+                                if (issue != "should_not_count") {
+                                    offices.firstOrNull { it.id == officeId }?.displayName
+                                } else {
+                                    null
+                                },
                                 if (issue != "should_not_count") "${fmtHm(inTime)} to ${fmtHm(outTime)}" else null,
                             ).joinToString(", "),
                             style = OpType.Meta,
@@ -1094,6 +1174,21 @@ private fun CorrectionFlow(
                     }
                     Spacer(Modifier.weight(1f))
                     OpPrimaryButton("Back to month", onClick = onBackToMonth)
+                    if (appliedImmediately && !sentId.isNullOrBlank()) {
+                        Text(
+                            "Undo correction",
+                            textDecoration = TextDecoration.Underline,
+                            modifier = Modifier.padding(top = 12.dp).clickable {
+                                val id = sentId ?: return@clickable
+                                thread {
+                                    runCatching { repo.api.undoCorrection(id) }
+                                    main.post { onBackToMonth() }
+                                }
+                            },
+                            color = p.ink,
+                            style = OpType.Label,
+                        )
+                    }
                     Text(
                         "View my requests",
                         textDecoration = TextDecoration.Underline,
@@ -1103,6 +1198,30 @@ private fun CorrectionFlow(
                     )
                 }
             }
+        }
+        if (pickOffice) {
+            OfficePickDialog(
+                offices = offices,
+                selectedId = officeId,
+                onPick = { office ->
+                    officeId = office.id
+                    pickOffice = false
+                },
+                onClose = { pickOffice = false },
+            )
+        }
+        val field = pickField
+        if (field != null) {
+            OpClockDialog(
+                title = if (field == "in") "In" else "Out",
+                initialHm = if (field == "in") inTime else outTime,
+                confirmLabel = if (field == "in") "Set arrival time" else "Set Out time",
+                onDismiss = { pickField = null },
+                onConfirm = { hm ->
+                    if (field == "in") inTime = hm else outTime = hm
+                    pickField = null
+                },
+            )
         }
     }
 }
@@ -1188,6 +1307,25 @@ private fun issueLabel(issue: String) = when (issue) {
 }
 
 private fun officeNameFromId(id: String?, fallback: String?) = fallback
+
+private fun requestedVisitLines(req: JSONObject?, officeName: String?, tz: String): List<String> {
+    val visits: JSONArray? = req?.optJSONArray("visits")
+    if (visits != null && visits.length() > 0) {
+        return (0 until visits.length()).map { i ->
+            val v = visits.getJSONObject(i)
+            val office = v.optString("office_name").ifBlank { officeName ?: "Office" }
+            val out = v.opt("out_at")
+            val outLabel = if (out == null || out == JSONObject.NULL || out.toString().isBlank()) "Still In"
+            else OpFormat.fmtTime(out.toString(), tz)
+            "$office, ${OpFormat.fmtTime(v.optString("in_at"), tz)} to $outLabel"
+        }
+    }
+    val office = officeNameFromId(req?.optString("office_id"), officeName) ?: "Office"
+    val outRaw = req?.opt("out_at")
+    val outLabel = if (outRaw == null || outRaw == JSONObject.NULL || outRaw.toString().isBlank()) "Still In"
+    else OpFormat.fmtTime(outRaw.toString(), tz)
+    return listOf(office, "${OpFormat.fmtTime(req?.optString("in_at"), tz)} to $outLabel")
+}
 
 private fun relativeSent(iso: String?): String {
     if (iso.isNullOrBlank()) return "recently"

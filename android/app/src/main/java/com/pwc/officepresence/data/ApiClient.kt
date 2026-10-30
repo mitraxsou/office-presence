@@ -136,15 +136,41 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
     fun cancelCorrection(id: String): JSONObject =
         send("POST", "/api/me/corrections", JSONObject().put("action", "cancel").put("id", id))
 
+    fun undoCorrection(id: String): JSONObject =
+        send("POST", "/api/me/corrections", JSONObject().put("action", "undo").put("id", id))
+
+    fun suggestOfficeByAddress(name: String, address: String): JSONObject =
+        send("POST", "/api/me/offices/suggest", JSONObject().put("name", name).put("address", address))
+
+    fun submitTodayFix(dayKey: String, visits: JSONArray, reason: String): JSONObject =
+        send(
+            "POST",
+            "/api/me/corrections",
+            JSONObject()
+                .put("day", dayKey)
+                .put("issue", "wrong_times")
+                .put("reason", reason)
+                .put("requested", JSONObject().put("visits", visits)),
+        )
+
+    fun submitCorrection(body: JSONObject): JSONObject = send("POST", "/api/me/corrections", body)
+
     fun previewCorrection(
         day: String,
         officeId: String? = null,
         inAt: String? = null,
         outAt: String? = null,
         remove: Boolean = false,
+        stillIn: Boolean = false,
+        surface: String? = null,
+        officeIds: List<String> = emptyList(),
     ): JSONObject {
         val parts = mutableListOf("day=${enc(day)}")
         if (remove) parts += "remove=1"
+        if (stillIn) parts += "still_in=1"
+        if (!surface.isNullOrBlank()) parts += "surface=${enc(surface)}"
+        val ids = officeIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (ids.isNotEmpty()) parts += "office_ids=${enc(ids.joinToString(","))}"
         if (!officeId.isNullOrBlank()) parts += "office_id=${enc(officeId)}"
         if (!inAt.isNullOrBlank()) parts += "in_at=${enc(inAt)}"
         if (!outAt.isNullOrBlank()) parts += "out_at=${enc(outAt)}"
