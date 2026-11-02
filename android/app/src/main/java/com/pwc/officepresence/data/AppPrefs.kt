@@ -331,6 +331,18 @@ class AppPrefs(context: Context) {
         get() = bool("launchSoundEnabled", false)
         set(v) = putBool("launchSoundEnabled", v)
 
+    var correctionRequiresApproval: Boolean
+        get() = bool("correctionRequiresApproval", false)
+        set(v) = putBool("correctionRequiresApproval", v)
+
+    var correctionAutoApproveLimit: Int
+        get() = int("correctionAutoApproveLimit", 4)
+        set(v) = putInt("correctionAutoApproveLimit", v)
+
+    var correctionRequireSync: Boolean
+        get() = bool("correctionRequireSync", true)
+        set(v) = putBool("correctionRequireSync", v)
+
     // Cached status for offline display.
     var cachedInOffice: Boolean
         get() = bool("cachedInOffice", false)
