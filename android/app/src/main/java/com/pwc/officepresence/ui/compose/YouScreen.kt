@@ -144,6 +144,11 @@ private fun YouMain(
     var versionTaps by remember { mutableIntStateOf(0) }
     var themePicker by remember { mutableStateOf(false) }
     var suggestOpen by remember { mutableStateOf(false) }
+    var suggestName by remember { mutableStateOf("") }
+    var suggestAddress by remember { mutableStateOf("") }
+    var suggestBusy by remember { mutableStateOf(false) }
+    var startupAnim by remember { mutableStateOf(prefs.startupAnimationEnabled) }
+    var startupSound by remember { mutableStateOf(prefs.launchSoundEnabled) }
     var developerOn by remember { mutableStateOf(prefs.developerMode) }
     var developerConfirm by remember { mutableStateOf(false) }
     var developerBusy by remember { mutableStateOf(false) }
@@ -179,6 +184,23 @@ private fun YouMain(
                         res?.optString("error")?.takeIf { it.isNotBlank() } ?: "Could not turn on Developer",
                         Toast.LENGTH_SHORT,
                     ).show()
+                }
+            }
+        }
+    }
+
+    fun disableDeveloper() {
+        if (developerBusy) return
+        developerBusy = true
+        thread {
+            val res = runCatching { repo.api.setDeveloper(false) }.getOrNull()
+            main.post {
+                developerBusy = false
+                if (res?.ok() == true || res?.optBoolean("developerMode") == false) {
+                    prefs.developerMode = false
+                    developerOn = false
+                } else {
+                    Toast.makeText(ctx, "Could not turn off Developer", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -233,15 +255,11 @@ private fun YouMain(
                 Text(name, style = OpType.Heading, color = p.ink)
                 Text("$email$roleLabel", style = OpType.Meta, color = p.ink2)
             }
-            Text(
-                "Profile >",
-                style = OpType.Label,
-                color = p.ink2,
-                modifier = Modifier.clickable(onClick = onProfile),
-            )
         }
         Spacer(Modifier.height(20.dp))
         OpCard {
+            SettingsRow("Profile", onClick = onProfile)
+            DividerLine()
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -304,10 +322,7 @@ private fun YouMain(
             DividerLine()
             SettingsRow(
                 "Suggest an office",
-                onClick = {
-                    if (developerOn || prefs.developerMode) openDeveloperTools()
-                    else suggestOpen = true
-                },
+                onClick = { suggestOpen = true },
             )
             DividerLine()
             SettingsRow("Rules", value = "Read only", onClick = onRules)
@@ -328,11 +343,68 @@ private fun YouMain(
                 onClick = onNotifications,
             )
             DividerLine()
-            SettingsRow(
-                title = "Developer",
-                value = if (developerOn) "On" else "Off",
-                onClick = { openDeveloperTools() },
-            )
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Startup animation", style = OpType.Body, color = p.ink, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = startupAnim,
+                    onCheckedChange = {
+                        startupAnim = it
+                        prefs.startupAnimationEnabled = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = p.surface,
+                        checkedTrackColor = OpColor.Accent,
+                        uncheckedThumbColor = p.surface,
+                        uncheckedTrackColor = p.ink3,
+                    ),
+                )
+            }
+            DividerLine()
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Startup sound", style = OpType.Body, color = p.ink, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = startupSound,
+                    onCheckedChange = { on ->
+                        startupSound = on
+                        prefs.launchSoundEnabled = on
+                        thread { runCatching { repo.api.patchNotificationPrefs(org.json.JSONObject().put("launchSoundEnabled", on)) } }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = p.surface,
+                        checkedTrackColor = OpColor.Accent,
+                        uncheckedThumbColor = p.surface,
+                        uncheckedTrackColor = p.ink3,
+                    ),
+                )
+            }
+            DividerLine()
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).clickable { if (developerOn) onOpenDeveloper() else openDeveloperTools() }) {
+                    Text("Developer", style = OpType.Body, color = p.ink)
+                    Text(if (developerOn) "On" else "Off", style = OpType.Meta, color = p.ink2)
+                }
+                Switch(
+                    checked = developerOn,
+                    onCheckedChange = { on ->
+                        if (on) openDeveloperTools() else disableDeveloper()
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = p.surface,
+                        checkedTrackColor = OpColor.Accent,
+                        uncheckedThumbColor = p.surface,
+                        uncheckedTrackColor = p.ink3,
+                    ),
+                )
+            }
         }
         if (prefs.role == "admin" && !prefs.isViewAsActive) {
             Spacer(Modifier.height(20.dp))
@@ -453,16 +525,57 @@ private fun YouMain(
 
     if (suggestOpen) {
         AlertDialog(
-            onDismissRequest = { suggestOpen = false },
+            onDismissRequest = { if (!suggestBusy) suggestOpen = false },
             title = { Text("Suggest an office") },
             text = {
-                Text(
-                    "Open Developer from You settings to suggest an office with your current location, or use the web admin.",
-                    color = p.ink2,
-                )
+                Column {
+                    Text("An admin reviews it before it counts.", color = p.ink2)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = suggestName,
+                        onValueChange = { suggestName = it.take(80) },
+                        label = { Text("Office name") },
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = suggestAddress,
+                        onValueChange = { suggestAddress = it.take(300) },
+                        label = { Text("Address") },
+                        singleLine = true,
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = { suggestOpen = false }) { Text("OK") }
+                TextButton(
+                    enabled = !suggestBusy && suggestName.isNotBlank() && suggestAddress.isNotBlank(),
+                    onClick = {
+                        suggestBusy = true
+                        thread {
+                            val res = runCatching {
+                                repo.api.suggestOfficeByAddress(suggestName.trim(), suggestAddress.trim())
+                            }.getOrNull()
+                            main.post {
+                                suggestBusy = false
+                                if (res?.ok() == true) {
+                                    suggestOpen = false
+                                    suggestName = ""
+                                    suggestAddress = ""
+                                    Toast.makeText(ctx, "Sent. An admin reviews it before it counts.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(
+                                        ctx,
+                                        res?.optString("error")?.takeIf { it.isNotBlank() } ?: "Could not suggest that office",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        }
+                    },
+                ) { Text(if (suggestBusy) "Sending..." else "Suggest office") }
+            },
+            dismissButton = {
+                TextButton(enabled = !suggestBusy, onClick = { suggestOpen = false }) { Text("Cancel") }
             },
         )
     }
@@ -781,6 +894,23 @@ private fun RulesScreen(prefs: AppPrefs, onBack: () -> Unit) {
             SettingsRow("Fence radius", value = "${rules.fenceRadiusMeters.toInt()} m")
             DividerLine()
             SettingsRow("Sample interval", value = "${rules.sampleIntervalMinutes} min")
+            DividerLine()
+            SettingsRow(
+                "Correction approval",
+                value = if (prefs.correctionRequiresApproval) "Admin approves each one" else "Auto approve",
+                stackValue = true,
+            )
+            DividerLine()
+            SettingsRow(
+                "Auto approve limit",
+                value = "${prefs.correctionAutoApproveLimit} a month",
+            )
+            DividerLine()
+            SettingsRow(
+                "No phone data",
+                value = if (prefs.correctionRequireSync) "An admin approves" else "Off",
+                stackValue = true,
+            )
         }
     }
 }

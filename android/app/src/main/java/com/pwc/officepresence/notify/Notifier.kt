@@ -20,11 +20,12 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
-import com.pwc.officepresence.ui.PointsFormat
 import com.pwc.officepresence.ui.ShellActivity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * Local notifications. One Android NotificationChannel per SPEC type.
@@ -388,14 +389,37 @@ object Notifier {
         AppPrefs(context).lastPresenceLeaveAlertAtMs = System.currentTimeMillis()
     }
 
-    fun officeEntered(context: Context, officeName: String, points: Int, force: Boolean = false) {
+    private fun zoneOf(context: Context): ZoneId {
+        val tz = AppPrefs(context).timezone
+        return try {
+            ZoneId.of(tz)
+        } catch (_: Exception) {
+            ZoneId.of("Asia/Kolkata")
+        }
+    }
+
+    private fun clockNow(context: Context): String =
+        DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+            .format(ZonedDateTime.now(zoneOf(context)))
+            .lowercase(Locale.US)
+
+    private fun monthName(context: Context): String =
+        DateTimeFormatter.ofPattern("MMMM", Locale.US).format(ZonedDateTime.now(zoneOf(context)))
+
+    private fun monthScore(context: Context): String {
+        val prefs = AppPrefs(context)
+        return "${prefs.cachedMonthPoints} / ${prefs.monthlyPointsTarget} points"
+    }
+
+    fun officeEntered(context: Context, officeName: String, @Suppress("UNUSED_PARAMETER") points: Int, force: Boolean = false) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyOfficeEnter) return
         if (!force && recentlyAlertedEnter(context)) return
+        val body = "$officeName since ${clockNow(context)}. ${monthScore(context)} this month."
         if (post(
                 context, CHANNEL_ARRIVALS, ID_OFFICE,
-                "At $officeName",
-                PointsFormat.countsAs(points),
+                "You are In",
+                body,
                 high = true,
             )
         ) {
@@ -407,10 +431,11 @@ object Notifier {
         val prefs = AppPrefs(context)
         if (!prefs.notifyOfficeLeave) return
         if (!force && recentlyAlertedLeave(context)) return
+        val body = "$officeName. ${monthScore(context)} this month."
         if (post(
                 context, CHANNEL_ARRIVALS, ID_LEFT,
-                "Left $officeName",
-                "Visit closed",
+                "You are Out",
+                body,
                 high = true,
             )
         ) {
@@ -421,7 +446,11 @@ object Notifier {
     fun goalMet(context: Context, points: Int, target: Int) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyGoalMet) return
-        post(context, CHANNEL_GOAL, ID_GOAL, "Goal met", "$points / $target points")
+        post(
+            context, CHANNEL_GOAL, ID_GOAL,
+            "Goal met for ${monthName(context)}",
+            "$points / $target points. Extra points still count toward your total.",
+        )
     }
 
     fun dailySummary(context: Context, points: Int, target: Int, hoursToday: Double, advised: Double) {
@@ -438,10 +467,15 @@ object Notifier {
     fun correctionDecided(context: Context, approved: Boolean, dayLabel: String) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyCorrections) return
+        val body = if (approved) {
+            "$dayLabel now counts. ${monthName(context)} is ${monthScore(context)}."
+        } else {
+            "$dayLabel stays as recorded."
+        }
         post(
             context, CHANNEL_CORRECTIONS, ID_CORRECTIONS,
             if (approved) "Correction approved" else "Correction not approved",
-            dayLabel,
+            body,
             respectQuietHours = !prefs.quietAlertCorrections,
         )
     }
@@ -479,8 +513,8 @@ object Notifier {
         if (!prefs.notifyTrackingProblems) return
         post(
             context, CHANNEL_TRACKING, ID_TRACKING,
-            "Tracking problem",
-            text,
+            "Visits are not being counted",
+            text.ifBlank { "Location is off. Open the app to turn it on." },
             high = true,
             respectQuietHours = !prefs.quietAlertTracking,
         )

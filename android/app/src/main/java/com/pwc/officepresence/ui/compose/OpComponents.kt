@@ -681,7 +681,7 @@ fun NeutralBadge(label: String, check: Boolean = false) {
 @Composable
 fun CorrectedTag() {
     Text(
-        "Corrected",
+        "Corrected by you",
         color = OpColor.Accent,
         fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,

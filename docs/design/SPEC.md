@@ -206,3 +206,30 @@ Frame "Motion" plus docs/design/Office-Presence-motion.mp4. Compose reference: d
 ## 23. Status word (decision pending)
 
 Options on the "Status word options" frame: In / Out (current), Here / Away, On site / Off site, office name as the hero, At work / Not in. Keep In and Out until the product owner chooses; then replace the pair everywhere (Today, notifications, Colleagues, Roster, Reports, badges).
+
+## 24. Auto approved corrections and Fix today
+
+Source: Office-Presence-Auto-approve-corrections.pdf. API: `docs/design/corrections-api.md`.
+
+- Rules: Correction approval is Auto approve (default) or Admin approves each one. The same setting covers Month and Today.
+- Safeguards when Auto approve is on: up to N per person per month (default 4). After that, an admin approves. Optional: ask an admin when the phone sent no data that day. Daily digest to admins at 9:00.
+- Auto approve applies immediately. Points, roster, and reports update. The day is tagged "Corrected by you" (Today visit rows say "Edited by you"). The original is kept. Admins see it as Auto approved.
+- If a safeguard applies, the same review says why and the button is "Send for approval".
+- Fix today sits next to the Today label. Edit office, In, and Out (Out can be Still In). Add or remove a visit. Short reason. No time later than now. Live tracking continues.
+- The person can Undo their own auto approved correction until the month locks.
+- Admin Corrections: filters All, Auto approved, Need approval, Reverted. View of an auto approved row is read only, with Revert correction (note required, person notified).
+- Admins never get auto approve on their own data. Another admin decides.
+- Buttons follow the server: "Save correction" or "Send for approval". Fix today uses "Save changes" when it applies immediately, and "Send for approval" when it does not.
+
+## 26. Clock for time edits
+
+Source: Office-Presence-Time-clock.pdf. Compose reference: `docs/design/android/components/OpClock.kt`.
+
+- Every time field shows a small clock icon drawn at that time. It turns when the value changes.
+- Phone: tapping a time opens a dial sheet. Web: a popover anchored to the field. Typing still works on web.
+- Hands sweep the short way (hour 700 ms, minute 800 ms, small overshoot). Grey hands keep the old time. An orange arc shows the gap. A chip says it in words ("27 m earlier").
+- A new time starts at 12:00. After In and Out are set, the chip shows the visit length.
+- Nudge: -15 m, -5 m, +5 m, +15 m. Drag snaps to 1 minute. Haptic tick every 5 minutes. 12 or 24 hour follows the phone.
+- Times later than now are blocked on Today. Out must be after In.
+- Reduced motion: hands jump, no sweep, no arc.
+- Use it on Fix today, Correction Edit day, admin Edit day and Add visit, and Quiet hours.

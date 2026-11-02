@@ -32,6 +32,7 @@ class GeofenceReceiver : BroadcastReceiver() {
         }
         val best = ids.mapNotNull { offices[it] }.maxByOrNull { it.pointsPerVisitDay }
         val prefs = repo.prefs()
+        val coarseExit = type == "exit" && (loc == null || loc.accuracy >= 15f)
         if (type == "enter") {
             // Skip duplicate enter when we already track this office (e.g. after re-register).
             if (best != null && prefs.lastSampleOfficeId != best.id) {
@@ -41,7 +42,7 @@ class GeofenceReceiver : BroadcastReceiver() {
                 prefs.lastSampleOfficeId = best.id
             }
             PresenceService.start(context)
-        } else {
+        } else if (!coarseExit) {
             val name = best?.displayName
                 ?: prefs.cachedOfficeName.takeIf { it.isNotBlank() }
                 ?: prefs.lastOfficeName.takeIf { it.isNotBlank() }

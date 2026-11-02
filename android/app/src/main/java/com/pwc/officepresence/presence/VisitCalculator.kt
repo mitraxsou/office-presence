@@ -92,6 +92,11 @@ object VisitCalculator {
         val fences = offices ?: listOfNotNull(office)
         val pointFences = pointOffices ?: fences
         val gapMs = rules.gapMs()
+        val continueMs = if (rules.gapSeconds != null && rules.gapSeconds > 0) {
+            gapMs
+        } else {
+            gapMs + rules.sampleIntervalMinutes.coerceAtLeast(0) * 60_000L
+        }
         val zone = ZoneId.of(rules.timezone)
 
         val adminComputed = adminVisits.map {
@@ -101,13 +106,25 @@ object VisitCalculator {
                 it.officeLocationId, it.pointsPerVisitDay ?: 0,
             )
         }
-        val adminRanges = adminComputed.map { parse(it.startAt) to parse(it.endAt) }
+        val adminRanges = adminComputed.flatMap { visit ->
+            val start = parse(visit.startAt)
+            val end = parse(visit.endAt)
+            val dayStarts = if (end <= start) {
+                listOf(Instant.ofEpochMilli(start).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli())
+            } else {
+                splitAtLocalMidnights(start, end, zone).map {
+                    Instant.ofEpochMilli(it.first).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+                }
+            }
+            dayStarts.distinct().map { it to Instant.ofEpochMilli(it).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }
+        }
         val realEvents = events.filter { !it.simulated }.sortedBy { parse(it.at) }
         val auto = mutableListOf<ComputedVisit>()
         var openStart: Long? = null
         var lastGood: Long? = null
         var openSource = "auto"
         var openOfficeId: String? = null
+        var pendingExit: Long? = null
 
         fun reset() { openStart = null; lastGood = null; openOfficeId = null }
 
@@ -133,21 +150,46 @@ object VisitCalculator {
             reset()
         }
 
+        fun flushPendingExit() {
+            val atExit = pendingExit ?: return
+            pendingExit = null
+            closeOpen(atExit)
+        }
+
         for (event in realEvents) {
             val at = parse(event.at)
-            if (event.type == "check_out" || event.type == "exit") { closeOpen(at); continue }
+            if (event.type == "check_out") {
+                pendingExit = null
+                closeOpen(at)
+                continue
+            }
+            if (event.type == "exit") {
+                if (openStart != null && pendingExit == null) pendingExit = at
+                continue
+            }
             val matched: OfficeFenceInput? = when {
                 event.lat != null && event.lng != null && fences.isNotEmpty() ->
                     matchNearestOffice(event.lat, event.lng, event.accuracyMeters, fences, rules)
                 office != null -> if (isInside(event, office, rules)) office else null
                 else -> null
             }
-            val inside = event.type == "check_in" || event.type == "enter" || matched != null ||
+            val inside = event.type == "check_in" || event.type == "enter" ||
+                event.officeLocationId != null || matched != null ||
                 (office != null && isInside(event, office, rules))
             if (!inside) {
+                val exitAt = pendingExit
                 val lg = lastGood
-                if (openStart != null && lg != null && at - lg > gapMs) closeOpen(lg)
+                if (exitAt != null) {
+                    if (at - exitAt > gapMs) flushPendingExit()
+                } else if (openStart != null && lg != null && at - lg > gapMs) {
+                    closeOpen(lg)
+                }
                 continue
+            }
+            val exitAt = pendingExit
+            val bridgedExit = exitAt != null && at - exitAt <= continueMs
+            if (exitAt != null) {
+                if (bridgedExit) pendingExit = null else flushPendingExit()
             }
             val startOffice = event.officeLocationId ?: matched?.id ?: office?.id
             if (openStart == null) {
@@ -157,7 +199,7 @@ object VisitCalculator {
                 continue
             }
             val lg = lastGood
-            if (lg != null && at - lg > gapMs) {
+            if (!bridgedExit && lg != null && at - lg > continueMs) {
                 closeOpen(lg)
                 openStart = at; lastGood = at
                 openSource = if (event.type == "check_in") "manual" else "auto"
@@ -175,11 +217,13 @@ object VisitCalculator {
             lastGood = at
             if (evOffice != null) openOfficeId = evOffice
         }
-        lastGood?.let { if (openStart != null) closeOpen(it) }
+        if (pendingExit != null) flushPendingExit()
+        else lastGood?.let { if (openStart != null) closeOpen(it) }
 
         val pointsByOffice = pointFences.mapNotNull { f -> f.id?.let { it to f.pointsPerVisitDay } }.toMap()
-        val filtered = auto.filter { !covered(parse(it.startAt), parse(it.endAt), exclusions) }
-        val visits = (adminComputed + filtered).sortedBy { parse(it.startAt) }.map { v ->
+        val visits = (adminComputed + auto)
+            .flatMap { trimVisitAroundExclusions(it, exclusions) }
+            .sortedBy { parse(it.startAt) }.map { v ->
             if (v.source != "admin" || v.pointsAwarded == 0) {
                 v.copy(pointsAwarded = pointsByOffice[v.officeLocationId ?: ""] ?: if (v.pointsAwarded > 0) v.pointsAwarded else 1)
             } else v
@@ -280,11 +324,49 @@ object VisitCalculator {
 
     private fun overlaps(a0: Long, a1: Long, b0: Long, b1: Long) = a0 < b1 && b0 < a1
 
-    private fun covered(start: Long, end: Long, exclusions: List<ExclusionInput>): Boolean =
-        exclusions.any {
+    private fun covered(start: Long, end: Long, exclusions: List<ExclusionInput>): Boolean {
+        if (start == end) {
+            return exclusions.any {
+                val s = parse(it.startAt); val e = parse(it.endAt)
+                start >= s && start < e
+            }
+        }
+        return exclusions.any {
             val s = parse(it.startAt); val e = parse(it.endAt)
             overlaps(start, end, s, e) && start >= s && end <= e
         }
+    }
+
+    private fun trimVisitAroundExclusions(
+        visit: ComputedVisit,
+        exclusions: List<ExclusionInput>,
+    ): List<ComputedVisit> {
+        val start = parse(visit.startAt)
+        val end = parse(visit.endAt)
+        if (start == end) return if (covered(start, end, exclusions)) emptyList() else listOf(visit)
+        var segments = listOf(start to end)
+        for (exclusion in exclusions) {
+            val exStart = parse(exclusion.startAt)
+            val exEnd = parse(exclusion.endAt)
+            val next = mutableListOf<Pair<Long, Long>>()
+            for ((segmentStart, segmentEnd) in segments) {
+                if (!overlaps(segmentStart, segmentEnd, exStart, exEnd)) {
+                    next += segmentStart to segmentEnd
+                    continue
+                }
+                if (segmentStart < exStart) next += segmentStart to minOf(segmentEnd, exStart)
+                if (segmentEnd > exEnd) next += maxOf(segmentStart, exEnd) to segmentEnd
+            }
+            segments = next.filter { it.second > it.first }
+        }
+        return segments.map { (segmentStart, segmentEnd) ->
+            visit.copy(
+                startAt = iso(segmentStart),
+                endAt = iso(segmentEnd),
+                hours = hoursBetween(segmentStart, segmentEnd),
+            )
+        }
+    }
 
     private fun trimAroundAdmin(start: Long, end: Long, admins: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
         var segs = listOf(start to end)

@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pwc.officepresence.data.AppPrefs
+import com.pwc.officepresence.data.DebugTrace
 import com.pwc.officepresence.data.Office
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
@@ -1084,6 +1085,23 @@ private fun CorrectionFlow(
                                     remove = remove,
                                 )
                             }.getOrNull()
+                            // #region agent log
+                            DebugTrace.write(
+                                "H5",
+                                "MonthScreen.kt:submitResult",
+                                "month correction server answer",
+                                mapOf(
+                                    "httpStatus" to (res?.optInt("_httpStatus") ?: -1),
+                                    "outcome" to (res?.optString("outcome") ?: ""),
+                                    "reason" to (res?.optString("reason") ?: ""),
+                                    "error" to (res?.optString("error") ?: ""),
+                                    "role" to prefs.role,
+                                    "day" to dayKey,
+                                    "issue" to issue,
+                                    "officeId" to officeId,
+                                ),
+                            )
+                            // #endregion
                             main.post {
                                 sending = false
                                 if (res?.ok() == true) {

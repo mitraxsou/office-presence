@@ -3,6 +3,7 @@ package com.pwc.officepresence
 import com.pwc.officepresence.presence.AdminVisitInput
 import com.pwc.officepresence.presence.ExclusionInput
 import com.pwc.officepresence.presence.OfficeFenceInput
+import com.pwc.officepresence.presence.MidnightBoundary
 import com.pwc.officepresence.presence.PresenceEventInput
 import com.pwc.officepresence.presence.PresenceRules
 import com.pwc.officepresence.presence.VisitCalculator
@@ -136,5 +137,53 @@ class VisitCalculatorTest {
             office = OfficeFenceInput(12.97, 77.59, 100.0),
         )
         assertEquals(2, result.visits.size)
+    }
+
+    @Test
+    fun midnightBoundaryStartsAndCountsTheNewLocalDay() {
+        val result = VisitCalculator.compute(
+            PresenceRules(timezone = "Asia/Kolkata"),
+            listOf(
+                PresenceEventInput("check_in", "2026-10-27T17:30:00.000Z", officeLocationId = "kol"),
+                PresenceEventInput("check_out", "2026-10-27T18:30:00.000Z", officeLocationId = "kol"),
+                PresenceEventInput("check_in", "2026-10-27T18:30:00.000Z", officeLocationId = "kol"),
+            ),
+        )
+        assertEquals(listOf("2026-10-27", "2026-10-28"), result.days.map { it.dayKey })
+        assertEquals(listOf(1.0, 0.0), result.days.map { it.hours })
+        assertEquals(2, result.totalPoints)
+    }
+
+    @Test
+    fun nextBoundaryUsesTheAccountTimezone() {
+        val now = java.time.Instant.parse("2026-10-27T17:00:00.000Z").toEpochMilli()
+        val boundary = MidnightBoundary.nextDayStartMs(now, "Asia/Kolkata")
+        assertEquals(java.time.Instant.parse("2026-10-27T18:30:00.000Z").toEpochMilli(), boundary)
+        assertEquals("2026-10-28", MidnightBoundary.dayKey(boundary, "Asia/Kolkata"))
+        assertTrue(MidnightBoundary.sampleSupportsBoundary(boundary - 5 * 60_000L, boundary, 15, 5))
+        assertFalse(MidnightBoundary.sampleSupportsBoundary(boundary - 20 * 60_000L, boundary, 15, 5))
+    }
+
+    @Test
+    fun exclusionRemovesStoredVisitForThatLocalDayOnly() {
+        val result = VisitCalculator.compute(
+            PresenceRules(timezone = "Asia/Kolkata"),
+            events = emptyList(),
+            adminVisits = listOf(
+                AdminVisitInput(
+                    "2026-10-27T17:30:00.000Z",
+                    "2026-10-28T03:30:00.000Z",
+                    "kol",
+                    1,
+                ),
+            ),
+            exclusions = listOf(
+                ExclusionInput("2026-10-27T18:30:00.000Z", "2026-10-28T18:30:00.000Z"),
+            ),
+        )
+        assertEquals(1, result.visits.size)
+        assertEquals("2026-10-27T17:30:00Z", result.visits[0].startAt)
+        assertEquals("2026-10-27T18:30:00Z", result.visits[0].endAt)
+        assertEquals(listOf("2026-10-27"), result.days.map { it.dayKey })
     }
 }

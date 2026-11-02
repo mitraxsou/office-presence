@@ -58,6 +58,7 @@ import com.pwc.officepresence.data.ok
 import com.pwc.officepresence.notify.Notifier
 import com.pwc.officepresence.ui.compose.OpFormat
 import com.pwc.officepresence.ui.compose.OpPrimaryButton
+import com.pwc.officepresence.ui.compose.StartupOverlay
 import com.pwc.officepresence.ui.compose.Wordmark
 import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OfficePresenceTheme
@@ -90,6 +91,7 @@ class LoginActivity : AppCompatActivity() {
                 else -> androidx.compose.foundation.isSystemInDarkTheme()
             }
             OfficePresenceTheme(dark = dark) {
+                StartupOverlay(prefs) {
                 LoginScreen(
                     prefs = prefs,
                     forcedSignOutMessage = forcedMessage,
@@ -99,6 +101,7 @@ class LoginActivity : AppCompatActivity() {
                         finish()
                     },
                 )
+                }
             }
         }
     }

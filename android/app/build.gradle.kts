@@ -21,8 +21,8 @@ android {
         applicationId = "com.pwc.officepresence"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "2.0.5"
+        versionCode = 14
+        versionName = "2.0.6"
         buildConfigField("String", "API_BASE_URL", "\"https://office-presence-psi.vercel.app\"")
     }
 

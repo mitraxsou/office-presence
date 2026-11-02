@@ -61,6 +61,7 @@ import com.pwc.officepresence.ui.compose.ColleaguesScreen
 import com.pwc.officepresence.ui.compose.MonthScreen
 import com.pwc.officepresence.ui.compose.OpFormat
 import com.pwc.officepresence.ui.compose.OpNoticeBanner
+import com.pwc.officepresence.ui.compose.StartupOverlay
 import com.pwc.officepresence.ui.compose.TodayScreen
 import com.pwc.officepresence.ui.compose.ViewAsBanner
 import com.pwc.officepresence.ui.compose.YearScreen
@@ -123,6 +124,7 @@ class ShellActivity : AppCompatActivity() {
                 else -> isSystemInDarkTheme()
             }
             OfficePresenceTheme(dark = dark) {
+                StartupOverlay(prefs) {
                 ShellApp(
                     repo = repo,
                     prefs = prefs,
@@ -159,6 +161,7 @@ class ShellActivity : AppCompatActivity() {
                     },
                     onUnauthorized = { goToLoginAfterUnauthorized() },
                 )
+                }
             }
         }
     }

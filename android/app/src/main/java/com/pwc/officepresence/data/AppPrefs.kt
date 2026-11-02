@@ -328,8 +328,12 @@ class AppPrefs(context: Context) {
         set(v) = putStr("toneSummaryId", v)
 
     var launchSoundEnabled: Boolean
-        get() = bool("launchSoundEnabled", false)
+        get() = bool("launchSoundEnabled", true)
         set(v) = putBool("launchSoundEnabled", v)
+
+    var startupAnimationEnabled: Boolean
+        get() = bool("startupAnimationEnabled", true)
+        set(v) = putBool("startupAnimationEnabled", v)
 
     var correctionRequiresApproval: Boolean
         get() = bool("correctionRequiresApproval", false)
@@ -395,6 +399,16 @@ class AppPrefs(context: Context) {
     var lastSampleOfficeId: String
         get() = str("lastSampleOfficeId", "")
         set(v) = putStr("lastSampleOfficeId", v)
+
+    /** Epoch ms of the latest accurate location sample, inside or outside. */
+    var lastReliableSampleAtMs: Long
+        get() = prefs.getLong("lastReliableSampleAtMs", 0L)
+        set(v) = prefs.edit().putLong("lastReliableSampleAtMs", v).apply()
+
+    /** Local YYYY-MM-DD whose midnight bookkeeping split was queued. */
+    var lastMidnightSplitDay: String
+        get() = str("lastMidnightSplitDay", "")
+        set(v) = putStr("lastMidnightSplitDay", v)
 
     /** Human-readable geofence registration status for the home screen. */
     var geofenceStatus: String

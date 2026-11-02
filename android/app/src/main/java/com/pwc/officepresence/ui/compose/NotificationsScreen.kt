@@ -326,36 +326,33 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
             Text(spec?.name ?: "Channel", style = OpType.Title.copy(fontSize = 24.sp), color = p.ink)
         }
         Text(
-            "Android keeps sound and vibration for each kind of notification. Changes you make there show here.",
+            "Sound, vibration, and pop on screen for this notification are set on one Android screen.",
             style = OpType.Body,
             color = p.ink2,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
         val openSettings = { Notifier.openChannelSettings(ctx, channelId) }
         OpCard {
-            SettingsRow("Sound", value = status.soundLabel, stackValue = true, onClick = openSettings)
+            SettingsRow("Sound", value = status.soundLabel, stackValue = true)
             DividerLine()
             SettingsRow(
                 "Vibrate",
                 value = if (status.vibrate) "On" else "Off",
                 stackValue = true,
-                onClick = openSettings,
             )
             DividerLine()
             SettingsRow(
                 "Pop on screen",
                 value = if (status.popOnScreen) "On" else "Off",
                 stackValue = true,
-                onClick = openSettings,
             )
             DividerLine()
-            SettingsRow("Show on lock screen", value = status.lockScreen, stackValue = true, onClick = openSettings)
+            SettingsRow("Show on lock screen", value = status.lockScreen, stackValue = true)
             DividerLine()
             SettingsRow(
                 "Override Do Not Disturb",
                 value = if (status.bypassDnd) "On" else "Off",
                 stackValue = true,
-                onClick = openSettings,
             )
         }
         Spacer(Modifier.height(14.dp))

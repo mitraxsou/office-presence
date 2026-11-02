@@ -13,7 +13,7 @@ This is the only backend change the redesign needs. It is additive: existing vis
 | recorded | jsonb | snapshot of the day's visits when sent |
 | requested | jsonb | `{ office_id, in_at, out_at }` or `{ remove: true }` |
 | reason | text | required |
-| status | enum | `pending`, `approved`, `rejected`, `cancelled` |
+| status | enum | `pending`, `auto_approved`, `approved`, `rejected`, `cancelled`, `reverted`, `undone` |
 | decided_by | fk users, null | admin |
 | decided_at | timestamptz, null | |
 | decision_note | text, null | required when rejected |
@@ -27,10 +27,12 @@ Approving writes a visit (or removes one) marked `source = 'correction'` with `c
 ## Endpoints
 
 Employee
-- `POST /api/corrections` body `{ day, issue, requested, reason }` returns the request with `effect: { days_before, days_after }`
+- `POST /api/corrections` body `{ day, issue, requested, reason }` (alias `POST /api/me/corrections`). `requested` is `{ office_id, in_at, out_at }` (`out_at` null means Still In), `{ remove: true }`, or `{ visits: [{ office_id, in_at, out_at }] }` for Fix today.
+- Response: `outcome` is `auto_approved` (the visit change is already applied) or `pending`, plus `reason` when pending, and `effect: { days_before, days_after }`.
+- `GET /api/corrections/preview` (alias `GET /api/me/corrections/preview`) returns the same `outcome` and `reason` without writing, so the button can say "Save correction" or "Send for approval" before submit. Fix today uses "Save changes" when the outcome is `auto_approved`.
 - `GET /api/corrections?mine=1&month=2026-10`
 - `POST /api/corrections/:id/cancel` (pending only)
-- `GET /api/corrections/preview?day=...&office_id=...` returns the effect for the review step
+- `POST /api/corrections/:id/undo` (own `auto_approved` row, month still open)
 
 Admin
 - `GET /api/admin/corrections?status=pending&office=...` (oldest first, includes `effect` and phone sync times for that day, never coordinates)
@@ -40,6 +42,13 @@ Admin
 
 Rules
 - Add `correction_window_days` (default 5) to the rules endpoint. Phones read it; only admins write it.
+- `correction_approval`: `auto` (default) or `admin`. Stored as `correctionRequiresApproval` (false means auto). Same setting for Month and Today.
+- `correction_auto_approve_limit` (default 4): auto approve up to N per person per office-timezone month. Later reverts still count. The next one is `pending` with reason "Over N this month."
+- `correction_require_sync` (default true): if the day has no phone samples, outcome is `pending` with reason "No phone data that day."
+- `correction_daily_digest` (default true): one Teams message to admins at 9:00 Asia/Kolkata.
+- Admins never get `auto_approved` on their own data. Outcome is `pending` with reason "Admins cannot auto approve their own corrections." `reviewedById` must not equal `userId`. Auto approved rows leave `reviewedById` null.
+- Any `in_at` or `out_at` later than now is rejected with 400 and no row is written. Still In (`out_at` null) is allowed.
+- The employee can undo their own `auto_approved` row until the month locks. An admin reverts with a required note. Status becomes `reverted`, the original data returns, and the person is notified.
 
 Notifications
 - Push to the requester's devices on approve and reject, using the existing notification path.

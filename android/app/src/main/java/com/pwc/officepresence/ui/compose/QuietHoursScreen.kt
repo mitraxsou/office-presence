@@ -241,11 +241,10 @@ fun QuietHoursScreen(
 
     val which = picking
     if (which != null) {
-        QuietTimeSheet(
+        OpClockDialog(
             title = if (which == "start") "Start time" else "End time",
             confirmLabel = if (which == "start") "Set start time" else "Set end time",
             initialHm = if (which == "start") start else end,
-            picks = if (which == "start") START_PICKS else END_PICKS,
             onDismiss = { picking = null },
             onConfirm = { hm ->
                 if (which == "start") start = hm else end = hm

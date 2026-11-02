@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
@@ -32,19 +33,28 @@ class PresenceService : Service() {
     private val prefs by lazy { AppPrefs(this) }
     private val log by lazy { EventLog(this) }
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var callback: LocationCallback? = null
+    private var scheduledBoundaryAtMs: Long = 0L
+    private val midnightRunnable = Runnable {
+        val boundary = scheduledBoundaryAtMs
+        if (boundary > 0L) splitAtMidnight(boundary)
+        scheduleMidnightBoundary()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundNotification()
         startSampling()
+        scheduleMidnightBoundary()
         return START_STICKY
     }
 
     override fun onDestroy() {
         callback?.let { fused.removeLocationUpdates(it) }
         callback = null
+        mainHandler.removeCallbacks(midnightRunnable)
         super.onDestroy()
     }
 
@@ -80,7 +90,6 @@ class PresenceService : Service() {
         val rules = prefs.rules()
         val weak = loc.accuracy > rules.fenceRadiusMeters
         val wifi = currentWifi()
-        val isMock = if (Build.VERSION.SDK_INT >= 31) loc.isMock else @Suppress("DEPRECATION") loc.isFromMockProvider
         val office = if (weak) null else VisitCalculator.matchNearestOffice(
             loc.latitude, loc.longitude, loc.accuracy.toDouble(),
             prefs.offices().map { it.toFence() }, rules,
@@ -99,10 +108,10 @@ class PresenceService : Service() {
         // Weak GPS: record only. Do not treat as leave or change lastSampleOfficeId.
         if (weak) {
             val nm = getSystemService(NotificationManager::class.java)
-            val mockTag = if (isMock) " mock" else ""
-            nm.notify(NOTIF_ID, buildNotification("Weak fix ${loc.accuracy.toInt()}m (not counted)$mockTag"))
+            nm.notify(NOTIF_ID, buildNotification("Looking for the office"))
             return
         }
+        prefs.lastReliableSampleAtMs = System.currentTimeMillis()
         // Outside all fences while server/local cache still In with unknown office: force check_out.
         if (office == null && prefs.cachedInOffice && prefs.cachedOfficeName.isBlank()) {
             val leaveId = prefs.lastSampleOfficeId
@@ -133,11 +142,60 @@ class PresenceService : Service() {
             maybeAlertOnSampleTransition(office)
         }
         val nm = getSystemService(NotificationManager::class.java)
-        val mockTag = if (isMock) " mock" else ""
-        val text = if (weak) "Weak fix ${loc.accuracy.toInt()}m (not counted)$mockTag"
-        else if (office != null) "Inside ${prefs.offices().firstOrNull { it.id == office.id }?.displayName ?: "office"} ${loc.accuracy.toInt()}m$mockTag"
-        else "Outside office ${loc.accuracy.toInt()}m$mockTag"
+        val officeName = prefs.offices().firstOrNull { it.id == office?.id }?.displayName
+        val text = if (weak) "Looking for the office"
+        else if (office != null) "You are In at ${officeName ?: "the office"}"
+        else "You are Out"
         nm.notify(NOTIF_ID, buildNotification(text))
+    }
+
+    private fun scheduleMidnightBoundary() {
+        mainHandler.removeCallbacks(midnightRunnable)
+        val now = System.currentTimeMillis()
+        val timezone = prefs.timezone
+        val todayStart = MidnightBoundary.currentDayStartMs(now, timezone)
+        val todayKey = MidnightBoundary.dayKey(todayStart, timezone)
+        if (prefs.lastMidnightSplitDay != todayKey &&
+            prefs.lastReliableSampleAtMs < todayStart &&
+            MidnightBoundary.sampleSupportsBoundary(
+                prefs.lastReliableSampleAtMs,
+                todayStart,
+                prefs.gapMinutes,
+                prefs.sampleIntervalMinutes,
+            )
+        ) {
+            splitAtMidnight(todayStart)
+        }
+        scheduledBoundaryAtMs = MidnightBoundary.nextDayStartMs(now, timezone)
+        val delay = (scheduledBoundaryAtMs - now).coerceAtLeast(1_000L)
+        mainHandler.postDelayed(midnightRunnable, delay)
+    }
+
+    private fun splitAtMidnight(boundaryAtMs: Long) {
+        val timezone = prefs.timezone
+        val dayKey = MidnightBoundary.dayKey(boundaryAtMs, timezone)
+        if (prefs.lastMidnightSplitDay == dayKey) return
+        val officeId = prefs.lastSampleOfficeId.takeIf { it.isNotBlank() } ?: return
+        if (!MidnightBoundary.sampleSupportsBoundary(
+                prefs.lastReliableSampleAtMs,
+                boundaryAtMs,
+                prefs.gapMinutes,
+                prefs.sampleIntervalMinutes,
+            )
+        ) {
+            return
+        }
+        val at = Instant.ofEpochMilli(boundaryAtMs).toString()
+        // Bookkeeping only: do not send leave/arrival notifications for this local-day split.
+        log.add(type = "check_out", recordedAtIso = at, officeId = officeId)
+        log.add(type = "check_in", recordedAtIso = at, officeId = officeId)
+        prefs.lastMidnightSplitDay = dayKey
+        thread {
+            try {
+                PresenceRepository(this).uploadAndSync()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /** When OEM geofence never fires, sample enter/leave still posts a heads-up (debounced). */
