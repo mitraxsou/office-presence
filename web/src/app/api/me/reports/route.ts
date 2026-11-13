@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       live = await liveFromCache(userId);
       view = await computeUserMonth(userId, month);
     } else {
-      const result = await recomputeUserPresence(userId, { flushAlerts: true });
+      const result = await recomputeUserPresence(userId, { flushAlerts: !actor.viewAs });
       recomputed = true;
       live = {
         inOffice: result.inOffice,

@@ -169,6 +169,7 @@ export default function MobileBottomNav({
           <>
             <TabLink href="/month" label="My month" icon="month" active={isMonth} />
             <TabLink href="/year" label="My year" icon="year" active={isYear} />
+            <TabLink href="/colleagues" label="Colleagues" icon="colleagues" active={isColleagues} />
             <TabLink href="/settings" label="Settings" icon="settings" active={isSettings} />
           </>
         )}

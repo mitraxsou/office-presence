@@ -149,9 +149,9 @@ Row rules (from device bugs):
 - Test every screen at font scale 1.3 and 1.5 and at the largest display size. Frame "P / You / Notifications, large text" shows the expected result.
 - "Devices: 0 phones" while tracking is on means this phone is not registered as a device. The current phone must always be counted.
 
-## 18. Year tab, admin-only Colleagues, data refresh
+## 18. Year tab, Colleagues, data refresh
 
-Navigation: employees Today, Month, Year, You. Admins Today, Month, Year, Colleagues, You. Web rail: My month, My year, Settings, plus Colleagues for admins. Colleague endpoints return 403 for non-admins.
+Navigation: employees and admins: Today, Month, Year, Colleagues, You. Web rail: My month, My year, Colleagues, Settings. Colleague presence is people who share. Users with isTestAccount or isDummy are left out unless the viewer is an admin.
 
 Year (P / Year*, W / My year, M / My year): days counted and visit days this year, months met, target so far, to go this month; days counted per month with the target line (current month striped, future empty, green dot only on met months); weekday heatmap; offices with days; visit days by weekday; usual arrival and leaving and average hours (FYI); days with several offices; correction requests; days edited by an admin. Tapping a month or cell opens Month for that month. Year selector shows years with data.
 
@@ -161,7 +161,7 @@ Refresh (Flow / Data refresh rules):
 - Sync sends cached month versions; server returns changed months only, or 304. Sync is disabled for 5 min after success.
 - Push for correction decisions and admin edits marks that month changed. No polling.
 - Offline: Sync disabled, cache shown. Error: Try again, automatic retries with backoff.
-- Colleagues (admins): same cache, 15 min freshness.
+- Colleagues: same cache, 15 min freshness. Test and dummy accounts stay visible only to an admin viewer.
 
 
 ## 19. Points and days (replaces the days-only wording in sections 1, 3 and 18)

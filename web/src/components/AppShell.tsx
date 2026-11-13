@@ -102,7 +102,7 @@ export default async function AppShell({
         </a>
         {link("/month", "My month")}
         {link("/year", "My year")}
-        {showAdmin ? link("/colleagues", "Colleagues") : null}
+        {link("/colleagues", "Colleagues")}
         {link("/settings", "Settings")}
         {showAdmin ? (
           <>

@@ -30,6 +30,25 @@ export function pointsCounted(n: number): string {
   return v === 1 ? "1 point counted" : `${v} points counted`;
 }
 
+/** Text in the Counts as column: "1 point" or "N points". */
+export function pointsCellLabel(n: number): string {
+  const v = Math.max(0, Math.round(Number.isFinite(n) ? n : 0));
+  return v === 1 ? "1 point" : `${v} points`;
+}
+
+/**
+ * Points an admin visit counts as.
+ * Stored 0 means the admin turned the day off.
+ * A positive stored award uses the office weight when that office is known,
+ * so a stored 1 does not override the office.
+ */
+export function adminVisitPoints(stored: number, officePoints: number | null | undefined): number {
+  const storedPoints = Math.round(Number.isFinite(stored) ? stored : 0);
+  if (storedPoints <= 0) return 0;
+  if (officePoints == null || !Number.isFinite(officePoints)) return storedPoints;
+  return Math.max(0, Math.round(officePoints));
+}
+
 /** Visit days are information only (SPEC §20). */
 export function visitDaysFyi(n: number): string {
   const v = Math.max(0, Math.round(n));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import cases from "../../shared/visit-cases.json";
-import { computeVisits, summarizeMonth, type PresenceRules } from "../src/lib/visit-calculator";
+import { computeVisits, exclusionFlags, summarizeMonth, type PresenceRules } from "../src/lib/visit-calculator";
 
 type Expected = {
   visitCount: number;
@@ -302,5 +302,76 @@ describe("points rules", () => {
     expect(r.days.map((day) => day.dayKey)).toEqual(["2026-10-27", "2026-10-28"]);
     expect(r.days[0].hours).toBeCloseTo(1, 5);
     expect(r.days[1].hours).toBeCloseTo(5 / 60, 5);
+  });
+
+  it("counts an admin day as the office points when the stored award is 1", () => {
+    const offices = [
+      { id: "srijan", lat: 22.58, lng: 88.43, radiusMeters: 100, pointsPerVisitDay: 3 },
+      { id: "phone-office", lat: 22.57, lng: 88.36, radiusMeters: 100, pointsPerVisitDay: 1 },
+    ];
+    const r = computeVisits({
+      rules,
+      offices,
+      events: [
+        { type: "check_in", at: "2026-11-13T10:26:00.000Z", officeLocationId: "phone-office" },
+        { type: "check_out", at: "2026-11-13T10:26:00.000Z", officeLocationId: "phone-office" },
+      ],
+      adminVisits: [
+        {
+          startAt: "2026-11-12T04:00:00.000Z",
+          endAt: "2026-11-12T12:30:00.000Z",
+          officeLocationId: "srijan",
+          pointsPerVisitDay: 1,
+        },
+      ],
+      exclusions: [
+        {
+          startAt: "2026-11-11T18:30:00.000Z",
+          endAt: "2026-11-12T18:30:00.000Z",
+          adminDayEdit: true,
+        },
+      ],
+    });
+    expect(r.days.find((d) => d.dayKey === "2026-11-12")?.points).toBe(3);
+    expect(r.days.find((d) => d.dayKey === "2026-11-13")?.points).toBe(1);
+    expect(r.totalPoints).toBe(4);
+    expect(r.visits.find((v) => v.source === "admin")?.pointsAwarded).toBe(3);
+  });
+
+  it("does not count an admin day when the stored award is 0", () => {
+    const r = computeVisits({
+      rules,
+      events: [],
+      offices: [{ id: "srijan", lat: 22.58, lng: 88.43, radiusMeters: 100, pointsPerVisitDay: 3 }],
+      adminVisits: [
+        {
+          startAt: "2026-11-04T04:00:00.000Z",
+          endAt: "2026-11-04T12:30:00.000Z",
+          officeLocationId: "srijan",
+          pointsPerVisitDay: 0,
+        },
+      ],
+      exclusions: [
+        {
+          startAt: "2026-11-03T18:30:00.000Z",
+          endAt: "2026-11-04T18:30:00.000Z",
+          adminDayEdit: true,
+        },
+      ],
+    });
+    expect(r.visits).toHaveLength(1);
+    expect(r.days.find((d) => d.dayKey === "2026-11-04")?.points).toBe(0);
+    expect(r.totalPoints).toBe(0);
+  });
+
+  it("marks an admin day edit exclusion so it does not erase the admin visit", () => {
+    expect(exclusionFlags("Admin day edit: missed the gate")).toEqual({
+      correctionId: null,
+      adminDayEdit: true,
+    });
+    expect(exclusionFlags("Correction req-1: fix the day")).toEqual({
+      correctionId: "req-1",
+      adminDayEdit: false,
+    });
   });
 });

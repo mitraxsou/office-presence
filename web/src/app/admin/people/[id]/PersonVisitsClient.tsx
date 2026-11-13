@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DaysMeter } from "@/components/op/DesignKit";
 import TimeClock from "@/components/TimeClock";
+import { pointsCellLabel } from "@/lib/points-format";
 
 export type PersonVisitRow = {
   id: string;
@@ -88,6 +89,24 @@ function toTimeInput(iso: string | undefined, fallback: string): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+function countedPointsLabel(
+  officeIds: Array<string | null | undefined>,
+  counted: boolean,
+  offices: PersonOffice[],
+): string {
+  if (!counted) return pointsCellLabel(0);
+  let max = 0;
+  let found = false;
+  for (const id of officeIds) {
+    if (!id) continue;
+    const office = offices.find((o) => o.id === id);
+    if (!office) continue;
+    found = true;
+    if (office.pointsPerVisitDay > max) max = office.pointsPerVisitDay;
+  }
+  return pointsCellLabel(found ? max : 1);
 }
 
 function dayIso(dayKey: string, time: string, tzHint: string): string {
@@ -271,12 +290,18 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
       );
       setDrawer(null);
       // Soft-refresh labels locally
+      const countsAsLabel = countedPointsLabel(
+        editVisits.map((v) => v.office_id),
+        counted,
+        props.offices,
+      );
       setRows((prev) =>
         prev.map((r) =>
           r.dayKey === editDay
             ? {
                 ...r,
                 tag: "edited",
+                countsAsLabel: r.secondary ? r.countsAsLabel : countsAsLabel,
                 officeName:
                   props.offices.find((o) => o.id === editVisits[0]?.office_id)?.name ?? r.officeName,
               }
@@ -327,7 +352,7 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
           inAt: dayIso(addDay, addIn, props.timezone),
           outAt: dayIso(addDay, addOut, props.timezone),
           durationLabel: "-",
-          countsAsLabel: "Edited",
+          countsAsLabel: countedPointsLabel([addOffice], true, props.offices),
           deviceLabel: "Added by admin",
           tag: "edited",
         },

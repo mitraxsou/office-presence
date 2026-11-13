@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const fresh = !force && (await isStatusFresh(user.id));
   const s = fresh
     ? await statusFromCache(user.id)
-    : await recomputeUserPresence(user.id, { flushAlerts: true });
+    : await recomputeUserPresence(user.id, { flushAlerts: !actor.viewAs });
 
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const [visits, offices, prefs, decided] = await Promise.all([

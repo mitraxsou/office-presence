@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buttonLabel, classifyCorrection, futureTimeError } from "../src/lib/correction-approval";
 import { canDecideOwnCorrection, isMonthLocked, readKeptDayRows, retainOutsideRange, withKeptDayRows } from "../src/lib/corrections-rules";
-import { countsAs, pointsCounted, pointsMeterLabel } from "../src/lib/points-format";
+import { adminVisitPoints, countsAs, pointsCellLabel, pointsCounted, pointsMeterLabel } from "../src/lib/points-format";
 
 describe("corrections month lock", () => {
   it("locks after month end plus window days", () => {
@@ -148,5 +148,12 @@ describe("points-format UI helpers", () => {
     expect(pointsMeterLabel(8, 8).side).toBe("Goal met");
     expect(countsAs(2)).toBe("Counts as 2 points");
     expect(pointsCounted(1)).toBe("1 point counted");
+    expect(pointsCellLabel(1)).toBe("1 point");
+    expect(pointsCellLabel(3)).toBe("3 points");
+    expect(pointsCellLabel(0)).toBe("0 points");
+    expect(adminVisitPoints(1, 3)).toBe(3);
+    expect(adminVisitPoints(3, 3)).toBe(3);
+    expect(adminVisitPoints(0, 3)).toBe(0);
+    expect(adminVisitPoints(1, undefined)).toBe(1);
   });
 });

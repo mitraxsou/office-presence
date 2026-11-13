@@ -5,6 +5,7 @@ import { listActiveOffices, listPointOffices, toFence } from "./offices";
 import {
   computeVisits,
   dayKeyInTz,
+  exclusionFlags,
   localDayBounds,
   matchNearestOffice,
   summarizeMonth,
@@ -105,14 +106,18 @@ async function computeForRange(userId: string, monthKey?: string) {
       endAt: v.endAt!.toISOString(),
       source: "admin" as const,
       officeLocationId: v.officeLocationId,
-      pointsPerVisitDay: v.pointsAwarded || undefined,
+      pointsPerVisitDay: v.pointsAwarded,
       correctionId: v.correctionId,
     }));
-  const exclusionInputs: ExclusionInput[] = exclusions.map((e) => ({
-    startAt: e.startAt.toISOString(),
-    endAt: e.endAt.toISOString(),
-    correctionId: e.reason ? /^Correction ([^:]+):/.exec(e.reason)?.[1] ?? null : null,
-  }));
+  const exclusionInputs: ExclusionInput[] = exclusions.map((e) => {
+    const flags = exclusionFlags(e.reason);
+    return {
+      startAt: e.startAt.toISOString(),
+      endAt: e.endAt.toISOString(),
+      correctionId: flags.correctionId,
+      adminDayEdit: flags.adminDayEdit,
+    };
+  });
 
   const result = computeVisits({
     rules: userRules,
@@ -190,7 +195,7 @@ export async function monthViewFromRecompute(
 }
 
 export type RecomputeOpts = {
-  /** Queue and flush Teams alerts (enter/exit / sync / corrections). Default true. */
+  /** Queue and flush Teams alerts. Default true. View-as passes false so browsing does not notify the person. */
   flushAlerts?: boolean;
 };
 

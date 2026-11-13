@@ -89,7 +89,7 @@ export async function POST(request: Request) {
   // Sample-only batches: persist + light status. Full month rewrite on enter/exit/check.
   const needsFullRecompute = parsed.data.events.some((e) => e.type !== "sample");
   const s = needsFullRecompute
-    ? await recomputeUserPresence(user.id, { flushAlerts: true })
+    ? await recomputeUserPresence(user.id, { flushAlerts: !actor.viewAs })
     : await touchStatusFromLatestEvidence(user.id);
 
   recordApiActivity({

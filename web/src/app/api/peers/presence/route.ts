@@ -1,27 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { forbidden, resolveActor, unauthorized } from "@/lib/actor";
+import { resolveActor, unauthorized } from "@/lib/actor";
 import { recordApiActivity } from "@/lib/device-api-activity";
 import { displayName } from "@/lib/display-name";
+import { colleaguePresenceWhere, isTestOrDummyAccount } from "@/lib/peers-presence";
 
-/** Shared fields only: In/Out, since when, office name. Never coordinates. Admin-only (SPEC §18). */
+/** Shared fields only: In/Out, since when, office name. Never coordinates. */
 export async function GET(request: Request) {
   const started = Date.now();
   const actor = await resolveActor(request);
   if (!actor) return unauthorized();
   const me = actor.user;
-  if (me.role !== "admin") {
-    recordApiActivity({
-      userId: me.id,
-      deviceTokenId: actor.device?.id,
-      method: "GET",
-      path: "/api/peers/presence",
-      statusCode: 403,
-      durationMs: Date.now() - started,
-      note: "non-admin",
-    });
-    return forbidden();
-  }
   if (!me.sharePresenceWithPeers) {
     recordApiActivity({
       userId: me.id,
@@ -35,11 +24,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ optedIn: false, peers: [] });
   }
   const peers = await prisma.user.findMany({
-    where: {
-      sharePresenceWithPeers: true,
-      id: { not: me.id },
-      deactivatedAt: null,
-    },
+    where: colleaguePresenceWhere(me),
     select: {
       id: true,
       name: true,
@@ -63,9 +48,12 @@ export async function GET(request: Request) {
     durationMs: Date.now() - started,
   });
 
+  const visible =
+    me.role === "admin" ? peers : peers.filter((p) => !isTestOrDummyAccount(p));
+
   return NextResponse.json({
     optedIn: true,
-    peers: peers.map((p) => ({
+    peers: visible.map((p) => ({
       id: p.id,
       name: displayName(p),
       email: p.email,

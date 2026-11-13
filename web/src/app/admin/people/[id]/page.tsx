@@ -2,7 +2,8 @@ import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getPolicy } from "@/lib/policy";
-import { monthKeyInTz } from "@/lib/presence";
+import { computeUserMonth, monthKeyInTz } from "@/lib/presence";
+import { adminVisitPoints, pointsCellLabel } from "@/lib/points-format";
 import AppShell from "@/components/AppShell";
 import PersonVisitsClient, { type PersonVisitRow } from "./PersonVisitsClient";
 
@@ -96,7 +97,7 @@ export default async function PersonVisitsPage({
   });
   if (!user) notFound();
 
-  const [visits, corrections, reviewers] = await Promise.all([
+  const [visits, corrections, reviewers, liveMonth] = await Promise.all([
     prisma.visit.findMany({
       where: { userId: id, startAt: { gte: new Date(Date.UTC(y - 1, 0, 1)) } },
       orderBy: { startAt: "desc" },
@@ -116,6 +117,7 @@ export default async function PersonVisitsPage({
       where: { role: "admin" },
       select: { id: true, name: true, email: true },
     }),
+    computeUserMonth(id, monthKey),
   ]);
 
   const allOffices = await prisma.officeLocation.findMany({
@@ -124,6 +126,8 @@ export default async function PersonVisitsPage({
     orderBy: { name: "asc" },
   });
   const officeNames = new Map(allOffices.map((o) => [o.id, o.name]));
+  const officePoints = new Map(allOffices.map((o) => [o.id, o.pointsPerVisitDay]));
+  const liveDayPoints = new Map(liveMonth.days.map((d) => [d.dayKey, d.points]));
   const reviewerNames = new Map(
     reviewers.map((r) => [r.id, r.name || r.email]),
   );
@@ -185,7 +189,25 @@ export default async function PersonVisitsPage({
       deviceLabel = user.deviceTokens[0]?.label || "Phone";
     }
 
-    const points = secondary ? 0 : v.pointsAwarded;
+    const hasAdmin = dayList.some((x) => x.source === "admin");
+    let points = v.pointsAwarded;
+    if (!secondary && hasAdmin) {
+      if (dayKey.startsWith(monthKey)) {
+        // Same figure the month total adds for this day.
+        points = liveDayPoints.get(dayKey) ?? 0;
+      } else {
+        let max = 0;
+        for (const dayVisit of dayList) {
+          if (dayVisit.source !== "admin") continue;
+          const awarded = adminVisitPoints(
+            dayVisit.pointsAwarded,
+            dayVisit.officeLocationId ? officePoints.get(dayVisit.officeLocationId) : undefined,
+          );
+          if (awarded > max) max = awarded;
+        }
+        points = max;
+      }
+    }
     rows.push({
       id: v.id,
       dayKey,
@@ -197,14 +219,7 @@ export default async function PersonVisitsPage({
       inAt: v.startAt.toISOString(),
       outAt: v.endAt?.toISOString() ?? null,
       durationLabel: fmtDuration(v.startAt, v.endAt),
-      countsAsLabel:
-        secondary || points === 0
-          ? secondary
-            ? "Same day"
-            : "0 points"
-          : points === 1
-            ? "1 point"
-            : `${points} points`,
+      countsAsLabel: secondary ? "Same day" : pointsCellLabel(points),
       deviceLabel,
       deviceSub,
       tag: secondary ? null : tag,
@@ -228,7 +243,7 @@ export default async function PersonVisitsPage({
         deviceCount={user.deviceTokens.length}
         inOffice={user.status?.inOffice ?? false}
         sinceLabel={fmtSince(user.status?.sinceAt ?? null, tz)}
-        monthPoints={user.status?.monthPoints ?? 0}
+        monthPoints={liveMonth.summary.points}
         pointsTarget={policy.monthlyPointsTarget ?? 8}
         monthKey={monthKey}
         monthLabel={monthLabel}

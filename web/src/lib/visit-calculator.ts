@@ -1,3 +1,5 @@
+import { adminVisitPoints } from "./points-format";
+
 export type PresenceRules = {
   gapMinutes: number;
   dayHours: number;
@@ -41,7 +43,20 @@ export type ExclusionInput = {
   startAt: string;
   endAt: string;
   correctionId?: string | null;
+  /** Full-day exclusion from an admin edit. It suppresses phone evidence, not the admin visit. */
+  adminDayEdit?: boolean;
 };
+
+/** Flags stored on a visit exclusion row. Admin day edits must not erase the admin visit. */
+export function exclusionFlags(reason: string | null | undefined): {
+  correctionId: string | null;
+  adminDayEdit: boolean;
+} {
+  return {
+    correctionId: reason ? /^Correction ([^:]+):/.exec(reason)?.[1] ?? null : null,
+    adminDayEdit: Boolean(reason?.startsWith("Admin day edit:")),
+  };
+}
 
 export type OfficeFenceInput = {
   id?: string;
@@ -181,9 +196,11 @@ function trimVisitAroundExclusions(
   visit: ComputedVisit,
   exclusions: ExclusionInput[],
 ): ComputedVisit[] {
-  const applicable = exclusions.filter(
-    (exclusion) => !visit.correctionId || exclusion.correctionId !== visit.correctionId,
-  );
+  const applicable = exclusions.filter((exclusion) => {
+    if (visit.correctionId && exclusion.correctionId === visit.correctionId) return false;
+    if (visit.source === "admin" && exclusion.adminDayEdit) return false;
+    return true;
+  });
   const start = toMs(visit.startAt);
   const end = toMs(visit.endAt);
   if (end === start) return coveredByExclusion(start, end, applicable) ? [] : [visit];
@@ -494,8 +511,12 @@ export function computeVisits(args: {
   const pointsByOffice = new Map<string, number>();
   for (const o of pointOffices) if (o.id) pointsByOffice.set(o.id, o.pointsPerVisitDay ?? 1);
   for (const v of visits) {
-    // Admin visits keep an explicit pointsAwarded, including 0 (do not count day).
-    if (v.source === "admin") continue;
+    if (v.source === "admin") {
+      // 0 stays 0 (day turned off). A positive stored award uses the office weight.
+      const officePoints = v.officeLocationId ? pointsByOffice.get(v.officeLocationId) : undefined;
+      v.pointsAwarded = adminVisitPoints(v.pointsAwarded ?? 0, officePoints);
+      continue;
+    }
     v.pointsAwarded =
       pointsByOffice.get(v.officeLocationId ?? "") ?? (v.pointsAwarded && v.pointsAwarded > 0 ? v.pointsAwarded : 1);
   }
@@ -553,12 +574,13 @@ export function computeDayPoints(
         ? [{ startMs: start, endMs: start, dayKey: dayKeyInTz(new Date(start), timezone) }]
         : splitAtLocalMidnights(start, end, timezone);
     for (const seg of segs) {
+      const officePoints = pointsByOffice.get(v.officeLocationId ?? "");
       const pts =
         v.source === "admin"
-          ? v.pointsAwarded ?? 0
+          ? adminVisitPoints(v.pointsAwarded ?? 0, officePoints)
           : v.pointsAwarded && v.pointsAwarded > 0
             ? v.pointsAwarded
-            : pointsByOffice.get(v.officeLocationId ?? "") ?? 1;
+            : officePoints ?? 1;
       const cur = byDay.get(seg.dayKey) ?? {
         firstIn: seg.startMs,
         lastOut: seg.endMs,
