@@ -1,0 +1,29 @@
+name: Office Tracker daily sync
+
+on:
+  schedule:
+    # 08:00 Asia/Kolkata every day (02:30 UTC)
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Office Presence daily sync
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Repository secret CRON_SECRET is not set"
+            exit 1
+          fi
+          status=$(curl -sS -o response.json -w "%{http_code}" --max-time 280 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://office-presence-psi.vercel.app/api/cron/office-tracker-sync")
+          echo "HTTP $status"
+          cat response.json
+          echo
+          if [ "$status" != "200" ]; then
+            exit 1
+          fi
