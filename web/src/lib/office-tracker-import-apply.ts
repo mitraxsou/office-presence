@@ -1,6 +1,8 @@
 import { prisma } from "./db";
 import { recomputeUserPresence } from "./presence";
+import { dayKeyInTz } from "./visit-calculator";
 import {
+  OFFICE_TRACKER_SYNC_AUDIT_ACTION,
   parseOfficeTrackerCsv,
   planOfficeTrackerImport,
   type ExistingUser,
@@ -57,10 +59,18 @@ export type OfficeTrackerImportReport = {
 };
 
 export async function runOfficeTrackerImport(args: {
-  adminId: string;
+  /** Admin who ran a manual import. The daily sync passes null. */
+  adminId: string | null;
   csv: string;
   dryRun: boolean;
   now?: Date;
+  /**
+   * Emails to skip entirely. The manual CSV import omits this.
+   * An empty list plans the same days as omitting it.
+   */
+  skipEmails?: Iterable<string>;
+  /** Defaults to import.office_tracker. The daily sync passes import.office_tracker_sync. */
+  auditAction?: string;
 }): Promise<OfficeTrackerImportReport> {
   const now = args.now ?? new Date();
   const parsed = parseOfficeTrackerCsv(args.csv);
@@ -113,6 +123,7 @@ export async function runOfficeTrackerImport(args: {
     visitsByUserId,
     fallbackOfficeId: fallbackOffice.id,
     now,
+    skipEmails: args.skipEmails,
   });
 
   const report: OfficeTrackerImportReport = {
@@ -198,10 +209,13 @@ export async function runOfficeTrackerImport(args: {
     await recomputeUserPresence(userId, { flushAlerts: false });
   }
 
+  const auditAction = args.auditAction ?? "import.office_tracker";
+  const syncAudit = auditAction === OFFICE_TRACKER_SYNC_AUDIT_ACTION;
+
   await prisma.auditLog.create({
     data: {
       actorId: args.adminId,
-      action: "import.office_tracker",
+      action: auditAction,
       targetType: "import",
       afterJson: {
         office: { id: fallbackOffice.id, name: fallbackOffice.name },
@@ -211,8 +225,16 @@ export async function runOfficeTrackerImport(args: {
         usersRecomputed: affectedUserIds.length,
         counts: plan.counts,
         errors: errors.length,
+        ...(syncAudit
+          ? {
+              dayKey: dayKeyInTz(now, "Asia/Kolkata"),
+              usersSkippedAppActive: plan.counts.usersSkippedAppActive ?? 0,
+            }
+          : {}),
       },
-      reason: "Office Tracker presence backfill (home office or EGL)",
+      reason: syncAudit
+        ? "Office Tracker daily sync (home office or EGL)"
+        : "Office Tracker presence backfill (home office or EGL)",
     },
   });
 

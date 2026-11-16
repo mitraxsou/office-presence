@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  OFFICE_TRACKER_APP_ACTIVE_REASON,
   OFFICE_TRACKER_REASON_PREFIX,
   parseCsvText,
   parseOfficeTrackerCsv,
@@ -8,6 +9,11 @@ import {
   type ExistingUser,
   type ExistingVisit,
 } from "../src/lib/office-tracker-import";
+import {
+  formatOfficeTrackerSyncStatus,
+  OFFICE_TRACKER_SYNC_EMPTY_LABEL,
+  readOfficeTrackerSyncAudit,
+} from "../src/lib/office-tracker-sync-status";
 
 const NOW = new Date("2026-10-29T06:00:00Z"); // 11:30 IST on Oct 29
 
@@ -216,5 +222,152 @@ describe("planOfficeTrackerImport", () => {
     });
     expect(second.daysToInsert).toHaveLength(0);
     expect(second.counts.daysSkippedAlreadyImported).toBe(2);
+  });
+
+  it("an omitted or empty skip list plans the same days as today", () => {
+    const rows = [dayRow("phone.user@pwc.com", "2026-10-22")];
+    const input = {
+      rows,
+      existingUsers: [
+        {
+          id: "u1",
+          email: "phone.user@pwc.com",
+          role: "user" as const,
+          timezone: "Asia/Kolkata",
+          homeOfficeId: "office-1",
+          deactivated: false,
+        },
+      ],
+      visitsByUserId: new Map<string, ExistingVisit[]>(),
+      now: NOW,
+    };
+    const omitted = plan(input);
+    expect(omitted.daysToInsert.map((d) => d.dayKey)).toEqual(["2026-10-22"]);
+    expect(omitted.counts.daysSkippedAppActive).toBeUndefined();
+    expect(omitted.counts.usersSkippedAppActive).toBeUndefined();
+    expect(plan({ ...input, skipEmails: new Set<string>() })).toEqual(omitted);
+    expect(plan({ ...input, skipEmails: [] })).toEqual(omitted);
+  });
+
+  it("skips every tracker day for an active-app email and still inserts everyone else", () => {
+    const phone: ExistingUser = {
+      id: "phone",
+      email: "phone.user@pwc.com",
+      role: "admin",
+      timezone: "Asia/Kolkata",
+      homeOfficeId: null,
+      deactivated: false,
+    };
+    const other: ExistingUser = {
+      id: "other",
+      email: "other@pwc.com",
+      role: "user",
+      timezone: "Asia/Kolkata",
+      homeOfficeId: "home-office",
+      deactivated: false,
+    };
+    const rows = [
+      dayRow("phone.user@pwc.com", "2026-10-20", 2),
+      dayRow("phone.user@pwc.com", "2026-10-20", 3),
+      dayRow("phone.user@pwc.com", "2026-10-21", 4),
+      dayRow("phone.user@pwc.com", "2026-10-29", 5),
+      dayRow("other@pwc.com", "2026-10-20", 6),
+      dayRow("other@pwc.com", "2026-10-22", 7),
+      dayRow("new.person@pwc.com", "2026-10-21", 8),
+    ];
+    const result = plan({
+      rows,
+      existingUsers: [phone, other],
+      visitsByUserId: new Map([
+        [
+          "other",
+          [
+            {
+              startAt: new Date("2026-10-20T04:00:00Z"),
+              endAt: new Date("2026-10-20T08:00:00Z"),
+              reason: null,
+            },
+          ],
+        ],
+      ]),
+      now: NOW,
+      skipEmails: ["Phone.User@pwc.com"],
+    });
+
+    expect(result.daysToInsert.map((d) => `${d.email} ${d.dayKey}`)).toEqual([
+      "other@pwc.com 2026-10-22",
+      "new.person@pwc.com 2026-10-21",
+    ]);
+    expect(result.usersToCreate.map((u) => u.email)).toEqual(["new.person@pwc.com"]);
+    expect(result.usersToAttachHomeOffice).toEqual([]);
+    expect(result.skippedUsers).toEqual([
+      { email: "phone.user@pwc.com", reason: OFFICE_TRACKER_APP_ACTIVE_REASON },
+    ]);
+    expect(result.issues.filter((issue) => issue.email === "phone.user@pwc.com")).toEqual([]);
+    expect(result.counts.usersSkippedAppActive).toBe(1);
+    expect(result.counts.daysSkippedAppActive).toBe(3);
+    expect(result.counts.daysSkippedHasVisit).toBe(1);
+    expect(result.counts.daysSkippedTodayOrLater).toBe(0);
+    expect(result.counts.usersMatched).toBe(1);
+    expect(result.counts.usersSkipped).toBe(1);
+  });
+
+  it("keeps a deactivated account on the deactivated reason when that email is also in the skip list", () => {
+    const result = plan({
+      rows: [dayRow("gone@pwc.com", "2026-10-20")],
+      existingUsers: [
+        {
+          id: "g",
+          email: "gone@pwc.com",
+          role: "user",
+          timezone: "Asia/Kolkata",
+          homeOfficeId: null,
+          deactivated: true,
+        },
+      ],
+      visitsByUserId: new Map(),
+      now: NOW,
+      skipEmails: ["gone@pwc.com"],
+    });
+    expect(result.daysToInsert).toHaveLength(0);
+    expect(result.usersToCreate).toHaveLength(0);
+    expect(result.skippedUsers).toEqual([
+      { email: "gone@pwc.com", reason: "Account is deactivated in Office Presence" },
+    ]);
+    expect(result.counts.usersSkippedAppActive).toBe(0);
+    expect(result.counts.daysSkippedAppActive).toBe(0);
+  });
+});
+
+describe("office tracker sync status copy", () => {
+  it("reads the audit payload and formats the settings line without a dash", () => {
+    const summary = readOfficeTrackerSyncAudit({
+      dayKey: "2026-11-16",
+      visitsInserted: 4,
+      usersSkippedAppActive: 2,
+      counts: { usersSkippedAppActive: 9 },
+    });
+    expect(summary).toEqual({
+      dayKey: "2026-11-16",
+      daysAdded: 4,
+      usersSkippedAppActive: 2,
+    });
+    const line = formatOfficeTrackerSyncStatus({
+      dateLabel: summary.dayKey ?? "",
+      daysAdded: summary.daysAdded,
+      usersSkippedAppActive: summary.usersSkippedAppActive,
+    });
+    expect(line).toBe(
+      "Last automatic sync: 2026-11-16. 4 days added. 2 users skipped because the app is active.",
+    );
+    expect(formatOfficeTrackerSyncStatus({
+      dateLabel: "2026-11-16",
+      daysAdded: 1,
+      usersSkippedAppActive: 1,
+    })).toBe(
+      "Last automatic sync: 2026-11-16. 1 day added. 1 user skipped because the app is active.",
+    );
+    expect(OFFICE_TRACKER_SYNC_EMPTY_LABEL).toBe("No automatic sync yet.");
+    expect(`${line}${OFFICE_TRACKER_SYNC_EMPTY_LABEL}`).not.toMatch(/[\u2013\u2014]/);
   });
 });

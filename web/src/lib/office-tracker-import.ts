@@ -4,6 +4,12 @@ import { isPwcEmail } from "./email";
 /** Reason stored on each imported visit. The day key suffix makes reruns skip that day. */
 export const OFFICE_TRACKER_REASON_PREFIX = "office-tracker-backfill:";
 
+/** Audit action for the daily sync. The manual CSV import keeps import.office_tracker. */
+export const OFFICE_TRACKER_SYNC_AUDIT_ACTION = "import.office_tracker_sync";
+
+/** Skip reason when the daily sync leaves a person to the phone app. */
+export const OFFICE_TRACKER_APP_ACTIVE_REASON = "Phone app is active";
+
 export const OFFICE_TRACKER_HEADERS = [
   "email",
   "name",
@@ -224,6 +230,12 @@ export type ImportPlanInput = {
   /** Active office id used when the person has no home office (EGL). */
   fallbackOfficeId: string;
   now: Date;
+  /**
+   * Emails to skip entirely (phone app in use). The daily sync passes this.
+   * Omit it, or pass an empty list, and the plan matches the manual CSV import:
+   * same users, same days, same skip reasons.
+   */
+  skipEmails?: Iterable<string>;
 };
 
 export type ImportPlan = {
@@ -242,8 +254,22 @@ export type ImportPlan = {
     daysSkippedHasVisit: number;
     daysSkippedTodayOrLater: number;
     daysDuplicateInCsv: number;
+    /** Set only when skipEmails contains at least one address. */
+    daysSkippedAppActive?: number;
+    /** Set only when skipEmails contains at least one address. */
+    usersSkippedAppActive?: number;
   };
 };
+
+function normalizeSkipEmails(skipEmails: Iterable<string> | undefined): Set<string> {
+  const skip = new Set<string>();
+  if (!skipEmails) return skip;
+  for (const email of skipEmails) {
+    const key = email.trim().toLowerCase();
+    if (key) skip.add(key);
+  }
+  return skip;
+}
 
 function overlapsDay(v: ExistingVisit, startMs: number, endMs: number): boolean {
   if (v.startAt.getTime() >= endMs) return false;
@@ -256,10 +282,13 @@ function overlapsDay(v: ExistingVisit, startMs: number, endMs: number): boolean 
  * Rules: match users by lowercased email; never change an existing user's role, name,
  * or password; add days only where this app has no visit (phone data wins); a day
  * already imported (same reason) is skipped; today and later are skipped.
+ * skipEmails, when it contains addresses, skips those people entirely (no create, no days).
  */
 export function planOfficeTrackerImport(input: ImportPlanInput): ImportPlan {
   const { rows, existingUsers, visitsByUserId, fallbackOfficeId, now } = input;
+  const skip = normalizeSkipEmails(input.skipEmails);
   const usersByEmail = new Map(existingUsers.map((u) => [u.email.toLowerCase(), u]));
+  const appActive = { daysSkippedAppActive: 0, usersSkippedAppActive: 0 };
 
   const issues: ImportIssue[] = [];
   const skippedUsers: Array<{ email: string; reason: string }> = [];
@@ -293,6 +322,17 @@ export function planOfficeTrackerImport(input: ImportPlanInput): ImportPlan {
 
     if (existing?.deactivated) {
       skippedUsers.push({ email, reason: "Account is deactivated in Office Presence" });
+      continue;
+    }
+
+    if (skip.has(email.toLowerCase())) {
+      const dayKeys = new Set<string>();
+      for (const row of userRows) {
+        if (row.dayKey) dayKeys.add(row.dayKey);
+      }
+      appActive.daysSkippedAppActive += dayKeys.size;
+      appActive.usersSkippedAppActive += 1;
+      skippedUsers.push({ email, reason: OFFICE_TRACKER_APP_ACTIVE_REASON });
       continue;
     }
 
@@ -364,6 +404,6 @@ export function planOfficeTrackerImport(input: ImportPlanInput): ImportPlan {
     daysToInsert,
     skippedUsers,
     issues,
-    counts,
+    counts: skip.size > 0 ? { ...counts, ...appActive } : counts,
   };
 }
