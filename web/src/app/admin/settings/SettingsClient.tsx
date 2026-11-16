@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { OfficeTrackerSyncCard } from "@/lib/office-tracker-sync-status";
 import ImportCard from "./ImportCard";
 
 type Policy = {
@@ -31,9 +32,11 @@ const TIMEZONES = [
 
 export default function SettingsClient({
   policy: initial,
+  lastSync = null,
 }: {
   policy: Policy;
   activeOffices?: number;
+  lastSync?: OfficeTrackerSyncCard | null;
 }) {
   const [policy, setPolicy] = useState(initial);
   const [message, setMessage] = useState("");
@@ -325,7 +328,7 @@ export default function SettingsClient({
         A day counts once, even when several phones report it. The latest location wins.
       </p>
       {message ? <p className={`status-msg ${messageKind}`}>{message}</p> : null}
-      <ImportCard />
+      <ImportCard lastSync={lastSync} />
     </div>
   );
 }

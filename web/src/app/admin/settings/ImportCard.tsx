@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import {
+  formatOfficeTrackerSyncStatus,
+  OFFICE_TRACKER_SYNC_EMPTY_LABEL,
+  type OfficeTrackerSyncCard,
+} from "@/lib/office-tracker-sync-status";
 
 type Counts = {
   csvUsers: number;
@@ -33,7 +38,7 @@ function fileKey(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
-export default function ImportCard() {
+export default function ImportCard({ lastSync = null }: { lastSync?: OfficeTrackerSyncCard | null }) {
   const [file, setFile] = useState<File | null>(null);
   const [checkedKey, setCheckedKey] = useState<string | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -73,6 +78,9 @@ export default function ImportCard() {
       <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>Import from Office Tracker</h2>
       <p className="op-sub" style={{ marginTop: 0 }}>
         Download the presence backfill CSV in Office Tracker, then check it here. A day uses the person&apos;s home office, or EGL when they have none. Check file does not write anything.
+      </p>
+      <p className="op-meta-row" style={{ marginTop: 8 }}>
+        {lastSync ? formatOfficeTrackerSyncStatus(lastSync) : OFFICE_TRACKER_SYNC_EMPTY_LABEL}
       </p>
       <input
         type="file"
