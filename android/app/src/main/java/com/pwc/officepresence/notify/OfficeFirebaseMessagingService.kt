@@ -4,7 +4,10 @@ import android.content.Intent
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.pwc.officepresence.BuildConfig
+import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.PresenceRepository
+import java.time.LocalDate
+import java.time.ZoneId
 import com.pwc.officepresence.ui.LoginActivity
 import com.pwc.officepresence.ui.analytics.OpAnalytics
 import kotlin.concurrent.thread
@@ -41,6 +44,9 @@ class OfficeFirebaseMessagingService : FirebaseMessagingService() {
             "rules_changed" -> thread {
                 runCatching { PresenceRepository(this).syncOnly() }
             }
+            "correction_decided" -> thread {
+                runCatching { PresenceRepository(this).syncOnly(full = true) }
+            }
             "app_update" -> showUpdate(message)
         }
     }
@@ -48,9 +54,25 @@ class OfficeFirebaseMessagingService : FirebaseMessagingService() {
     private fun showUpdate(message: RemoteMessage) {
         val published = message.data["versionCode"]?.toIntOrNull()
         if (published != null && published <= BuildConfig.VERSION_CODE) return
-        val url = message.data["url"]?.trim().orEmpty().ifBlank {
-            BuildConfig.API_BASE_URL.trimEnd('/') + "/download"
+        val prefs = AppPrefs(this)
+        val previous = prefs.publishedAppVersionCode
+        if (published != null && published > 0) prefs.publishedAppVersionCode = published
+        val name = message.data["versionName"]?.trim().orEmpty()
+        if (name.isNotEmpty() && name != "null") prefs.publishedAppVersionName = name
+        val zone = runCatching { ZoneId.of(prefs.timezone) }.getOrDefault(ZoneId.of("Asia/Kolkata"))
+        val today = LocalDate.now(zone).toString()
+        val code = prefs.publishedAppVersionCode
+        val newerThanLast = published != null && published > previous
+        if (!newerThanLast && code > 0 &&
+            !AppUpdateCheck.shouldRemind(BuildConfig.VERSION_CODE, code, prefs.appUpdateRemindedDay, today)
+        ) {
+            return
         }
-        Notifier.appUpdate(this, url)
+        val url = message.data["url"]?.trim().orEmpty().ifBlank {
+            AppUpdateCheck.downloadPage(BuildConfig.API_BASE_URL)
+        }
+        if (Notifier.appUpdate(this, url, prefs.publishedAppVersionName) && code > 0) {
+            prefs.appUpdateRemindedDay = today
+        }
     }
 }

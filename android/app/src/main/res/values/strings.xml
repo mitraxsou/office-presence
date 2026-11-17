@@ -26,4 +26,5 @@
     <string name="peer_consent">Share my presence with colleagues who also opted in. Shared: In or Out, since when, and the office name. Not shared: live GPS, coordinates, hours, or points. You can turn this off at any time.</string>
     <string name="multi_phone_help">Using more than one phone? Sign in on each. The latest location from any of your phones wins, and a day counts once no matter how many phones saw it.</string>
     <string name="mock_location_help">Use Android Developer options → Select mock location app. Set coordinates inside an office fence, then outside it. Tap Check now above (or wait for a sample) to flip In and Out. Geofence re-register helps if offices changed.</string>
+    <string name="update_the_app">Update the app</string>
 </resources>

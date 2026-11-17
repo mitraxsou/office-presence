@@ -1,6 +1,7 @@
 package com.pwc.officepresence
 
 import com.pwc.officepresence.presence.AdminVisitInput
+import com.pwc.officepresence.presence.ExceptionDayInput
 import com.pwc.officepresence.presence.ExclusionInput
 import com.pwc.officepresence.presence.OfficeFenceInput
 import com.pwc.officepresence.presence.MidnightBoundary
@@ -13,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.time.Instant
 
 class VisitCalculatorTest {
     private fun sharedFile(): File {
@@ -48,6 +50,7 @@ class VisitCalculatorTest {
                 monthlyPointsTarget = r.optInt("monthlyPointsTarget", 8),
                 timezone = r.getString("timezone"),
                 fenceRadiusMeters = r.getDouble("fenceRadiusMeters"),
+                sampleIntervalMinutes = r.optInt("sampleIntervalMinutes", 10),
             )
             val events = mutableListOf<PresenceEventInput>()
             val evArr = c.getJSONArray("events")
@@ -76,7 +79,8 @@ class VisitCalculatorTest {
                 exclusions += ExclusionInput(x.getString("startAt"), x.getString("endAt"))
             }
             val offices = c.optJSONArray("offices")?.let { arr -> (0 until arr.length()).map { fence(arr.getJSONObject(it)) } }
-            val result = VisitCalculator.compute(rules, events, admins, exclusions, fence(c.getJSONObject("office")), offices)
+            val nowMs = if (c.has("now")) Instant.parse(c.getString("now")).toEpochMilli() else System.currentTimeMillis()
+            val result = VisitCalculator.compute(rules, events, admins, exclusions, fence(c.getJSONObject("office")), offices, now = nowMs)
             val x = c.getJSONObject("expected")
             assertEquals("$id visitCount", x.getInt("visitCount"), result.visits.size)
             assertEquals("$id totalHours", x.getDouble("totalHours"), result.totalHours, 0.001)
@@ -92,6 +96,7 @@ class VisitCalculatorTest {
                 val hrs = x.getJSONArray("dayHours")
                 for (k in 0 until hrs.length()) assertEquals("$id dayHours[$k]", hrs.getDouble(k), result.days[k].hours, 0.001)
             }
+            if (x.has("open")) assertEquals("$id open", x.getBoolean("open"), result.visits.any { it.open })
         }
     }
 
@@ -123,6 +128,31 @@ class VisitCalculatorTest {
         assertEquals(8, r.totalPoints)
         assertTrue(r.targetMet)
         assertFalse(r.dayMet)
+    }
+
+    @Test
+    fun pointsSnapshotWinsOverCurrentOfficeWeight() {
+        val pune = OfficeFenceInput(18.52, 73.85, 100.0, "pune", 3)
+        val ev = listOf(
+            PresenceEventInput("enter", "2026-10-05T04:00:00Z", 18.52, 73.85, 10.0, officeLocationId = "pune", pointsAtMatch = 1),
+            PresenceEventInput("exit", "2026-10-05T04:05:00Z", 18.52, 73.85, 10.0, officeLocationId = "pune", pointsAtMatch = 1),
+            PresenceEventInput("enter", "2026-10-06T04:00:00Z", 18.52, 73.85, 10.0, officeLocationId = "pune"),
+            PresenceEventInput("exit", "2026-10-06T04:05:00Z", 18.52, 73.85, 10.0, officeLocationId = "pune"),
+        )
+        val r = VisitCalculator.compute(PresenceRules(), ev, offices = listOf(pune))
+        assertEquals(listOf(1, 3), r.days.map { it.points })
+    }
+
+    @Test
+    fun adminStoredAwardIsKept() {
+        val pune = OfficeFenceInput(18.52, 73.85, 100.0, "pune", 3)
+        val r = VisitCalculator.compute(
+            PresenceRules(),
+            events = emptyList(),
+            adminVisits = listOf(AdminVisitInput("2026-10-07T04:00:00Z", "2026-10-07T09:00:00Z", "pune", 2)),
+            offices = listOf(pune),
+        )
+        assertEquals(2, r.totalPoints)
     }
 
     @Test
@@ -185,5 +215,25 @@ class VisitCalculatorTest {
         assertEquals("2026-10-27T17:30:00Z", result.visits[0].startAt)
         assertEquals("2026-10-27T18:30:00Z", result.visits[0].endAt)
         assertEquals(listOf("2026-10-27"), result.days.map { it.dayKey })
+    }
+
+    @Test
+    fun exceptionDayTakesTheHigherOfVisitAndException() {
+        val result = VisitCalculator.compute(
+            PresenceRules(timezone = "Asia/Kolkata"),
+            events = emptyList(),
+            adminVisits = listOf(AdminVisitInput("2026-11-16T04:00:00.000Z", "2026-11-16T10:00:00.000Z", "blr", 1)),
+            exceptionDays = listOf(
+                ExceptionDayInput("2026-11-16", 4, "a", "pune"),
+                ExceptionDayInput("2026-11-16", 2, "b", "pune"),
+                ExceptionDayInput("2026-11-17", 4, "a", "pune"),
+            ),
+        )
+        assertEquals(listOf("2026-11-16", "2026-11-17"), result.days.map { it.dayKey })
+        assertEquals(listOf(4, 4), result.days.map { it.points })
+        assertEquals(8, result.totalPoints)
+        assertTrue(result.targetMet)
+        assertEquals(null, result.days[1].firstIn)
+        assertEquals("a", result.days[0].exception?.id)
     }
 }

@@ -59,6 +59,11 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
         return send("GET", "/api/me/sync$q")
     }
 
+    fun consent(): JSONObject = send("GET", "/api/me/consent")
+    fun acceptConsent(version: String): JSONObject =
+        send("POST", "/api/me/consent", JSONObject().put("version", version))
+    fun withdrawConsent(): JSONObject = send("DELETE", "/api/me/consent")
+
     fun year(year: Int): JSONObject = send("GET", "/api/me/year?year=$year")
     fun offices(): JSONObject = send("GET", "/api/offices")
     fun notificationPrefs(): JSONObject = send("GET", "/api/me/notification-prefs")
@@ -138,6 +143,13 @@ class ApiClient(private val baseUrl: String, private val tokenProvider: () -> St
 
     fun undoCorrection(id: String): JSONObject =
         send("POST", "/api/me/corrections", JSONObject().put("action", "undo").put("id", id))
+
+    /** Leave is a record only. kind is "leave" or "other_duty". */
+    fun markLeave(dayKey: String, kind: String, note: String?): JSONObject =
+        send("PUT", "/api/me/leave/${enc(dayKey)}", JSONObject().put("kind", kind).put("note", note ?: ""))
+
+    fun removeLeave(dayKey: String): JSONObject =
+        send("DELETE", "/api/me/leave/${enc(dayKey)}")
 
     fun suggestOfficeByAddress(name: String, address: String): JSONObject =
         send("POST", "/api/me/offices/suggest", JSONObject().put("name", name).put("address", address))

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requestOtp } from "@/lib/otp";
+import { clientIp, tooManyResponseInit } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -14,8 +15,12 @@ export async function POST(request: Request) {
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400, headers: NO_STORE });
   }
-  const result = await requestOtp(email);
+  const result = await requestOtp(email, clientIp(request));
   if (!result.ok) {
+    if (result.status === 429 && result.retryAfterSeconds) {
+      const r = tooManyResponseInit(result.retryAfterSeconds, NO_STORE);
+      return NextResponse.json(r.body, r.init);
+    }
     return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
   }
   return NextResponse.json(

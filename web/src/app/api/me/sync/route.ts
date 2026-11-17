@@ -8,6 +8,10 @@ import { officesForUser } from "@/lib/offices-view";
 import { dayKeyInTz } from "@/lib/visit-calculator";
 import { groupTodayOffices } from "@/lib/today-offices";
 import { monthContentVersion, parseClientMonthVersions } from "@/lib/year-stats";
+import { consentState } from "@/lib/consent";
+import { employeeMonthRecords, exceptionsAddedSince } from "@/lib/employee-records";
+import { managedUserIds } from "@/lib/team-scope";
+import { teamSummary } from "@/lib/team-view";
 
 export async function GET(request: Request) {
   const started = Date.now();
@@ -92,6 +96,13 @@ export async function GET(request: Request) {
     });
   }
 
+  const [records, exceptionsAdded, managed] = await Promise.all([
+    employeeMonthRecords(user, monthKeys),
+    exceptionsAddedSince(user.id, since),
+    managedUserIds(user.id),
+  ]);
+  const team = managed.length ? await teamSummary(managed, s.rules.monthlyPointsTarget ?? 8) : null;
+
   const correctionDecisions = decided.map((r) => ({
     id: r.id,
     dayKey: r.dayKey,
@@ -127,7 +138,9 @@ export async function GET(request: Request) {
       timezone: user.timezone,
       developerMode: user.developerMode,
       sharePresenceWithPeers: user.sharePresenceWithPeers,
+      isManager: managed.length > 0,
     },
+    team,
     device: device ? { id: device.id, label: device.label, platform: device.platform } : null,
     policy: s.rules,
     offices,
@@ -166,6 +179,11 @@ export async function GET(request: Request) {
       editedByAdmin: v.source === "admin" || Boolean(v.editedBy),
     })),
     correctionDecisions,
+    holidays: records.holidays,
+    leaveDays: records.leaveDays,
+    exceptionDays: records.exceptionDays,
+    exceptionsAdded,
+    consent: consentState(user, s.rules),
     monthVersions,
     dirtyMonths,
     generatedAt: new Date().toISOString(),

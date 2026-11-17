@@ -52,12 +52,31 @@ function loadServiceAccount() {
   ) {
     raw = raw.slice(1, -1);
   }
-  // Support single-line JSON or escaped JSON in .env
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return JSON.parse(raw.replace(/\\n/g, "\n").replace(/\\"/g, '"'));
+  const parsed = parseServiceAccountJson(raw);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON");
   }
+  return parsed;
+}
+
+function parseServiceAccountJson(raw) {
+  const tryParse = (value) => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  };
+  let value = tryParse(raw);
+  if (typeof value === "string") value = tryParse(value);
+  if (value && typeof value === "object") return value;
+  // .env often stores the JSON as one escaped string: {\"type\":...\\n...}
+  const decoded = tryParse(`"${raw}"`);
+  if (typeof decoded === "string") {
+    const inner = tryParse(decoded);
+    if (inner && typeof inner === "object") return inner;
+  }
+  return tryParse(raw.replace(/\\n/g, "\n").replace(/\\"/g, '"'));
 }
 
 async function main() {

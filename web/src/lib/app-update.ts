@@ -12,10 +12,32 @@ export function shouldNotifyAppUpdate(
   return true;
 }
 
+/** True when this older phone has not yet had today's update reminder. */
+export function shouldSendDailyAppUpdate(
+  deviceVersionCode: number | null | undefined,
+  publishedVersionCode: number | null | undefined,
+  remindedOn: string | null | undefined,
+  today: string,
+): boolean {
+  const published = publishedVersionCode ?? 0;
+  if (published <= 0 || !today) return false;
+  if (deviceVersionCode == null || deviceVersionCode >= published) return false;
+  if (remindedOn != null && remindedOn === today) return false;
+  return true;
+}
+
 export function downloadPageUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.APP_ORIGIN?.trim() || "";
   const base = (configured || "https://office-presence-psi.vercel.app").replace(/\/$/, "");
   return `${base}/download`;
+}
+
+/**
+ * app_update payload url. Always the public /download page.
+ * A direct APK URL stays on sync (policy.appApkUrl), not on this push.
+ */
+export function appUpdatePushUrl(_appApkUrl?: string | null): string {
+  return downloadPageUrl();
 }
 
 /** Mon-Fri 09:00-19:00 in the given IANA timezone. Hour 19 is excluded. */

@@ -32,6 +32,64 @@ class AppPrefs(context: Context) {
         get() = prefs.getString("token", null)
         set(v) = putStr("token", v)
 
+    /** Last ingest rejection summary for the Developer screen, e.g. "2026-11-17 09:12 ignored no_location 1". */
+    var lastIngestRejected: String
+        get() = str("lastIngestRejected", "")
+        set(v) = putStr("lastIngestRejected", v)
+
+    /** Correction decision ids already seen, newest last. Null until the first sync after sign in. */
+    var seenDecisionIds: List<String>?
+        get() = if (!prefs.contains("seenDecisionIds")) null
+        else str("seenDecisionIds", "").split(",").filter { it.isNotBlank() }
+        set(v) {
+            if (v == null) prefs.edit().remove("seenDecisionIds").apply()
+            else putStr("seenDecisionIds", v.joinToString(","))
+        }
+
+    /** HR exception ids already seen, newest last. Null until the first sync after sign in. */
+    var seenExceptionIds: List<String>?
+        get() = if (!prefs.contains("seenExceptionIds")) null
+        else str("seenExceptionIds", "").split(",").filter { it.isNotBlank() }
+        set(v) {
+            if (v == null) prefs.edit().remove("seenExceptionIds").apply()
+            else putStr("seenExceptionIds", v.joinToString(","))
+        }
+
+    /** Holidays, leave days and HR exception days from the last sync (JSON arrays). Records for Today. */
+    var cachedHolidaysJson: String
+        get() = str("cachedHolidaysJson", "[]")
+        set(v) = putStr("cachedHolidaysJson", v)
+
+    var cachedLeaveDaysJson: String
+        get() = str("cachedLeaveDaysJson", "[]")
+        set(v) = putStr("cachedLeaveDaysJson", v)
+
+    /** Tracking consent (privacy notice). Separate from colleague sharing. */
+    var consentRequiredVersion: String
+        get() = str("consentRequiredVersion", "")
+        set(v) = putStr("consentRequiredVersion", v)
+
+    var consentAcceptedVersion: String
+        get() = str("consentAcceptedVersion", "")
+        set(v) = putStr("consentAcceptedVersion", v)
+
+    var consentAcceptedAtIso: String
+        get() = str("consentAcceptedAtIso", "")
+        set(v) = putStr("consentAcceptedAtIso", v)
+
+    var consentRetentionDays: Int
+        get() = prefs.getInt("consentRetentionDays", 90)
+        set(v) = prefs.edit().putInt("consentRetentionDays", v).apply()
+
+    /** Geofences, the presence service and arrival checks only run when this is true. */
+    val hasTrackingConsent: Boolean
+        get() = TrackingConsent.accepted(consentAcceptedVersion, consentRequiredVersion)
+
+    /** Last time each tracking problem was notified, as "problem:epochMs" pairs. */
+    var trackingProblemAlertsCsv: String
+        get() = str("trackingProblemAlerts", "")
+        set(v) = putStr("trackingProblemAlerts", v)
+
     /**
      * Shown once on Login after forced sign-out (deleted/deactivated account).
      * Not cleared by [clearSession].
@@ -73,6 +131,11 @@ class AppPrefs(context: Context) {
     var lastSuccessfulSyncAtMs: Long
         get() = prefs.getLong("lastSuccessfulSyncAtMs", 0L)
         set(v) = prefs.edit().putLong("lastSuccessfulSyncAtMs", v).apply()
+
+    /** Sign-in unlock time (epoch ms) from a 429, so the countdown survives an app restart. */
+    var signInLockedUntilMs: Long
+        get() = prefs.getLong("signInLockedUntilMs", 0L)
+        set(v) = prefs.edit().putLong("signInLockedUntilMs", v).apply()
 
     /** JSON map of monthKey -> version string from sync. */
     var monthVersionsJson: String
@@ -180,6 +243,19 @@ class AppPrefs(context: Context) {
     var role: String
         get() = str("role", "user")
         set(v) = putStr("role", v)
+
+    /** From sync: this person manages someone (direct reports or a team they lead). */
+    var isManager: Boolean
+        get() = prefs.getBoolean("isManager", false)
+        set(v) = prefs.edit().putBoolean("isManager", v).apply()
+
+    var teamPeople: Int
+        get() = prefs.getInt("teamPeople", 0)
+        set(v) = prefs.edit().putInt("teamPeople", v).apply()
+
+    var teamBelowTarget: Int
+        get() = prefs.getInt("teamBelowTarget", 0)
+        set(v) = prefs.edit().putInt("teamBelowTarget", v).apply()
 
     /** light | dark | system */
     var themeMode: String
@@ -335,6 +411,11 @@ class AppPrefs(context: Context) {
         get() = bool("startupAnimationEnabled", true)
         set(v) = putBool("startupAnimationEnabled", v)
 
+    /** Today status style id (SPEC 29). Stored on this phone only; see TodayStyle.fromId. */
+    var todayStyle: String
+        get() = str("todayStyle", "building_badge")
+        set(v) = putStr("todayStyle", v)
+
     var correctionRequiresApproval: Boolean
         get() = bool("correctionRequiresApproval", false)
         set(v) = putBool("correctionRequiresApproval", v)
@@ -384,6 +465,20 @@ class AppPrefs(context: Context) {
     var goalNotifiedMonth: String
         get() = str("goalNotifiedMonth", "")
         set(v) = putStr("goalNotifiedMonth", v)
+
+    /** Latest Android versionCode from sync or an update push. 0 until the server has one. */
+    var publishedAppVersionCode: Int
+        get() = int("publishedAppVersionCode", 0)
+        set(v) = putInt("publishedAppVersionCode", v)
+
+    var publishedAppVersionName: String
+        get() = str("publishedAppVersionName", "")
+        set(v) = putStr("publishedAppVersionName", v)
+
+    /** Local YYYY-MM-DD when the daily update reminder was posted. */
+    var appUpdateRemindedDay: String
+        get() = str("appUpdateRemindedDay", "")
+        set(v) = putStr("appUpdateRemindedDay", v)
 
     /** Last enter heads-up time (epoch ms). Debounce is per direction. */
     var lastPresenceEnterAlertAtMs: Long
@@ -527,6 +622,16 @@ class AppPrefs(context: Context) {
             .remove("viewAsStartedAtMs")
             .remove("viewAsAdminToken")
             .remove("lastUploadedFcmToken")
+            .remove("seenDecisionIds")
+            .remove("seenExceptionIds")
+            .remove("cachedHolidaysJson")
+            .remove("cachedLeaveDaysJson")
+            .remove("isManager")
+            .remove("teamPeople")
+            .remove("teamBelowTarget")
+            .remove("trackingProblemAlerts")
+            .remove("consentAcceptedVersion")
+            .remove("consentAcceptedAtIso")
             .apply()
     }
 

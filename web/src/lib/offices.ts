@@ -38,8 +38,11 @@ export { toFence };
 const geoCache = new Map<string, { at: number; label: string | null }>();
 let lastGeoCall = 0;
 
+const NOMINATIM_CONTACT_URL =
+  process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "") || "http://localhost:3000 (local dev)";
+
 const NOMINATIM_HEADERS = {
-  "User-Agent": "OfficePresence/1.0 (+https://office-presence-psi.vercel.app)",
+  "User-Agent": `OfficePresence/1.0 (+${NOMINATIM_CONTACT_URL})`,
   Accept: "application/json",
   "Accept-Language": "en",
 };

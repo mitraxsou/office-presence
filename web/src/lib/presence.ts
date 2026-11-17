@@ -18,6 +18,8 @@ import {
 } from "./visit-calculator";
 import { sendTeamsNotification, type TeamsPayload } from "./notifications";
 import { buildDayOfficesPayload } from "./office-day";
+import { hasActivePhone, inQuietHours, isoWeekKey, isWeeklySummaryWindow } from "./alert-channel";
+import { exceptionDaysForUserMonth } from "./exception-days";
 
 export function monthKeyInTz(date: Date, timezone: string) {
   return dayKeyInTz(date, timezone).slice(0, 7);
@@ -41,6 +43,7 @@ export type DayDetail = DayPointsResult & {
     officeName: string | null;
     officeId: string | null;
     source: string;
+    open?: boolean;
   }>;
   /** SPEC 13 / corrections-api day detail shape (additive). */
   offices: Array<{
@@ -72,9 +75,9 @@ async function computeForRange(userId: string, monthKey?: string) {
   const [active, pointRows] = await Promise.all([listActiveOffices(), listPointOffices()]);
   const pointOffices = pointRows.map(toFence);
 
-  const [events, adminVisits, exclusions] = await Promise.all([
+  const [events, adminVisits, exclusions, exceptionDays] = await Promise.all([
     prisma.presenceEvent.findMany({
-      where: { userId, simulated: false, recordedAt: { gte: start, lt: end } },
+      where: { userId, simulated: false, trusted: true, recordedAt: { gte: start, lt: end } },
       orderBy: { recordedAt: "asc" },
     }),
     prisma.visit.findMany({
@@ -88,6 +91,7 @@ async function computeForRange(userId: string, monthKey?: string) {
     prisma.visitExclusion.findMany({
       where: { userId, startAt: { lt: end }, endAt: { gte: start } },
     }),
+    exceptionDaysForUserMonth(userId, key),
   ]);
 
   const eventInputs: PresenceEventInput[] = events.map((e) => ({
@@ -98,6 +102,7 @@ async function computeForRange(userId: string, monthKey?: string) {
     accuracyMeters: e.accuracyMeters,
     simulated: e.simulated,
     officeLocationId: e.officeLocationId,
+    pointsAtMatch: e.pointsAtMatch,
   }));
   const adminInputs: AdminVisitInput[] = adminVisits
     .filter((v) => v.endAt)
@@ -126,6 +131,7 @@ async function computeForRange(userId: string, monthKey?: string) {
     exclusions: exclusionInputs,
     offices: active,
     pointOffices,
+    exceptionDays,
   });
   return { rules: userRules, user, timezone, monthKey: key, start, end, events, active, result };
 }
@@ -146,6 +152,7 @@ function attachDetails(
         officeName: nameOf(v.officeLocationId),
         officeId: v.officeLocationId ?? null,
         source: v.source,
+        open: v.open === true,
       }));
     const payload = buildDayOfficesPayload(d.dayKey, d.points, d.hours, intervals);
     return {
@@ -209,7 +216,7 @@ export async function touchStatusFromLatestEvidence(userId: string) {
     listActiveOffices(),
     prisma.currentStatus.findUnique({ where: { userId } }),
     prisma.presenceEvent.findFirst({
-      where: { userId },
+      where: { userId, trusted: true },
       orderBy: { recordedAt: "desc" },
     }),
   ]);
@@ -430,13 +437,11 @@ function continuousStart(visits: ComputedVisit[], atMs: number, timezone: string
   return new Date(start);
 }
 
-function localHour(timezone: string) {
-  return Number(
-    new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", hour12: false }).format(new Date()),
-  );
-}
-
-async function queueAlerts(a: {
+/**
+ * Personal Teams alerts. The phone is the channel for these, so Teams is only a fallback for
+ * people with no active phone (not revoked, seen in the last 7 days).
+ */
+export async function queueAlerts(a: {
   userId: string;
   email: string;
   name: string;
@@ -448,8 +453,17 @@ async function queueAlerts(a: {
   summary: ReturnType<typeof summarizeMonth>;
   hoursToday: number;
   dayHours: number;
+  now?: Date;
 }) {
-  const prefs = await prisma.userNotificationPrefs.findUnique({ where: { userId: a.userId } });
+  const now = a.now ?? new Date();
+  const [prefs, devices] = await Promise.all([
+    prisma.userNotificationPrefs.findUnique({ where: { userId: a.userId } }),
+    prisma.deviceToken.findMany({
+      where: { userId: a.userId, revokedAt: null },
+      select: { revokedAt: true, lastSeenAt: true },
+    }),
+  ]);
+  if (hasActivePhone(devices, now.getTime())) return;
   const base = { email: a.email, name: a.name, hoursToday: a.hoursToday, hoursTarget: a.dayHours };
   const enterOn = prefs?.notifyOfficeEnter ?? prefs?.notifyOfficeDetected ?? true;
   if (a.inOffice && enterOn) {
@@ -466,13 +480,14 @@ async function queueAlerts(a: {
       message: `Goal met: ${a.summary.points} / ${a.summary.target} points this month.`,
     });
   }
-  if (!a.summary.targetMet && prefs?.notifyDailySummary !== false && localHour(a.timezone) >= 9) {
-    await enqueueAlert(a.userId, "daily_summary", a.today, {
+  // Weekly summary (notifyDailySummary is the legacy key). Monday from 09:00, once per ISO week.
+  if (prefs?.notifyDailySummary !== false && isWeeklySummaryWindow(now, a.timezone)) {
+    await enqueueAlert(a.userId, "daily_summary", isoWeekKey(now, a.timezone), {
       ...base,
       type: "custom",
-      message:
-        `Office points: ${a.summary.points} / ${a.summary.target} this month, ${a.summary.remaining} to go. ` +
-        `Hours today ${a.hoursToday.toFixed(1)} (advised ${a.dayHours}).`,
+      message: a.summary.targetMet
+        ? `Weekly summary. Goal met: ${a.summary.points} of ${a.summary.target} points this month.`
+        : `Weekly summary. Month so far: ${a.summary.points} of ${a.summary.target} points, ${a.summary.remaining} to go.`,
     });
   }
 }
@@ -490,8 +505,16 @@ async function enqueueAlert(
   });
 }
 
-export async function flushPendingAlerts(userId: string) {
+export async function flushPendingAlerts(userId: string, now = new Date()) {
   const pending = await prisma.pendingAlert.findMany({ where: { userId, sentAt: null } });
+  if (pending.length === 0) return;
+  const [prefs, user, rules] = await Promise.all([
+    prisma.userNotificationPrefs.findUnique({ where: { userId } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } }),
+    getPolicy(),
+  ]);
+  // Inside quiet hours: leave unsent so a later recompute sends it.
+  if (inQuietHours(prefs, now, user?.timezone || rules.timezone)) return;
   for (const alert of pending) {
     const payload = alert.payload as unknown as TeamsPayload;
     const ok = await sendTeamsNotification(payload);

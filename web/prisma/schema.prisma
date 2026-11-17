@@ -75,6 +75,14 @@ model User {
   developerMode           Boolean                  @default(false)
   sharePresenceWithPeers  Boolean                  @default(false)
   sharePresenceConsentAt  DateTime?
+  /** Tracking consent (privacy notice version accepted). Separate from colleague sharing. */
+  privacyConsentVersion   String?
+  privacyConsentAt        DateTime?
+  /** HR role: may open /admin/exceptions only. Admins can always grant. */
+  canGrantExceptions      Boolean                  @default(false)
+  /** Direct manager. Managers see attendance for direct reports and for teams they lead. */
+  managerId               String?
+  teamId                  String?
   /** Demo / test accounts. Keep in sync with isTestAccount. */
   isDummy                 Boolean                  @default(false)
   /** Alias of isDummy for the Users admin UI. */
@@ -102,9 +110,30 @@ model User {
   viewAsAsAdmin           ViewAsSession[]          @relation("ViewAsAdmin")
   viewAsAsTarget          ViewAsSession[]          @relation("ViewAsTarget")
   deviceApiActivity       DeviceApiActivity[]
+  leaveDays               LeaveDay[]
+  presenceExceptions      PresenceException[]
+  presenceExceptionDays   PresenceExceptionDay[]
+  manager                 User?                    @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports                 User[]                   @relation("UserManager")
+  team                    Team?                    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  teamsLed                Team[]                   @relation("TeamLead")
 
   @@index([homeOfficeId])
   @@index([deactivatedAt])
+  @@index([managerId])
+  @@index([teamId])
+}
+
+/** Grouping label for filters. The lead sees members' attendance like a manager. */
+model Team {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  leadUserId String?
+  createdAt  DateTime @default(now())
+  lead       User?    @relation("TeamLead", fields: [leadUserId], references: [id], onDelete: SetNull)
+  members    User[]   @relation("TeamMembers")
+
+  @@index([leadUserId])
 }
 
 model ViewAsSession {
@@ -138,6 +167,15 @@ model OtpCode {
   @@index([email, createdAt])
 }
 
+/** Sign-in throttle counters. Postgres so limits hold across serverless instances. */
+model AuthThrottle {
+  key         String    @id
+  count       Int       @default(0)
+  windowStart DateTime
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
 model DeviceToken {
   id          String             @id @default(cuid())
   userId      String
@@ -150,6 +188,8 @@ model DeviceToken {
   fcmToken    String?
   appVersionCode            Int?
   updateNotifiedVersionCode Int?
+  /** Policy-timezone day (YYYY-MM-DD) of the last daily update reminder. */
+  updateRemindedOn          String?
   lastSeenAt  DateTime?
   revokedAt   DateTime?
   createdAt   DateTime           @default(now())
@@ -197,7 +237,91 @@ model Policy {
   appVersionCode             Int      @default(0)
   appVersionName             String   @default("")
   appApkUrl                  String?
+  /** Store mock GPS events from real accounts untrusted. Test and dummy accounts always count. */
+  rejectMockLocations        Boolean  @default(true)
+  /** Coordinates and Wi-Fi on presence events are cleared after this many days. Office and points stay. */
+  rawLocationRetentionDays   Int      @default(90)
+  privacyNoticeVersion       String   @default("1")
+  /** Ingest refuses events until the user accepts privacyNoticeVersion. Turn on after most phones run 2.1.0. */
+  requireConsent             Boolean  @default(false)
+  /** Employees may mark their own leave days (records only). */
+  allowSelfLeave                Boolean  @default(true)
+  /** HR exceptions may be granted into a month whose correction window has closed. */
+  allowExceptionsInClosedMonths Boolean  @default(true)
+  /** Managers may approve or not approve pending corrections for people in their scope. */
+  managersDecideCorrections     Boolean  @default(false)
   updatedAt                  DateTime @updatedAt
+}
+
+/** Public holiday. Records only: never changes points or the target. officeLocationId null applies to every office. */
+model Holiday {
+  id               String   @id @default(cuid())
+  dayKey           String
+  name             String
+  officeLocationId String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+
+  @@unique([dayKey, officeLocationId])
+  @@index([dayKey])
+}
+
+/** Leave or other duty. Records only: never changes points or the target. */
+model LeaveDay {
+  id          String   @id @default(cuid())
+  userId      String
+  dayKey      String
+  /** leave | other_duty */
+  kind        String
+  note        String?
+  /** self | admin */
+  source      String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayKey])
+}
+
+/** HR exception grant. Applied immediately; revoked, never deleted. */
+model PresenceException {
+  id               String                 @id @default(cuid())
+  userId           String
+  /** days | month */
+  kind             String
+  startDay         String
+  endDay           String
+  /** Home office the points were copied from. */
+  officeLocationId String
+  /** Copied from the office when granted. Later office edits do not change it. */
+  pointsPerDay     Int
+  reason           String
+  reference        String?
+  grantedById      String
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  revokedAt        DateTime?
+  revokedById      String?
+  revokeReason     String?
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days             PresenceExceptionDay[]
+
+  @@index([userId, startDay])
+}
+
+/** One covered working day of an exception, expanded and stored at grant time. */
+model PresenceExceptionDay {
+  id          String            @id @default(cuid())
+  exceptionId String
+  userId      String
+  dayKey      String
+  points      Int
+  exception   PresenceException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([exceptionId, dayKey])
+  @@index([userId, dayKey])
 }
 
 model OfficeLocation {
@@ -281,10 +405,18 @@ model PresenceEvent {
   wifiSsid         String?
   wifiBssid        String?
   simulated        Boolean         @default(false)
+  /** The phone reported a mock location provider (app 2.1.0 and later). */
+  mockLocation     Boolean         @default(false)
   clientEventId    String?
   deviceTokenId    String?
   deviceName       String?
   officeLocationId String?
+  /** Office points copied when the event was matched. Later office edits do not change it. */
+  pointsAtMatch    Int?
+  /** Set at ingest. Untrusted events are kept for review but never counted. */
+  trusted          Boolean         @default(true)
+  /** future, too_old, no_location, outside_office, unverified_check_in, client_office_mismatch */
+  rejectReason     String?
   createdAt        DateTime        @default(now())
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   deviceToken      DeviceToken?    @relation(fields: [deviceTokenId], references: [id], onDelete: SetNull)

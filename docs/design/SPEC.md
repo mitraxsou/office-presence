@@ -103,7 +103,7 @@ Users rows show "View as" for active non-admin users. A dark banner sits above t
 ## 13. Several offices in one day
 
 Frames: P / Today / In, second office; P / Month / Day with several offices; W / Month / Day with several offices; W / Admin / Person visits.
-- Group visits by office in order of first arrival. Office time = sum of its visits. Total in office = sum of all visits; travel between offices is not counted and is shown as one line of text.
+- Group visits by office in order of first arrival. Office time is the first In to the last Out at that office, or to the current time if still In. The day total counts overlapping office time once. Time between offices is not counted and is shown as one line of text.
 - The day counts once. If the offices have different "Counts as" values, the day counts at the highest value (confirm with backend; display whatever the server returns).
 - Timeline: 8 am to 8 pm (extend if a visit is outside), neutral tones only (ink for the first office, ink-3 for the second, ink-2 for a third). Orange is never used for time.
 - Today after a move: hero shows the current office and time since arriving there; a "Today, N offices" card lists each office with its time and the hours today total (FYI).

@@ -21,6 +21,7 @@ object PresenceCheckAction {
         val prefs = AppPrefs(context)
         if (prefs.token.isNullOrBlank()) return
         if (prefs.isViewAsReadonly) return
+        if (!prefs.hasTrackingConsent && !prefs.isViewAsActive) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -39,6 +40,7 @@ object PresenceCheckAction {
                             loc.latitude,
                             loc.longitude,
                             loc.accuracy.toDouble(),
+                            com.pwc.officepresence.presence.LocationFlags.isMock(loc),
                         )
                     } catch (_: Exception) {
                     }

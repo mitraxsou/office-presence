@@ -32,6 +32,10 @@ function listSelect() {
     deactivatedAt: true,
     homeOfficeId: true,
     homeOffice: { select: { id: true, name: true } },
+    managerId: true,
+    manager: { select: { id: true, email: true, name: true } },
+    teamId: true,
+    team: { select: { id: true, name: true } },
     sharePresenceWithPeers: true,
     createdAt: true,
     deviceTokens: {

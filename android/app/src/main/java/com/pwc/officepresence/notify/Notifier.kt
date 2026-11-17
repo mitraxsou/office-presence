@@ -40,7 +40,14 @@ object Notifier {
     const val ID_TRACKING = 1006
     const val ID_SIGNED_OUT = 1007
     const val ID_UPDATE = 1008
+    const val ID_EXCEPTION = 1009
     const val ID_TEST = 1099
+
+    /** ShellActivity extras: which tab to open from a notification, and the Month day. */
+    const val EXTRA_OPEN_TAB = "openTab"
+    const val EXTRA_OPEN_DAY = "openDayKey"
+    const val TAB_MONTH = "month"
+    const val TAB_TRACKING = "tracking"
 
     const val CHANNEL_ARRIVALS = "arrivals_leaving"
     const val CHANNEL_GOAL = "goal_met"
@@ -62,7 +69,7 @@ object Notifier {
     val CHANNELS = listOf(
         ChannelSpec(CHANNEL_ARRIVALS, "Arrivals and leaving", "When you are In or Out at an office", NotificationManager.IMPORTANCE_HIGH, "chime"),
         ChannelSpec(CHANNEL_GOAL, "Goal met", "When you reach your points for the month", defaultTone = "pulse"),
-        ChannelSpec(CHANNEL_WEEKLY, "Weekly summary", "Monday 9:00 am: points so far this month"),
+        ChannelSpec(CHANNEL_WEEKLY, "Weekly summary", "Monday 9:00 am: your week and month so far"),
         ChannelSpec(CHANNEL_CORRECTIONS, "Correction requests", "When an admin decides on your request"),
         ChannelSpec(CHANNEL_TRACKING, "Tracking problems", "Location off, or no sync for 24 h", NotificationManager.IMPORTANCE_HIGH),
         ChannelSpec(CHANNEL_UPDATE, "App updates", "When a newer version is published", NotificationManager.IMPORTANCE_HIGH),
@@ -336,13 +343,19 @@ object Notifier {
         text: String,
         high: Boolean = false,
         respectQuietHours: Boolean = true,
+        openTab: String? = null,
+        openDayKey: String? = null,
     ): Boolean {
         if (!canPost(context)) return false
         val prefs = AppPrefs(context)
         val quiet = respectQuietHours && inQuietHours(prefs)
         ensureAllChannels(context)
+        val target = Intent(context, ShellActivity::class.java).apply {
+            if (openTab != null) putExtra(EXTRA_OPEN_TAB, openTab)
+            if (openDayKey != null) putExtra(EXTRA_OPEN_DAY, openDayKey)
+        }
         val launch = PendingIntent.getActivity(
-            context, notifId, Intent(context, ShellActivity::class.java),
+            context, notifId, target,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = NotificationCompat.Builder(context, channelId)
@@ -453,36 +466,60 @@ object Notifier {
         )
     }
 
-    fun dailySummary(context: Context, points: Int, target: Int, hoursToday: Double, advised: Double) {
+    /** Monday summary. notifyDailySummary is the legacy key; it now means weekly. */
+    fun weeklySummary(context: Context, weekVisitDays: Int, points: Int, target: Int) {
         val prefs = AppPrefs(context)
-        if (!prefs.notifyDailySummary || points >= target) return
-        val remaining = target - points
-        post(
-            context, CHANNEL_WEEKLY, ID_SUMMARY,
-            "$points / $target points",
-            "$remaining to go. Hours ${"%.1f".format(hoursToday)}h",
-        )
+        if (!prefs.notifyDailySummary) return
+        val (title, body) = WeeklySummary.body(weekVisitDays, points, target, monthName(context))
+        post(context, CHANNEL_WEEKLY, ID_SUMMARY, title, body)
     }
 
-    fun correctionDecided(context: Context, approved: Boolean, dayLabel: String) {
+    fun correctionDecided(
+        context: Context,
+        approved: Boolean,
+        dayLabel: String,
+        dayKey: String? = null,
+        reviewNote: String? = null,
+    ) {
         val prefs = AppPrefs(context)
         if (!prefs.notifyCorrections) return
+        val note = reviewNote?.trim()?.takeIf { it.isNotBlank() && it != "null" }
         val body = if (approved) {
             "$dayLabel now counts. ${monthName(context)} is ${monthScore(context)}."
         } else {
-            "$dayLabel stays as recorded."
+            "$dayLabel stays as recorded." + (note?.let { " Note: $it" } ?: "")
         }
         post(
             context, CHANNEL_CORRECTIONS, ID_CORRECTIONS,
             if (approved) "Correction approved" else "Correction not approved",
             body,
             respectQuietHours = !prefs.quietAlertCorrections,
+            openTab = TAB_MONTH,
+            openDayKey = dayKey,
         )
     }
 
-    fun appUpdate(context: Context, url: String) {
-        if (!canPost(context)) return
+    /** Someone else granted the person an HR exception. Tap opens that day in Month. */
+    fun exceptionAdded(context: Context, body: String, dayKey: String) {
+        post(
+            context, CHANNEL_CORRECTIONS, ID_EXCEPTION,
+            "HR exception added",
+            body,
+            respectQuietHours = true,
+            openTab = TAB_MONTH,
+            openDayKey = dayKey,
+        )
+    }
+
+    fun appUpdate(
+        context: Context,
+        url: String,
+        versionName: String = "",
+        respectQuietHours: Boolean = false,
+    ): Boolean {
+        if (!canPost(context)) return false
         ensureAllChannels(context)
+        val quiet = respectQuietHours && inQuietHours(AppPrefs(context))
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -490,8 +527,8 @@ object Notifier {
             context, ID_UPDATE, view,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = "A new version is ready to install."
-        val n = NotificationCompat.Builder(context, CHANNEL_UPDATE)
+        val text = AppUpdateCheck.notice(versionName)
+        val builder = NotificationCompat.Builder(context, CHANNEL_UPDATE)
             .setSmallIcon(R.drawable.ic_stat_presence)
             .setColor(ContextCompat.getColor(context, R.color.pwc_orange))
             .setContentTitle("Update the app")
@@ -499,24 +536,34 @@ object Notifier {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(launch)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .build()
-        try {
-            NotificationManagerCompat.from(context).notify(ID_UPDATE, n)
+        if (quiet) {
+            builder
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSound(null)
+                .setVibrate(longArrayOf(0L))
+        } else {
+            builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+        }
+        return try {
+            NotificationManagerCompat.from(context).notify(ID_UPDATE, builder.build())
+            true
         } catch (_: SecurityException) {
+            false
         }
     }
 
-    fun trackingProblem(context: Context, text: String) {
+    fun trackingProblem(context: Context, text: String): Boolean {
         val prefs = AppPrefs(context)
-        if (!prefs.notifyTrackingProblems) return
-        post(
+        if (!prefs.notifyTrackingProblems) return false
+        return post(
             context, CHANNEL_TRACKING, ID_TRACKING,
             "Visits are not being counted",
             text.ifBlank { "Location is off. Open the app to turn it on." },
             high = true,
             respectQuietHours = !prefs.quietAlertTracking,
+            openTab = TAB_TRACKING,
         )
     }
 

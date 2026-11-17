@@ -7,7 +7,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 2) {
+class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 4) {
+    private val appContext = context.applicationContext
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -22,7 +24,9 @@ class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 
               wifi_bssid TEXT,
               simulated INTEGER NOT NULL DEFAULT 0,
               uploaded INTEGER NOT NULL DEFAULT 0,
-              office_id TEXT
+              office_id TEXT,
+              points_at_match INTEGER,
+              mock INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -30,6 +34,18 @@ class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE events ADD COLUMN office_id TEXT")
+        if (oldVersion < 3) db.execSQL("ALTER TABLE events ADD COLUMN points_at_match INTEGER")
+        if (oldVersion < 4) db.execSQL("ALTER TABLE events ADD COLUMN mock INTEGER NOT NULL DEFAULT 0")
+    }
+
+    /** Office weight this phone already has, kept with the event for the offline estimate. */
+    private fun officePoints(officeId: String?): Int? {
+        if (officeId.isNullOrBlank()) return null
+        return try {
+            AppPrefs(appContext).offices().firstOrNull { it.id == officeId }?.pointsPerVisitDay
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun add(
@@ -42,19 +58,44 @@ class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 
         wifiBssid: String? = null,
         simulated: Boolean = false,
         officeId: String? = null,
+        pointsAtMatch: Int? = officePoints(officeId),
+        mock: Boolean = false,
     ): String {
         val id = UUID.randomUUID().toString()
         writableDatabase.execSQL(
-            "INSERT INTO events(id,type,recorded_at,lat,lng,accuracy,wifi_ssid,wifi_bssid,simulated,uploaded,office_id) VALUES(?,?,?,?,?,?,?,?,?,0,?)",
-            arrayOf(id, type, recordedAtIso, lat, lng, accuracy, wifiSsid, wifiBssid, if (simulated) 1 else 0, officeId),
+            "INSERT INTO events(id,type,recorded_at,lat,lng,accuracy,wifi_ssid,wifi_bssid,simulated,uploaded,office_id,points_at_match,mock) VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?)",
+            arrayOf(id, type, recordedAtIso, lat, lng, accuracy, wifiSsid, wifiBssid, if (simulated) 1 else 0, officeId, pointsAtMatch, if (mock) 1 else 0),
         )
         return id
+    }
+
+    /** Local events since [sinceIso] for the offline estimate. The server result always wins. */
+    fun localEvents(sinceIso: String): List<com.pwc.officepresence.presence.PresenceEventInput> {
+        val out = mutableListOf<com.pwc.officepresence.presence.PresenceEventInput>()
+        readableDatabase.rawQuery(
+            "SELECT type,recorded_at,lat,lng,accuracy,simulated,office_id,points_at_match FROM events WHERE recorded_at >= ? ORDER BY recorded_at ASC",
+            arrayOf(sinceIso),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out += com.pwc.officepresence.presence.PresenceEventInput(
+                    type = c.getString(0),
+                    at = c.getString(1),
+                    lat = if (c.isNull(2)) null else c.getDouble(2),
+                    lng = if (c.isNull(3)) null else c.getDouble(3),
+                    accuracyMeters = if (c.isNull(4)) null else c.getDouble(4),
+                    simulated = c.getInt(5) == 1,
+                    officeLocationId = if (c.isNull(6)) null else c.getString(6),
+                    pointsAtMatch = if (c.isNull(7)) null else c.getInt(7),
+                )
+            }
+        }
+        return out
     }
 
     fun pendingBatch(limit: Int = 50): JSONArray {
         val arr = JSONArray()
         readableDatabase.rawQuery(
-            "SELECT id,type,recorded_at,lat,lng,accuracy,wifi_ssid,wifi_bssid,simulated,office_id FROM events WHERE uploaded=0 ORDER BY recorded_at ASC LIMIT ?",
+            "SELECT id,type,recorded_at,lat,lng,accuracy,wifi_ssid,wifi_bssid,simulated,office_id,mock FROM events WHERE uploaded=0 ORDER BY recorded_at ASC LIMIT ?",
             arrayOf(limit.toString()),
         ).use { c ->
             while (c.moveToNext()) {
@@ -69,6 +110,7 @@ class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 
                 if (!c.isNull(7)) o.put("wifiBssid", c.getString(7))
                 o.put("simulated", c.getInt(8) == 1)
                 if (!c.isNull(9)) o.put("officeLocationId", c.getString(9))
+                o.put("mock", c.getInt(10) == 1)
                 arr.put(o)
             }
         }
@@ -103,11 +145,11 @@ class EventLog(context: Context) : SQLiteOpenHelper(context, "events.db", null, 
     fun recent(limit: Int = 30): List<String> {
         val out = mutableListOf<String>()
         readableDatabase.rawQuery(
-            "SELECT type,recorded_at,simulated,uploaded FROM events ORDER BY recorded_at DESC LIMIT ?",
+            "SELECT type,recorded_at,simulated,uploaded,mock FROM events ORDER BY recorded_at DESC LIMIT ?",
             arrayOf(limit.toString()),
         ).use { c ->
             while (c.moveToNext()) {
-                val sim = if (c.getInt(2) == 1) " sim" else ""
+                val sim = (if (c.getInt(2) == 1) " sim" else "") + (if (c.getInt(4) == 1) " mock" else "")
                 val up = if (c.getInt(3) == 1) " sent" else " queued"
                 out += "${c.getString(1).take(19).replace('T', ' ')} ${c.getString(0)}$sim$up"
             }

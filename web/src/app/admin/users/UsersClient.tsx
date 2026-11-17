@@ -39,6 +39,10 @@ type UserRow = {
   deactivatedAt: string | null;
   homeOfficeId: string | null;
   homeOffice: { id: string; name: string } | null;
+  managerId?: string | null;
+  manager?: { id: string; email: string; name: string | null } | null;
+  teamId?: string | null;
+  team?: { id: string; name: string } | null;
   phones: Phone[];
   lastSeenAt: string | null;
   statusLabel: string;
@@ -47,6 +51,7 @@ type UserRow = {
 
 type UserDetail = UserRow & {
   hasPassword?: boolean;
+  canGrantExceptions?: boolean;
   viewAsSessions?: {
     id: string;
     mode: string;
@@ -59,7 +64,7 @@ type UserDetail = UserRow & {
 
 type StatusFilter = "active" | "deactivated" | "all";
 type DrawerMode = "add" | "edit" | null;
-type ModalMode = "viewAs" | "deactivate" | "reactivate" | "delete" | null;
+type ModalMode = "viewAs" | "deactivate" | "reactivate" | "delete" | "reset" | null;
 
 type FormState = {
   fullName: string;
@@ -67,6 +72,9 @@ type FormState = {
   role: "admin" | "user";
   homeOfficeId: string;
   isTestAccount: boolean;
+  canGrantExceptions: boolean;
+  teamId: string;
+  managerEmail: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -75,7 +83,12 @@ const emptyForm = (): FormState => ({
   role: "user",
   homeOfficeId: "",
   isTestAccount: false,
+  canGrantExceptions: false,
+  teamId: "",
+  managerEmail: "",
 });
+
+type TeamOption = { id: string; name: string };
 
 function personLabel(u: {
   firstName?: string | null;
@@ -133,17 +146,34 @@ export default function UsersClient({
   const [emailError, setEmailError] = useState<{ text: string; id?: string; name?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState("");
+  const [resetReason, setResetReason] = useState("");
   const [viewAsTarget, setViewAsTarget] = useState<UserRow | null>(null);
   const [adminPassword, setAdminPassword] = useState("");
   const [adminPasswordBusy, setAdminPasswordBusy] = useState(false);
   const [apiActivity, setApiActivity] = useState<ApiActivityRow[]>([]);
   const [apiActivityLoading, setApiActivityLoading] = useState(false);
 
+  const [allPeople, setAllPeople] = useState<UserRow[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+
+  const loadTeams = useCallback(async () => {
+    const res = await fetch("/api/admin/teams", { cache: "no-store" });
+    if (!res.ok) return;
+    const j = (await res.json()) as { teams: TeamOption[] };
+    setTeams(j.teams.map((t) => ({ id: t.id, name: t.name })));
+  }, []);
+
+  useEffect(() => {
+    void loadTeams();
+  }, [loadTeams]);
+
   const loadStats = useCallback(async () => {
     const res = await fetch("/api/admin/users?status=all&includeTest=1", { cache: "no-store" });
     if (!res.ok) return;
     const j = (await res.json()) as { users: UserRow[] };
     const list = j.users ?? [];
+    setAllPeople(list.filter((u) => !u.deactivatedAt));
     setStats({
       active: list.filter((u) => !u.deactivatedAt).length,
       admins: list.filter((u) => !u.deactivatedAt && u.role === "admin").length,
@@ -222,6 +252,9 @@ export default function UsersClient({
       role: u.role,
       homeOfficeId: u.homeOfficeId ?? "",
       isTestAccount: u.isTestAccount || u.isDummy,
+      canGrantExceptions: false,
+      teamId: u.teamId ?? "",
+      managerEmail: u.manager?.email ?? "",
     });
     const res = await fetch(`/api/admin/users/${u.id}`, { cache: "no-store" });
     if (res.ok) {
@@ -235,6 +268,9 @@ export default function UsersClient({
         role: j.user.role,
         homeOfficeId: j.user.homeOfficeId ?? "",
         isTestAccount: j.user.isTestAccount || j.user.isDummy,
+        canGrantExceptions: j.user.canGrantExceptions === true,
+        teamId: j.user.teamId ?? "",
+        managerEmail: j.user.manager?.email ?? "",
       });
     } else {
       setDetail(u);
@@ -378,6 +414,12 @@ export default function UsersClient({
       setMsg({ kind: "error", text: "Enter a first and last name" });
       return;
     }
+    const managerEmail = form.managerEmail.trim().toLowerCase();
+    const manager = managerEmail ? allPeople.find((p) => p.email.toLowerCase() === managerEmail) : null;
+    if (managerEmail && !manager) {
+      setMsg({ kind: "error", text: "Manager not found. Choose a person from the list." });
+      return;
+    }
     setBusy(true);
     const res = await fetch(`/api/admin/users/${detail.id}`, {
       method: "PATCH",
@@ -389,6 +431,9 @@ export default function UsersClient({
         role: form.role,
         homeOfficeId: form.homeOfficeId || null,
         isTestAccount: form.isTestAccount,
+        canGrantExceptions: form.canGrantExceptions,
+        teamId: form.teamId || null,
+        managerId: manager?.id ?? null,
       }),
     });
     const j = await res.json().catch(() => ({}));
@@ -445,6 +490,25 @@ export default function UsersClient({
     closeDrawer();
     void loadList();
     void loadStats();
+  }
+
+  async function confirmReset() {
+    if (!detail || busy) return;
+    setBusy(true);
+    const res = await fetch("/api/admin/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: detail.id, confirm: confirmEmail.trim(), reason: resetReason.trim() }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setMsg({ kind: "error", text: typeof j.error === "string" ? j.error : "Could not reset" });
+      return;
+    }
+    setMsg({ kind: "ok", text: `Test data reset for ${personLabel(detail)}` });
+    setModal(null);
+    void loadList();
   }
 
   async function confirmReactivate() {
@@ -553,11 +617,27 @@ export default function UsersClient({
           <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>
             Export CSV
           </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setImportOpen(true)}>
+            Import managers and teams
+          </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={openAdd}>
             Add user
           </button>
         </div>
       </div>
+
+      {importOpen ? (
+        <TeamImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={(text) => {
+            setImportOpen(false);
+            setMsg({ kind: "ok", text });
+            void loadList();
+            void loadStats();
+            void loadTeams();
+          }}
+        />
+      ) : null}
 
       {msg ? (
         <div className={`op-toast ${msg.kind === "ok" ? "ok" : "err"}`} role="status">
@@ -708,7 +788,6 @@ export default function UsersClient({
                       <div className="row" style={{ gap: 8, display: "flex", alignItems: "center" }}>
                         <span className="person-name">{label}</span>
                         {u.isTestAccount || u.isDummy ? <span className="op-tag">Test</span> : null}
-                        {u.isTestAccount || u.isDummy ? <span className="op-tag">Test</span> : null}
                       </div>
                       <div className="person-email">{u.email}</div>
                     </td>
@@ -796,6 +875,7 @@ export default function UsersClient({
               }
               roleLocked={drawer === "edit" && isSelf(detail?.id ?? "")}
               testHint
+              org={drawer === "edit" && detail ? { teams, people: allPeople, selfId: detail.id } : null}
             />
 
             {drawer === "add" ? (
@@ -997,6 +1077,19 @@ export default function UsersClient({
                       Reactivate user
                     </button>
                   )}
+                  {detail.isTestAccount || detail.isDummy ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setConfirmEmail("");
+                        setResetReason("");
+                        setModal("reset");
+                      }}
+                    >
+                      Reset test data
+                    </button>
+                  ) : null}
                   <button type="button" className="btn btn-ghost" style={{ fontSize: 13.5 }} onClick={() => {
                     setConfirmEmail("");
                     setModal("delete");
@@ -1106,6 +1199,51 @@ export default function UsersClient({
         </Modal>
       ) : null}
 
+      {modal === "reset" && detail ? (
+        <Modal onClose={() => setModal(null)}>
+          <h2 className="op-modal-title">Reset test data for {personLabel(detail)}?</h2>
+          <p className="op-ink2" style={{ margin: "12px 0 0", fontSize: 15 }}>
+            Deletes this test account&apos;s events, visits, exclusions, alerts and live status. The account and its
+            phones stay. Real accounts cannot be reset here.
+          </p>
+          <label className="op-field" style={{ marginTop: 18 }}>
+            <span className="op-field-lab">Type {detail.email} to confirm</span>
+            <input
+              className="op-input op-input-sm"
+              value={confirmEmail}
+              onChange={(e) => setConfirmEmail(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label className="op-field" style={{ marginTop: 12 }}>
+            <span className="op-field-lab">Reason (at least 10 characters)</span>
+            <input
+              className="op-input op-input-sm"
+              value={resetReason}
+              onChange={(e) => setResetReason(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <div className="row" style={{ marginTop: 24, gap: 10, display: "flex" }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={
+                busy ||
+                confirmEmail.trim().toLowerCase() !== detail.email.toLowerCase() ||
+                resetReason.trim().length < 10
+              }
+              onClick={() => void confirmReset()}
+            >
+              Reset test data
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
       {modal === "delete" && detail ? (
         <Modal onClose={() => setModal(null)}>
           <h2 className="op-modal-title">Delete {personLabel(detail)} permanently?</h2>
@@ -1156,6 +1294,104 @@ export default function UsersClient({
   );
 }
 
+type TeamImportReport = {
+  rows: number;
+  changes: { line: number }[];
+  problems: { line: number; email: string; error: string }[];
+  newTeams: string[];
+};
+
+function TeamImportModal({ onClose, onImported }: { onClose: () => void; onImported: (message: string) => void }) {
+  const [csv, setCsv] = useState("");
+  const [report, setReport] = useState<TeamImportReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/admin/imports/users?dryRun=${dryRun ? "true" : "false"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setError(typeof j.error === "string" ? j.error : "Could not read the file");
+      return;
+    }
+    const r = j as TeamImportReport;
+    if (dryRun) setReport(r);
+    else onImported(`Updated ${r.changes.length} people. ${r.problems.length} rows skipped.`);
+  }
+
+  return (
+    <>
+      <button type="button" className="op-drawer-scrim" aria-label="Close dialog" onClick={onClose} />
+      <div className="op-wmodal" role="dialog" style={{ width: 640 }}>
+        <h2 className="op-modal-title">Import managers and teams</h2>
+        <p className="op-meta">
+          Columns: email, managerEmail, teamName. A blank cell leaves that field as it is. New team names are created.
+        </p>
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          style={{ marginTop: 12 }}
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            setCsv(await f.text());
+            setReport(null);
+          }}
+        />
+        {report ? (
+          <div className="card" style={{ marginTop: 14 }}>
+            <b>
+              {report.changes.length} updates, {report.newTeams.length} new teams, {report.problems.length} problems
+            </b>
+            {report.problems.length ? (
+              <div className="op-tbl" style={{ marginTop: 10 }}>
+                <table>
+                  <tbody>
+                    {report.problems.map((p) => (
+                      <tr key={`${p.line}-${p.error}`}>
+                        <td className="tab">Line {p.line}</td>
+                        <td>{p.email}</td>
+                        <td>{p.error === "Manager loop" ? "This would make a loop" : p.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {error ? (
+          <div className="op-ferr" style={{ marginTop: 12 }}>
+            <span aria-hidden>!</span>
+            <span>{error}</span>
+          </div>
+        ) : null}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+            Cancel
+          </button>
+          {report && report.changes.length > 0 ? (
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void run(false)}>
+              Import {report.changes.length} rows
+            </button>
+          ) : (
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy || !csv} onClick={() => void run(true)}>
+              Check file
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function UserForm({
   form,
   setForm,
@@ -1164,10 +1400,12 @@ function UserForm({
   onEmailBlur,
   onOpenExisting,
   roleLocked,
+  org,
 }: {
   form: FormState;
   setForm: (f: FormState) => void;
   offices: Office[];
+  org?: { teams: TeamOption[]; people: UserRow[]; selfId: string } | null;
   emailError: { text: string; id?: string; name?: string } | null;
   onEmailBlur: () => void;
   onOpenExisting?: () => void;
@@ -1250,7 +1488,68 @@ function UserForm({
             </option>
           ))}
         </select>
+        <span className="op-meta">HR exception days count this office&apos;s points.</span>
       </label>
+      {org ? (
+        <>
+          <label className="op-field" style={{ marginTop: 16 }}>
+            <span className="op-field-lab">Team</span>
+            <select
+              className="op-input op-input-sm"
+              value={form.teamId}
+              onChange={(e) => setForm({ ...form, teamId: e.target.value })}
+            >
+              <option value="">No team</option>
+              {org.teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="op-field" style={{ marginTop: 16 }}>
+            <span className="op-field-lab">Manager</span>
+            <input
+              className="op-input op-input-sm"
+              list="op-manager-options"
+              value={form.managerEmail}
+              onChange={(e) => setForm({ ...form, managerEmail: e.target.value })}
+              placeholder="Search by name or email"
+            />
+            <datalist id="op-manager-options">
+              {org.people
+                .filter((p) => p.id !== org.selfId)
+                .map((p) => (
+                  <option key={p.id} value={p.email}>
+                    {personLabel(p)}
+                  </option>
+                ))}
+            </datalist>
+            <span className="op-meta">Managers see this person&apos;s attendance. They cannot edit visits.</span>
+          </label>
+        </>
+      ) : null}
+      {form.role === "user" ? (
+        <div
+          className="op-set-row"
+          style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--op-line)" }}
+        >
+          <div>
+            <div className="op-set-h" style={{ fontSize: 14.5 }}>
+              Can grant HR exceptions
+            </div>
+            <div className="op-meta">Opens the Exceptions page only. No roster, no visit edits.</div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.canGrantExceptions}
+            aria-label="Can grant HR exceptions"
+            className={`op-switch ${form.canGrantExceptions ? "on" : ""}`}
+            onClick={() => setForm({ ...form, canGrantExceptions: !form.canGrantExceptions })}
+          />
+        </div>
+      ) : null}
       <div
         className="op-set-row"
         style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--op-line)" }}

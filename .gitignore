@@ -21,6 +21,7 @@ android/**/build/
 android/**/.cxx/
 android/*.iml
 android/app/*.apk
+web/public/downloads/*.apk
 android/app/*.aab
 *.jks
 *.keystore

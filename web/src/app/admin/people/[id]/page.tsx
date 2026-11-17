@@ -2,10 +2,12 @@ import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getPolicy } from "@/lib/policy";
-import { computeUserMonth, monthKeyInTz } from "@/lib/presence";
+import { computeUserMonth, monthBounds, monthKeyInTz } from "@/lib/presence";
 import { adminVisitPoints, pointsCellLabel } from "@/lib/points-format";
 import AppShell from "@/components/AppShell";
-import PersonVisitsClient, { type PersonVisitRow } from "./PersonVisitsClient";
+import { ignoreReasonLabel } from "@/lib/ingest-trust";
+import { holidaysForOffice } from "@/lib/holidays";
+import PersonVisitsClient, { type IgnoredDay, type PersonDayNote, type PersonVisitRow } from "./PersonVisitsClient";
 
 function fmtClock(d: Date, tz: string): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -97,7 +99,8 @@ export default async function PersonVisitsPage({
   });
   if (!user) notFound();
 
-  const [visits, corrections, reviewers, liveMonth] = await Promise.all([
+  const { start: tzMonthStart, end: tzMonthEnd } = monthBounds(tz, monthKey);
+  const [visits, corrections, reviewers, liveMonth, untrusted, mockEventsThisMonth] = await Promise.all([
     prisma.visit.findMany({
       where: { userId: id, startAt: { gte: new Date(Date.UTC(y - 1, 0, 1)) } },
       orderBy: { startAt: "desc" },
@@ -118,7 +121,32 @@ export default async function PersonVisitsPage({
       select: { id: true, name: true, email: true },
     }),
     computeUserMonth(id, monthKey),
+    prisma.presenceEvent.findMany({
+      where: { userId: id, trusted: false, recordedAt: { gte: new Date(Date.UTC(y - 1, 0, 1)) } },
+      select: { recordedAt: true, rejectReason: true },
+      orderBy: { recordedAt: "desc" },
+      take: 1000,
+    }),
+    prisma.presenceEvent.count({
+      where: { userId: id, mockLocation: true, recordedAt: { gte: tzMonthStart, lt: tzMonthEnd } },
+    }),
   ]);
+
+  const ignoredMap = new Map<string, { count: number; reasons: Map<string, number> }>();
+  for (const e of untrusted) {
+    const key = dayKeyInTz(e.recordedAt, tz);
+    const entry = ignoredMap.get(key) ?? { count: 0, reasons: new Map<string, number>() };
+    entry.count += 1;
+    const reason = e.rejectReason ?? "other";
+    entry.reasons.set(reason, (entry.reasons.get(reason) ?? 0) + 1);
+    ignoredMap.set(key, entry);
+  }
+  const ignoredDays: IgnoredDay[] = [...ignoredMap.entries()].map(([dayKey, v]) => ({
+    dayKey,
+    dayLabel: fmtDayLabel(dayKey),
+    count: v.count,
+    title: [...v.reasons.entries()].map(([r, n]) => `${ignoreReasonLabel(r)}: ${n}`).join(", "),
+  }));
 
   const allOffices = await prisma.officeLocation.findMany({
     where: { status: "active" },
@@ -126,7 +154,65 @@ export default async function PersonVisitsPage({
     orderBy: { name: "asc" },
   });
   const officeNames = new Map(allOffices.map((o) => [o.id, o.name]));
-  const officePoints = new Map(allOffices.map((o) => [o.id, o.pointsPerVisitDay]));
+
+  const notesFrom = `${y - 1}-01-01`;
+  const notesTo = `${y}-12-31`;
+  const [exceptionDays, leaveDays, holidays, homeOffice] = await Promise.all([
+    prisma.presenceExceptionDay.findMany({
+      where: { userId: id, dayKey: { gte: notesFrom, lte: notesTo }, exception: { revokedAt: null } },
+      include: {
+        exception: {
+          select: { id: true, reason: true, officeLocationId: true, pointsPerDay: true, days: { select: { id: true } } },
+        },
+      },
+    }),
+    prisma.leaveDay.findMany({ where: { userId: id, dayKey: { gte: notesFrom, lte: notesTo } } }),
+    holidaysForOffice(user.homeOfficeId, notesFrom, notesTo),
+    user.homeOfficeId
+      ? prisma.officeLocation.findUnique({ where: { id: user.homeOfficeId }, select: { name: true, pointsPerVisitDay: true } })
+      : Promise.resolve(null),
+  ]);
+  const peopleIds = [...new Set(leaveDays.map((l) => l.createdById).filter((x): x is string => Boolean(x)))];
+  const leaveAuthors = new Map(
+    (await prisma.user.findMany({ where: { id: { in: peopleIds } }, select: { id: true, name: true, email: true, firstName: true } })).map(
+      (p) => [p.id, p.firstName || (p.name ?? p.email).split(/\s+/)[0]],
+    ),
+  );
+  const allOfficeNames = new Map(
+    (
+      await prisma.officeLocation.findMany({
+        where: { id: { in: [...new Set(exceptionDays.map((d) => d.exception.officeLocationId))] } },
+        select: { id: true, name: true },
+      })
+    ).map((o) => [o.id, o.name]),
+  );
+  const notes = new Map<string, PersonDayNote>();
+  const noteFor = (dayKey: string): PersonDayNote => {
+    const cur = notes.get(dayKey) ?? { dayKey, dayLabel: fmtDayLabel(dayKey), points: 0 };
+    notes.set(dayKey, cur);
+    return cur;
+  };
+  for (const d of exceptionDays) {
+    const n = noteFor(d.dayKey);
+    if (!n.exception || d.points > n.exception.points) {
+      n.exception = {
+        id: d.exception.id,
+        officeName: allOfficeNames.get(d.exception.officeLocationId) ?? "Office",
+        points: d.points,
+        reason: d.exception.reason,
+        totalDays: d.exception.days.length,
+        totalPoints: d.exception.days.length * d.exception.pointsPerDay,
+      };
+    }
+  }
+  for (const l of leaveDays) {
+    noteFor(l.dayKey).leave = {
+      kind: l.kind === "other_duty" ? "other_duty" : "leave",
+      note: l.note,
+      by: l.source === "self" ? "self" : (l.createdById && leaveAuthors.get(l.createdById)) || "admin",
+    };
+  }
+  for (const h of holidays) noteFor(h.dayKey).holiday = h.name;
   const liveDayPoints = new Map(liveMonth.days.map((d) => [d.dayKey, d.points]));
   const reviewerNames = new Map(
     reviewers.map((r) => [r.id, r.name || r.email]),
@@ -199,10 +285,7 @@ export default async function PersonVisitsPage({
         let max = 0;
         for (const dayVisit of dayList) {
           if (dayVisit.source !== "admin") continue;
-          const awarded = adminVisitPoints(
-            dayVisit.pointsAwarded,
-            dayVisit.officeLocationId ? officePoints.get(dayVisit.officeLocationId) : undefined,
-          );
+          const awarded = adminVisitPoints(dayVisit.pointsAwarded);
           if (awarded > max) max = awarded;
         }
         points = max;
@@ -225,6 +308,17 @@ export default async function PersonVisitsPage({
       tag: secondary ? null : tag,
       secondary,
     });
+  }
+
+  const visitPointsByDay = new Map<string, number>();
+  for (const v of visits) {
+    const k = dayKeyInTz(v.startAt, tz);
+    visitPointsByDay.set(k, Math.max(visitPointsByDay.get(k) ?? 0, v.pointsAwarded));
+  }
+  for (const n of notes.values()) {
+    n.points = n.dayKey.startsWith(monthKey)
+      ? liveDayPoints.get(n.dayKey) ?? 0
+      : Math.max(visitPointsByDay.get(n.dayKey) ?? 0, n.exception?.points ?? 0);
   }
 
   const correctedCount = monthVisits.filter((v) => v.source === "correction" || v.correctionId).length;
@@ -255,6 +349,10 @@ export default async function PersonVisitsPage({
         timezone={user.timezone || tz}
         firstName={(user.firstName || (user.name ?? "").split(/\s+/)[0] || "them").trim()}
         isOwnRecord={session.id === user.id}
+        ignoredDays={ignoredDays}
+        mockEventsThisMonth={mockEventsThisMonth}
+        dayNotes={[...notes.values()]}
+        homeOfficeLabel={homeOffice ? `${homeOffice.name} (${pointsCellLabel(homeOffice.pointsPerVisitDay)})` : null}
       />
     </AppShell>
   );

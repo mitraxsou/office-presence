@@ -14,7 +14,7 @@ import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
-import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.notify.WeeklySummaryWorker
 import com.pwc.officepresence.notify.Notifier
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
@@ -114,9 +114,9 @@ class SettingsActivity : AppCompatActivity() {
             prefs.toneGoalId = id
             patchPrefs(JSONObject().put("toneGoalId", id))
         }
-        Ui.switch(notif, "Morning summary", prefs.notifyDailySummary) { _, c ->
+        Ui.switch(notif, "Weekly summary", prefs.notifyDailySummary) { _, c ->
             prefs.notifyDailySummary = c
-            if (c) DailySummaryWorker.schedule(this) else DailySummaryWorker.cancel(this)
+            if (c) WeeklySummaryWorker.schedule(this) else WeeklySummaryWorker.cancel(this)
             patchPrefs(JSONObject().put("notifyDailySummary", c))
         }
         tonePicker(notif, "Summary tone", prefs.toneSummaryId) { id ->
@@ -172,7 +172,9 @@ class SettingsActivity : AppCompatActivity() {
                 .setPositiveButton("Sign out") { _, _ ->
                     PresenceService.stop(this)
                     GeofenceHelper.clear(this)
-                    DailySummaryWorker.cancel(this)
+                    WeeklySummaryWorker.cancel(this)
+                    com.pwc.officepresence.notify.TrackingHealthWorker.cancel(this)
+                    com.pwc.officepresence.notify.AppUpdateWorker.cancel(this)
                     prefs.clearSession()
                     startActivity(Intent(this, LoginActivity::class.java))
                     finishAffinity()

@@ -17,6 +17,13 @@ function toRules(row: {
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
+  rejectMockLocations?: boolean;
+  rawLocationRetentionDays?: number;
+  privacyNoticeVersion?: string;
+  requireConsent?: boolean;
+  allowSelfLeave?: boolean;
+  allowExceptionsInClosedMonths?: boolean;
+  managersDecideCorrections?: boolean;
 }): PresenceRules {
   return {
     gapMinutes: row.gapMinutes,
@@ -34,6 +41,13 @@ function toRules(row: {
     appVersionCode: row.appVersionCode ?? 0,
     appVersionName: row.appVersionName ?? "",
     appApkUrl: row.appApkUrl ?? null,
+    rejectMockLocations: row.rejectMockLocations !== false,
+    rawLocationRetentionDays: row.rawLocationRetentionDays ?? 90,
+    privacyNoticeVersion: row.privacyNoticeVersion || "1",
+    requireConsent: row.requireConsent === true,
+    allowSelfLeave: row.allowSelfLeave !== false,
+    allowExceptionsInClosedMonths: row.allowExceptionsInClosedMonths !== false,
+    managersDecideCorrections: row.managersDecideCorrections === true,
   };
 }
 
@@ -70,8 +84,32 @@ export async function updatePolicy(
       appVersionCode: input.appVersionCode ?? DEFAULT_RULES.appVersionCode ?? 0,
       appVersionName: input.appVersionName ?? DEFAULT_RULES.appVersionName ?? "",
       appApkUrl: cleanApkUrl(input.appApkUrl),
+      rejectMockLocations: input.rejectMockLocations !== false,
+      rawLocationRetentionDays: cleanRetentionDays(input.rawLocationRetentionDays) ?? 90,
+      privacyNoticeVersion: cleanNoticeVersion(input.privacyNoticeVersion) ?? "1",
+      requireConsent: input.requireConsent === true,
+      allowSelfLeave: input.allowSelfLeave !== false,
+      allowExceptionsInClosedMonths: input.allowExceptionsInClosedMonths !== false,
+      managersDecideCorrections: input.managersDecideCorrections === true,
     },
     update: {
+      ...(typeof input.managersDecideCorrections === "boolean"
+        ? { managersDecideCorrections: input.managersDecideCorrections }
+        : {}),
+      ...(typeof input.allowSelfLeave === "boolean" ? { allowSelfLeave: input.allowSelfLeave } : {}),
+      ...(typeof input.allowExceptionsInClosedMonths === "boolean"
+        ? { allowExceptionsInClosedMonths: input.allowExceptionsInClosedMonths }
+        : {}),
+      ...(cleanRetentionDays(input.rawLocationRetentionDays) != null
+        ? { rawLocationRetentionDays: cleanRetentionDays(input.rawLocationRetentionDays)! }
+        : {}),
+      ...(cleanNoticeVersion(input.privacyNoticeVersion) != null
+        ? { privacyNoticeVersion: cleanNoticeVersion(input.privacyNoticeVersion)! }
+        : {}),
+      ...(typeof input.requireConsent === "boolean" ? { requireConsent: input.requireConsent } : {}),
+      ...(typeof input.rejectMockLocations === "boolean"
+        ? { rejectMockLocations: input.rejectMockLocations }
+        : {}),
       ...(input.gapMinutes != null ? { gapMinutes: input.gapMinutes } : {}),
       ...(input.dayHours != null ? { dayHours: input.dayHours } : {}),
       ...(input.monthlyDaysTarget != null
@@ -112,6 +150,18 @@ export async function updatePolicy(
     },
   });
   return toRules(row);
+}
+
+/** 7 to 3650 days. Anything else is ignored. */
+function cleanRetentionDays(value: number | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const days = Math.floor(value);
+  return days >= 7 && days <= 3650 ? days : null;
+}
+
+function cleanNoticeVersion(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed.slice(0, 20) : null;
 }
 
 function cleanApkUrl(value: string | null | undefined): string | null {

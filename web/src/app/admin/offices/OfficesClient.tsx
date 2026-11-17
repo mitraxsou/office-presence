@@ -23,7 +23,11 @@ type Office = {
   createdBy?: { email: string } | null;
 };
 
-type OfficeAction = "deactivate" | "delete" | "activate";
+type OfficeAction = "deactivate" | "delete" | "activate" | "points";
+
+function pointsWord(n: number) {
+  return n === 1 ? "1 point" : `${n} points`;
+}
 
 type PlaceHit = { name: string; address: string; lat: number; lng: number };
 
@@ -504,9 +508,27 @@ export default function OfficesClient() {
                             value={draft.pointsPerVisitDay}
                             onChange={(e) => setDraft({ ...draft, pointsPerVisitDay: e.target.value })}
                           />
+                          <span className="op-meta-row" style={{ marginTop: 4 }}>
+                            Applies to visits from now on. Past days keep their points.
+                          </span>
                         </label>
                       </div>
-                      {confirm?.id === o.id ? (
+                      {confirm?.id === o.id && confirm.action === "points" ? (
+                        <div
+                          role="alertdialog"
+                          aria-label="Change office points"
+                          style={{ marginTop: 14 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <b>
+                            Change {o.name} from {o.pointsPerVisitDay} to {pointsWord(Number(draft.pointsPerVisitDay))}?
+                          </b>
+                          <p className="op-meta-row" style={{ marginTop: 4 }}>
+                            Days already recorded keep {pointsWord(o.pointsPerVisitDay)}. New visits from now on count{" "}
+                            {pointsWord(Number(draft.pointsPerVisitDay))}.
+                          </p>
+                        </div>
+                      ) : confirm?.id === o.id ? (
                         <p className="op-meta-row" style={{ marginTop: 14 }} onClick={(e) => e.stopPropagation()}>
                           {confirmCopy(confirm.action, o.name)}
                         </p>
@@ -515,7 +537,32 @@ export default function OfficesClient() {
                         style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, flexWrap: "wrap" }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {confirm?.id === o.id ? (
+                        {confirm?.id === o.id && confirm.action === "points" ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={busy}
+                              onClick={() => {
+                                setConfirm(null);
+                                setDraft({ ...draft, pointsPerVisitDay: String(o.pointsPerVisitDay) });
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              disabled={busy}
+                              onClick={() => {
+                                setConfirm(null);
+                                void save();
+                              }}
+                            >
+                              Change points
+                            </button>
+                          </>
+                        ) : confirm?.id === o.id ? (
                           <>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setConfirm(null)}>
                               Cancel
@@ -566,7 +613,13 @@ export default function OfficesClient() {
                               type="button"
                               className="btn btn-primary btn-sm"
                               disabled={busy || !draft.name.trim()}
-                              onClick={() => void save()}
+                              onClick={() => {
+                                if (Number(draft.pointsPerVisitDay) !== o.pointsPerVisitDay) {
+                                  setConfirm({ id: o.id, action: "points" });
+                                  return;
+                                }
+                                void save();
+                              }}
                             >
                               Save office
                             </button>

@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Daily background sync (SPEC §18 / Year PDF): any network, battery not low, backoff on failure.
- * Complements [DailySummaryWorker] which also notifies; this job only refreshes cache.
+ * Complements [WeeklySummaryWorker] which also notifies; this job only refreshes cache.
  */
 class SyncRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -23,6 +23,7 @@ class SyncRefreshWorker(context: Context, params: WorkerParameters) : CoroutineW
         val state = PresenceRepository(applicationContext).refreshIfNeeded(force = true, bypassCooldown = true)
         // forceSignOut already cleared the session and notified; do not retry forever.
         if (state.unauthorized) return Result.success()
+        AppUpdateWorker.remindIfDue(applicationContext)
         return if (state.ok) Result.success() else Result.retry()
     }
 

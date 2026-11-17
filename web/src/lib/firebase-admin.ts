@@ -1,7 +1,8 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { prisma } from "@/lib/db";
-import { downloadPageUrl, shouldNotifyAppUpdate } from "@/lib/app-update";
+import { downloadPageUrl, shouldNotifyAppUpdate, shouldSendDailyAppUpdate } from "@/lib/app-update";
+import { dayKeyInTz } from "@/lib/visit-calculator";
 
 function adminApp(): App | null {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
@@ -172,15 +173,17 @@ export async function notifyOutdatedDevices(publishedVersionCode: number): Promi
     shouldNotifyAppUpdate(d.appVersionCode, publishedVersionCode, d.updateNotifiedVersionCode),
   );
   if (due.length === 0) return { sent: 0 };
-  const url = downloadPageUrl();
-  const versionName = (
-    await prisma.policy.findUnique({ where: { id: 1 }, select: { appVersionName: true } })
-  )?.appVersionName ?? "";
+  const policyRow = await prisma.policy.findUnique({
+    where: { id: 1 },
+    select: { appVersionName: true, timezone: true },
+  });
+  const versionName = policyRow?.appVersionName ?? "";
+  const today = dayKeyInTz(new Date(), policyRow?.timezone || "Asia/Kolkata");
   const byToken = new Map(due.map((d) => [d.fcmToken!, d.id]));
   const tokens = [...byToken.keys()];
   const res = await sendData(tokens, {
     type: "app_update",
-    url,
+    url: downloadPageUrl(),
     versionCode: String(publishedVersionCode),
     versionName,
   });
@@ -189,7 +192,7 @@ export async function notifyOutdatedDevices(publishedVersionCode: number): Promi
   if (notifiedIds.length > 0) {
     await prisma.deviceToken.updateMany({
       where: { id: { in: notifiedIds } },
-      data: { updateNotifiedVersionCode: publishedVersionCode },
+      data: { updateNotifiedVersionCode: publishedVersionCode, updateRemindedOn: today },
     });
   }
   return { sent: res.sent };
@@ -210,14 +213,88 @@ export async function maybeNotifyDeviceUpdate(deviceId: string): Promise<void> {
   });
   await clearStale(res.stale);
   if (res.ok.includes(device.fcmToken)) {
+    const today = dayKeyInTz(new Date(), policy?.timezone || "Asia/Kolkata");
     await prisma.deviceToken.update({
       where: { id: device.id },
-      data: { updateNotifiedVersionCode: published },
+      data: { updateNotifiedVersionCode: published, updateRemindedOn: today },
     });
   }
 }
 
+/** Once per policy-timezone day, ping phones still on an older version. */
+export async function remindOutdatedDevices(): Promise<{ sent: number; skipped: boolean }> {
+  const policy = await prisma.policy.findUnique({ where: { id: 1 } });
+  const published = policy?.appVersionCode ?? 0;
+  if (published <= 0) return { sent: 0, skipped: true };
+  if (!adminApp()) return { sent: 0, skipped: true };
+  const today = dayKeyInTz(new Date(), policy?.timezone || "Asia/Kolkata");
+  const devices = await prisma.deviceToken.findMany({
+    where: {
+      revokedAt: null,
+      fcmToken: { not: null },
+      appVersionCode: { lt: published },
+      OR: [{ updateRemindedOn: null }, { updateRemindedOn: { not: today } }],
+    },
+    select: { id: true, fcmToken: true, appVersionCode: true, updateRemindedOn: true },
+  });
+  const due = devices.filter((d) =>
+    shouldSendDailyAppUpdate(d.appVersionCode, published, d.updateRemindedOn, today),
+  );
+  if (due.length === 0) return { sent: 0, skipped: false };
+  const byToken = new Map(due.map((d) => [d.fcmToken!, d.id]));
+  const res = await sendData([...byToken.keys()], {
+    type: "app_update",
+    url: downloadPageUrl(),
+    versionCode: String(published),
+    versionName: policy?.appVersionName ?? "",
+  });
+  await clearStale(res.stale);
+  const notifiedIds = res.ok.map((t) => byToken.get(t)!).filter(Boolean);
+  if (notifiedIds.length > 0) {
+    await prisma.deviceToken.updateMany({
+      where: { id: { in: notifiedIds } },
+      data: { updateRemindedOn: today },
+    });
+  }
+  return { sent: res.sent, skipped: false };
+}
+
+export type CorrectionDecidedPayload = {
+  id: string;
+  dayKey: string;
+  status: "approved" | "rejected" | "reverted";
+};
+
+/** Tell the requester's phones to sync so they can show the decision. Data only. */
+export async function sendCorrectionDecided(
+  userId: string,
+  payload: CorrectionDecidedPayload,
+): Promise<{ sent: number; skipped: boolean }> {
+  const app = adminApp();
+  if (!app) {
+    console.warn("[firebase-admin] correction_decided skipped: no FIREBASE_SERVICE_ACCOUNT_JSON");
+    return { sent: 0, skipped: true };
+  }
+  const devices = await prisma.deviceToken.findMany({
+    where: { userId, revokedAt: null, fcmToken: { not: null } },
+    select: { fcmToken: true },
+  });
+  const tokens = [...new Set(devices.map((d) => d.fcmToken!).filter((t) => t.length > 20))];
+  if (tokens.length === 0) return { sent: 0, skipped: false };
+  const res = await sendData(tokens, { type: "correction_decided", ...payload });
+  await clearStale(res.stale, userId);
+  return { sent: res.sent, skipped: false };
+}
+
 /** Push helpers that must not fail the caller. */
+export async function pushCorrectionDecided(userId: string, payload: CorrectionDecidedPayload): Promise<void> {
+  try {
+    await sendCorrectionDecided(userId, payload);
+  } catch (e) {
+    console.warn("[firebase-admin] correction_decided failed", e instanceof Error ? e.message : e);
+  }
+}
+
 export async function pushForceSignOut(userId: string, reason: string): Promise<void> {
   try {
     await sendForceSignOutToUser(userId, { reason });
@@ -239,5 +316,14 @@ export async function pushOutdatedAppUpdates(publishedVersionCode: number): Prom
     await notifyOutdatedDevices(publishedVersionCode);
   } catch (e) {
     console.warn("[firebase-admin] app_update failed", e instanceof Error ? e.message : e);
+  }
+}
+
+export async function pushDailyAppUpdateReminders(): Promise<{ sent: number; skipped: boolean }> {
+  try {
+    return await remindOutdatedDevices();
+  } catch (e) {
+    console.warn("[firebase-admin] app_update daily failed", e instanceof Error ? e.message : e);
+    return { sent: 0, skipped: true };
   }
 }

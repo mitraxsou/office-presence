@@ -37,7 +37,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pwc.officepresence.data.DebugTrace
 import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OpColor
 import com.pwc.officepresence.ui.theme.OpShape
@@ -116,21 +115,6 @@ fun OpClockDialog(
                 val picked = pickedHour * 60 + pickedMinute
                 val future = blockFuture && picked > now.hour * 60 + now.minute
                 val selected = formatHm(pickedHour, pickedMinute)
-                // #region agent log
-                DebugTrace.write(
-                    "H4",
-                    "OpClock.kt:picker",
-                    "system clock picker result",
-                    mapOf(
-                        "title" to title,
-                        "initialHm" to initialHm,
-                        "selectedHm" to selected,
-                        "blockFuture" to blockFuture,
-                        "previousHm" to previousHm,
-                        "rejectedFuture" to future,
-                    ),
-                )
-                // #endregion
                 if (future) {
                     Toast.makeText(context, "Choose a time that is not later than now", Toast.LENGTH_SHORT).show()
                     finished = true

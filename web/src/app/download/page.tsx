@@ -2,9 +2,8 @@ import Link from "next/link";
 import Mark from "@/components/Mark";
 import { getPolicy } from "@/lib/policy";
 
-const VERSION = "2.0.6";
-const DEFAULT_APK_URL =
-  "https://github.com/mitraxsou/office-presence/releases/download/v2.0.6-pilot/app-release.apk";
+const VERSION = "2.1.0";
+const DEFAULT_APK_URL = "/downloads/office-presence.apk";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +14,13 @@ export const metadata = {
 
 export default async function DownloadPage() {
   let version = VERSION;
-  let apkUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim() || DEFAULT_APK_URL;
+  let apkUrl = DEFAULT_APK_URL;
   try {
     const policy = await getPolicy();
     if (policy.appVersionName?.trim()) version = policy.appVersionName.trim();
     if (policy.appApkUrl?.trim()) apkUrl = policy.appApkUrl.trim();
   } catch {
-    // Keep the env fallback when policy cannot be read.
+    // Keep the hosted APK path when policy cannot be read.
   }
   const published = Boolean(apkUrl);
 
@@ -88,6 +87,9 @@ export default async function DownloadPage() {
           <div className="op-login-alt">
             <Link href="/login" className="btn btn-ghost">
               Back to sign in
+            </Link>
+            <Link href="/privacy" className="btn btn-ghost">
+              Read the privacy notice
             </Link>
           </div>
         </div>

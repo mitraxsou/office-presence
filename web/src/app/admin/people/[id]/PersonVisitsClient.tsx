@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DaysMeter } from "@/components/op/DesignKit";
 import TimeClock from "@/components/TimeClock";
 import { pointsCellLabel } from "@/lib/points-format";
+import { RevokeModal } from "../../exceptions/ExceptionsClient";
 
 export type PersonVisitRow = {
   id: string;
@@ -24,6 +25,20 @@ export type PersonVisitRow = {
 };
 
 export type PersonOffice = { id: string; name: string; pointsPerVisitDay: number };
+
+/** Untrusted events for one day. Shown as a grey note, never counted. */
+export type IgnoredDay = { dayKey: string; dayLabel: string; count: number; title: string };
+
+/** HR exception, leave and holiday labels for one day. Leave and holidays are info only. */
+export type PersonDayNote = {
+  dayKey: string;
+  dayLabel: string;
+  /** Day points as the month total counts them. */
+  points: number;
+  exception?: { id: string; officeName: string; points: number; reason: string; totalDays: number; totalPoints: number };
+  leave?: { kind: "leave" | "other_duty"; note: string | null; by: string };
+  holiday?: string;
+};
 
 export type PersonVisitsProps = {
   userId: string;
@@ -47,6 +62,10 @@ export type PersonVisitsProps = {
   firstName: string;
   /** Admins cannot edit their own visits (SPEC 15 / frame 110). */
   isOwnRecord?: boolean;
+  ignoredDays?: IgnoredDay[];
+  mockEventsThisMonth?: number;
+  dayNotes?: PersonDayNote[];
+  homeOfficeLabel?: string | null;
 };
 
 type EditVisit = {
@@ -198,24 +217,101 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
       list.push(v);
       map.set(v.dayKey, list);
     }
-    return [...map.entries()].map(([dayKey, list]) => ({
-      dayKey,
-      label: list[0]?.dayLabel ?? dayKey,
-      tag: list.find((x) => x.tag)?.tag ?? null,
-      countsAs: list.find((x) => !x.secondary)?.countsAsLabel ?? "",
-      visits: list,
-      officeLabel:
-        new Set(list.map((x) => x.officeName).filter(Boolean)).size >= 2
-          ? `${new Set(list.map((x) => x.officeName).filter(Boolean)).size} offices`
-          : list[0]?.officeName ?? "-",
-    }));
-  }, [visits]);
+    const ignored = new Map(
+      (props.ignoredDays ?? []).filter((d) => d.dayKey.startsWith(month)).map((d) => [d.dayKey, d]),
+    );
+    const notes = new Map(
+      (props.dayNotes ?? []).filter((d) => d.dayKey.startsWith(month)).map((d) => [d.dayKey, d]),
+    );
+    const groups = [...map.entries()].map(([dayKey, list]) => {
+      const note = notes.get(dayKey) ?? null;
+      return {
+        dayKey,
+        label: list[0]?.dayLabel ?? dayKey,
+        tag: list.find((x) => x.tag)?.tag ?? null,
+        countsAs: note?.exception
+          ? pointsCellLabel(note.points)
+          : list.find((x) => !x.secondary)?.countsAsLabel ?? "",
+        visits: list,
+        officeLabel:
+          new Set(list.map((x) => x.officeName).filter(Boolean)).size >= 2
+            ? `${new Set(list.map((x) => x.officeName).filter(Boolean)).size} offices`
+            : list[0]?.officeName ?? "-",
+        ignored: ignored.get(dayKey) ?? null,
+        note,
+      };
+    });
+    for (const d of ignored.values()) {
+      if (map.has(d.dayKey)) continue;
+      const note = notes.get(d.dayKey) ?? null;
+      groups.push({
+        dayKey: d.dayKey,
+        label: d.dayLabel,
+        tag: null,
+        countsAs: pointsCellLabel(note?.points ?? 0),
+        visits: [],
+        officeLabel: "-",
+        ignored: d,
+        note,
+      });
+    }
+    for (const n of notes.values()) {
+      if (map.has(n.dayKey) || ignored.has(n.dayKey)) continue;
+      groups.push({
+        dayKey: n.dayKey,
+        label: n.dayLabel,
+        tag: null,
+        countsAs: n.exception ? pointsCellLabel(n.points) : "",
+        visits: [],
+        officeLabel: "-",
+        ignored: null,
+        note: n,
+      });
+    }
+    return groups.sort((a, b) => (a.dayKey < b.dayKey ? 1 : a.dayKey > b.dayKey ? -1 : 0));
+  }, [visits, props.ignoredDays, props.dayNotes, month]);
+
+  const exceptionDaysThisMonth = (props.dayNotes ?? []).filter((d) => d.dayKey.startsWith(month) && d.exception).length;
 
   const summaryBits = [
     `${props.visitCount} visit${props.visitCount === 1 ? "" : "s"} in ${props.monthLabel.split(" ")[0]}`,
   ];
   if (props.correctedCount) summaryBits.push(`${props.correctedCount} corrected`);
   if (props.pendingCount) summaryBits.push(`${props.pendingCount} pending review`);
+  if (exceptionDaysThisMonth) {
+    summaryBits.push(`Includes ${exceptionDaysThisMonth} HR exception day${exceptionDaysThisMonth === 1 ? "" : "s"}`);
+  }
+  if (props.homeOfficeLabel) summaryBits.push(`Home office ${props.homeOfficeLabel}`);
+
+  const [revoking, setRevoking] = useState<PersonDayNote["exception"] | null>(null);
+  const [leaveEdit, setLeaveEdit] = useState<{ dayKey: string; kind: "leave" | "other_duty"; note: string } | null>(null);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+
+  async function saveLeave() {
+    if (!leaveEdit) return;
+    setLeaveError(null);
+    const res = await fetch(`/api/admin/people/${props.userId}/leave/${leaveEdit.dayKey}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: leaveEdit.kind, note: leaveEdit.note || null }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setLeaveError(typeof j.error === "string" ? j.error : "Could not save leave");
+      return;
+    }
+    window.location.reload();
+  }
+
+  async function removeLeave(dayKey: string) {
+    const res = await fetch(`/api/admin/people/${props.userId}/leave/${dayKey}`, { method: "DELETE" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setToast(typeof j.error === "string" ? j.error : "Could not remove leave");
+      return;
+    }
+    window.location.reload();
+  }
 
   function openEdit(dayKey: string) {
     const dayRows = rows.filter((v) => v.dayKey === dayKey);
@@ -414,6 +510,16 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
                 .filter(Boolean)
                 .join(", ")}
             </div>
+            {props.mockEventsThisMonth ? (
+              <div style={{ marginTop: 6 }}>
+                <span
+                  className="op-badge out"
+                  title={`${props.mockEventsThisMonth} location fix${props.mockEventsThisMonth === 1 ? "" : "es"} from a mock location app this month.`}
+                >
+                  Mock GPS {props.mockEventsThisMonth}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -458,6 +564,16 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
           ) : null}
           {canEdit ? (
             <>
+              <a className="btn btn-secondary btn-sm" href={`/admin/exceptions?grant=${encodeURIComponent(props.userId)}`}>
+                Add exception
+              </a>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setLeaveEdit({ dayKey: `${month}-01`, kind: "leave", note: "" })}
+              >
+                Mark leave
+              </button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => void openHistory()}>
                 Change history
               </button>
@@ -535,7 +651,56 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
                           {g.tag === "pending" ? <span className="op-badge pending">Pending review</span> : null}
                           {g.tag === "corrected" ? <span className="op-badge corrected">Corrected</span> : null}
                           {g.tag === "edited" ? <span className="op-badge fyi" style={{ color: "var(--op-ink)" }}>Edited by admin</span> : null}
+                          {g.ignored ? (
+                            <span className="op-badge out" title={g.ignored.title}>
+                              {g.ignored.count} ignored event{g.ignored.count === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
                         </div>
+                        {g.note?.exception ? (
+                          <div className="op-meta" style={{ marginTop: 4 }}>
+                            <span className="op-badge pending">HR exception</span> {g.note.exception.officeName}.{" "}
+                            {g.note.exception.reason}
+                            {canEdit ? (
+                              <>
+                                {" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ fontSize: 13 }}
+                                  onClick={() => setRevoking(g.note?.exception ?? null)}
+                                >
+                                  Revoke
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {g.note?.leave ? (
+                          <div className="op-meta" style={{ marginTop: 4 }}>
+                            {g.note.leave.kind === "other_duty" ? "Other duty" : "Leave"}
+                            {g.note.leave.by === "self" ? ", marked by them" : `, marked by ${g.note.leave.by}`}
+                            {g.note.leave.note ? `: ${g.note.leave.note}` : ""}. Info only
+                            {canEdit ? (
+                              <>
+                                {" "}
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ fontSize: 13 }}
+                                  onClick={() => void removeLeave(g.dayKey)}
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {g.note?.holiday ? (
+                          <div className="op-meta" style={{ marginTop: 4 }}>
+                            Holiday: {g.note.holiday}. Info only
+                          </div>
+                        ) : null}
                       </td>
                       <td data-label="Office">{g.officeLabel}</td>
                       <td data-label="In">{g.visits[0]?.inLabel ?? "-"}</td>
@@ -587,6 +752,81 @@ export default function PersonVisitsClient(props: PersonVisitsProps) {
           </p>
         </div>
       </div>
+
+      {revoking ? (
+        <RevokeModal
+          row={{ id: revoking.id, personName: props.name, days: revoking.totalDays, totalPoints: revoking.totalPoints }}
+          onClose={() => setRevoking(null)}
+          onDone={(text, ok) => {
+            setRevoking(null);
+            if (ok) window.location.reload();
+            else setToast(text);
+          }}
+        />
+      ) : null}
+
+      {leaveEdit ? (
+        <>
+          <button type="button" className="op-drawer-scrim" aria-label="Close dialog" onClick={() => setLeaveEdit(null)} />
+          <div className="op-wmodal" role="dialog">
+            <h2 className="op-modal-title">Mark leave</h2>
+            <p className="op-meta">Leave is recorded for the records. The target stays {props.pointsTarget} points.</p>
+            <label className="op-field" style={{ marginTop: 14 }}>
+              <span className="op-field-lab">Date</span>
+              <input
+                className="op-input op-input-sm"
+                type="date"
+                value={leaveEdit.dayKey}
+                onChange={(e) => setLeaveEdit({ ...leaveEdit, dayKey: e.target.value })}
+              />
+            </label>
+            <div className="op-seg" role="group" aria-label="Kind" style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                className={leaveEdit.kind === "leave" ? "on" : undefined}
+                onClick={() => setLeaveEdit({ ...leaveEdit, kind: "leave" })}
+              >
+                Leave
+              </button>
+              <button
+                type="button"
+                className={leaveEdit.kind === "other_duty" ? "on" : undefined}
+                onClick={() => setLeaveEdit({ ...leaveEdit, kind: "other_duty" })}
+              >
+                Other duty
+              </button>
+            </div>
+            <label className="op-field" style={{ marginTop: 14 }}>
+              <span className="op-field-lab">Note (optional)</span>
+              <input
+                className="op-input op-input-sm"
+                value={leaveEdit.note}
+                maxLength={200}
+                onChange={(e) => setLeaveEdit({ ...leaveEdit, note: e.target.value })}
+              />
+            </label>
+            {leaveError ? (
+              <div className="op-ferr" style={{ marginTop: 12 }}>
+                <span aria-hidden>!</span>
+                <span>{leaveError}</span>
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLeaveEdit(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!/^\d{4}-\d{2}-\d{2}$/.test(leaveEdit.dayKey)}
+                onClick={() => void saveLeave()}
+              >
+                Save leave
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {drawer ? (
         <>

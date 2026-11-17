@@ -8,6 +8,7 @@ import {
   validateAdminUserEmail,
   wouldRemoveLastAdmin,
 } from "@/lib/users-admin";
+import { managerChainMap, wouldCreateManagerCycle } from "@/lib/team-scope";
 import type { Role } from "@prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -30,10 +31,15 @@ export async function GET(request: Request, ctx: Ctx) {
       role: true,
       isDummy: true,
       isTestAccount: true,
+      canGrantExceptions: true,
       deactivatedAt: true,
       passwordHash: true,
       homeOfficeId: true,
       homeOffice: { select: { id: true, name: true } },
+      managerId: true,
+      manager: { select: { id: true, email: true, name: true } },
+      teamId: true,
+      team: { select: { id: true, name: true } },
       sharePresenceWithPeers: true,
       createdAt: true,
       updatedAt: true,
@@ -113,6 +119,9 @@ export async function PATCH(request: Request, ctx: Ctx) {
     homeOfficeId?: string | null;
     isDummy?: boolean;
     isTestAccount?: boolean;
+    canGrantExceptions?: boolean;
+    managerId?: string | null;
+    teamId?: string | null;
     sharePresenceWithPeers?: boolean;
     sharePresenceConsentAt?: Date | null;
     deactivatedAt?: Date | null;
@@ -152,6 +161,66 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const flag = body.isTestAccount === true || body.isDummy === true;
     data.isTestAccount = flag;
     data.isDummy = flag;
+  }
+
+  if (typeof body.canGrantExceptions === "boolean" && body.canGrantExceptions !== target.canGrantExceptions) {
+    data.canGrantExceptions = body.canGrantExceptions;
+    await prisma.auditLog.create({
+      data: {
+        actorId: actor.user.id,
+        action: body.canGrantExceptions ? "user.exceptions_on" : "user.exceptions_off",
+        targetType: "user",
+        targetId: id,
+      },
+    });
+  }
+
+  if (body.managerId !== undefined) {
+    const managerId = body.managerId ? String(body.managerId) : null;
+    if (managerId) {
+      const manager = await prisma.user.findFirst({ where: { id: managerId, deactivatedAt: null }, select: { id: true } });
+      if (!manager) return NextResponse.json({ error: "Manager not found" }, { status: 400 });
+      if (wouldCreateManagerCycle(id, managerId, await managerChainMap())) {
+        return NextResponse.json(
+          { error: "This would make a loop. A person cannot report to someone they manage." },
+          { status: 400 },
+        );
+      }
+    }
+    if (managerId !== target.managerId) {
+      data.managerId = managerId;
+      await prisma.auditLog.create({
+        data: {
+          actorId: actor.user.id,
+          action: "user.manager_set",
+          targetType: "user",
+          targetId: id,
+          beforeJson: { managerId: target.managerId },
+          afterJson: { managerId },
+        },
+      });
+    }
+  }
+
+  if (body.teamId !== undefined) {
+    const teamId = body.teamId ? String(body.teamId) : null;
+    if (teamId) {
+      const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true } });
+      if (!team) return NextResponse.json({ error: "Team not found" }, { status: 400 });
+    }
+    if (teamId !== target.teamId) {
+      data.teamId = teamId;
+      await prisma.auditLog.create({
+        data: {
+          actorId: actor.user.id,
+          action: "user.team_set",
+          targetType: "user",
+          targetId: id,
+          beforeJson: { teamId: target.teamId },
+          afterJson: { teamId },
+        },
+      });
+    }
   }
 
   if (body.sharePresenceWithPeers !== undefined) {
@@ -234,9 +303,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
       role: true,
       isDummy: true,
       isTestAccount: true,
+      canGrantExceptions: true,
       deactivatedAt: true,
       homeOfficeId: true,
       homeOffice: { select: { id: true, name: true } },
+      managerId: true,
+      manager: { select: { id: true, email: true, name: true } },
+      teamId: true,
+      team: { select: { id: true, name: true } },
     },
   });
 

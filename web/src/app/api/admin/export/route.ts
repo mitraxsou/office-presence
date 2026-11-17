@@ -4,6 +4,9 @@ import { adminRoster } from "@/lib/roster";
 import { csvResponse, toCsv } from "@/lib/export-csv";
 import { getPolicy } from "@/lib/policy";
 import { monthKeyInTz } from "@/lib/presence";
+import { monthRecordCounts } from "@/lib/month-records";
+import { monthDayRange } from "@/lib/exception-days";
+import { holidaysForOffice } from "@/lib/holidays";
 
 export async function GET(request: Request) {
   try {
@@ -64,6 +67,10 @@ export async function GET(request: Request) {
 
   if (kind === "reports") {
     const roster = await adminRoster({ office });
+    const records = await monthRecordCounts(
+      roster.users.map((u) => ({ id: u.id, homeOfficeId: u.homeOfficeId ?? null })),
+      month,
+    );
     const headers = [
       "email",
       "name",
@@ -73,17 +80,28 @@ export async function GET(request: Request) {
       "met",
       "lastDeviceName",
       "officeName",
+      "exceptionDays",
+      "exceptionPoints",
+      "leaveDays",
+      "holidays",
     ];
-    const rows = roster.users.map((u) => [
-      u.email,
-      u.name,
-      u.monthPoints,
-      u.monthVisitDays,
-      u.hoursToday,
-      u.monthPoints >= roster.pointsTarget,
-      u.lastDeviceName,
-      u.officeName,
-    ]);
+    const rows = roster.users.map((u) => {
+      const r = records.get(u.id);
+      return [
+        u.email,
+        u.name,
+        u.monthPoints,
+        u.monthVisitDays,
+        u.hoursToday,
+        u.monthPoints >= roster.pointsTarget,
+        u.lastDeviceName,
+        u.officeName,
+        r?.exceptionDays ?? 0,
+        r?.exceptionPoints ?? 0,
+        r?.leaveDays ?? 0,
+        r?.holidays ?? 0,
+      ];
+    });
     return csvResponse(toCsv(headers, rows), `reports-${month}.csv`);
   }
 
@@ -93,7 +111,7 @@ export async function GET(request: Request) {
   }
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true },
+    select: { id: true, email: true, name: true, homeOfficeId: true },
   });
   if (!user) return Response.json({ error: "Not found" }, { status: 404 });
 
@@ -144,6 +162,25 @@ export async function GET(request: Request) {
     v.pointsAwarded,
     v.reason,
   ]);
+  const { startDay, endDay } = monthDayRange(month);
+  const [exceptionDays, leaveDays, holidays] = await Promise.all([
+    prisma.presenceExceptionDay.findMany({
+      where: { userId, dayKey: { gte: startDay, lte: endDay }, exception: { revokedAt: null } },
+      include: { exception: { select: { id: true, reason: true } } },
+      orderBy: { dayKey: "asc" },
+    }),
+    prisma.leaveDay.findMany({ where: { userId, dayKey: { gte: startDay, lte: endDay } }, orderBy: { dayKey: "asc" } }),
+    holidaysForOffice(user.homeOfficeId, startDay, endDay),
+  ]);
+  for (const d of exceptionDays) {
+    rows.push([user.email, user.name, d.exception.id, d.dayKey, "", "hr_exception", "", d.points, d.exception.reason]);
+  }
+  for (const l of leaveDays) {
+    rows.push([user.email, user.name, "", l.dayKey, "", l.kind, "", 0, l.note ?? ""]);
+  }
+  for (const h of holidays) {
+    rows.push([user.email, user.name, "", h.dayKey, "", "holiday", "", 0, h.name]);
+  }
   const safeEmail = user.email.replace(/[^a-zA-Z0-9._-]/g, "_");
   return csvResponse(toCsv(headers, rows), `person-${safeEmail}-${month}.csv`);
 }

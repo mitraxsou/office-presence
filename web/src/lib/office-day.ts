@@ -6,6 +6,8 @@ export type DayInterval = {
   hours: number;
   officeName?: string | null;
   officeId?: string | null;
+  /** Visit is still open. The end is the clock from the last compute. */
+  open?: boolean;
 };
 
 export type OfficeGroup = {
@@ -39,23 +41,62 @@ export type DayOfficesPayload = {
   }>;
 };
 
-export function groupOfficesFromIntervals(intervals: DayInterval[]): OfficeGroup[] {
+function intervalEndMs(iv: DayInterval, nowMs: number): number {
+  const end = Date.parse(iv.endAt);
+  if (!Number.isFinite(end)) return iv.open ? nowMs : Number.NaN;
+  return iv.open ? Math.max(end, nowMs) : end;
+}
+
+/** Hours already counted, plus time since an open visit's end so the figure keeps moving. */
+export function liveDayHours(hours: number, intervals: DayInterval[], nowMs = Date.now()): number {
+  let extra = 0;
+  for (const iv of intervals) {
+    if (!iv.open) continue;
+    const end = Date.parse(iv.endAt);
+    if (Number.isFinite(end)) extra = Math.max(extra, nowMs - end);
+  }
+  return (Number(hours) || 0) + Math.max(0, extra) / 3_600_000;
+}
+
+export function groupOfficesFromIntervals(intervals: DayInterval[], nowMs = Date.now()): OfficeGroup[] {
   const order: string[] = [];
-  const map = new Map<string, OfficeGroup>();
+  const map = new Map<string, OfficeGroup & { startMs: number; endMs: number }>();
   for (const iv of intervals) {
     const name = (iv.officeName || "").trim() || "Office";
     const key = (iv.officeId || "").trim() || name;
     let g = map.get(key);
     if (!g) {
-      g = { key, name, hours: 0, minutes: 0, office_id: (iv.officeId || "").trim() || null, visits: [] };
+      g = {
+        key,
+        name,
+        hours: 0,
+        minutes: 0,
+        office_id: (iv.officeId || "").trim() || null,
+        visits: [],
+        startMs: Number.POSITIVE_INFINITY,
+        endMs: Number.NEGATIVE_INFINITY,
+      };
       map.set(key, g);
       order.push(key);
     }
     g.visits.push(iv);
-    g.hours += Number(iv.hours) || 0;
-    g.minutes = Math.round(g.hours * 60);
+    const start = Date.parse(iv.startAt);
+    const end = intervalEndMs(iv, nowMs);
+    if (Number.isFinite(start)) g.startMs = Math.min(g.startMs, start);
+    if (Number.isFinite(end)) g.endMs = Math.max(g.endMs, end);
   }
-  return order.map((k) => map.get(k)!);
+  return order.map((k) => {
+    const g = map.get(k)!;
+    const hours = g.endMs > g.startMs ? (g.endMs - g.startMs) / 3_600_000 : 0;
+    return {
+      key: g.key,
+      name: g.name,
+      hours,
+      minutes: Math.round(hours * 60),
+      office_id: g.office_id,
+      visits: g.visits,
+    };
+  });
 }
 
 export function calendarOfficeLabel(
@@ -76,13 +117,13 @@ function shortOffice(name: string): string {
 }
 
 /** Travel = wall-clock span minus sum of visit hours (SPEC 13). */
-export function travelMinutes(intervals: DayInterval[], totalHours: number): number {
+export function travelMinutes(intervals: DayInterval[], totalHours: number, nowMs = Date.now()): number {
   if (!intervals.length) return 0;
   let minStart = Infinity;
   let maxEnd = -Infinity;
   for (const iv of intervals) {
     const s = Date.parse(iv.startAt);
-    const e = Date.parse(iv.endAt);
+    const e = intervalEndMs(iv, nowMs);
     if (Number.isFinite(s)) minStart = Math.min(minStart, s);
     if (Number.isFinite(e)) maxEnd = Math.max(maxEnd, e);
   }

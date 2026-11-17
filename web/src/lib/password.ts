@@ -4,6 +4,7 @@ import { createSession } from "./auth";
 import { issueDeviceToken } from "./otp";
 import { isPwcEmail } from "./email";
 import { isTestUserEmail } from "./users-admin";
+import { LIMITS, clear, hit, lockedFor, throttleKeys, throttled } from "./rate-limit";
 
 const BCRYPT_ROUNDS = 10;
 const MIN_LEN = 8;
@@ -75,7 +76,7 @@ type LoginBody = {
  * Verify email + password. Does not create users (unlike OTP).
  * Returns a generic error for bad credentials so we do not leak account existence.
  */
-export async function loginWithPassword(body: LoginBody) {
+export async function loginWithPassword(body: LoginBody, ip: string = "unknown") {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
   if (!email || !password) {
@@ -84,18 +85,36 @@ export async function loginWithPassword(body: LoginBody) {
   if (!isLoginEmail(email)) {
     return { ok: false as const, error: "Use your PwC email address", status: 400 };
   }
+  const emailKey = throttleKeys.passwordEmail(email);
+  const ipKey = throttleKeys.passwordIp(ip);
+  // Check the lock before any bcrypt work.
+  const lock = await lockedFor([emailKey, ipKey]);
+  if (lock > 0) return throttled(lock);
+  const fail = async () => {
+    const byIp = await hit(ipKey, LIMITS.passwordIp.limit, LIMITS.passwordIp.windowMs, LIMITS.passwordIp.lockMs);
+    const byEmail = await hit(
+      emailKey,
+      LIMITS.passwordEmail.limit,
+      LIMITS.passwordEmail.windowMs,
+      LIMITS.passwordEmail.lockMs,
+    );
+    if (byEmail.locked) return throttled(byEmail.retryAfterSeconds);
+    if (byIp.locked) return throttled(byIp.retryAfterSeconds);
+    return { ok: false as const, error: "Email or password is incorrect", status: 401 };
+  };
   const user = await prisma.user.findUnique({ where: { email } });
   if (user?.deactivatedAt) {
     const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("./account-status");
     return { ok: false as const, error: ACCOUNT_DEACTIVATED_MESSAGE, status: 403 };
   }
   if (!user || !user.passwordHash) {
-    return { ok: false as const, error: "Email or password is incorrect", status: 401 };
+    return fail();
   }
   const match = await passwordsMatch(password, user.passwordHash);
   if (!match) {
-    return { ok: false as const, error: "Email or password is incorrect", status: 401 };
+    return fail();
   }
+  await clear(emailKey);
 
   if (body.client === "android") {
     const { token, deviceId } = await issueDeviceToken(user.id, {

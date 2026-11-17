@@ -4,6 +4,9 @@ import path from "node:path";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   outputFileTracingRoot: path.join(__dirname),
+  outputFileTracingIncludes: {
+    "/privacy": ["./src/content/privacy-notice.md"],
+  },
   async headers() {
     return [
       {

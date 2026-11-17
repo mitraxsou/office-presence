@@ -119,15 +119,52 @@ function MiniDays({ current, target }: { current: number; target: number }) {
   );
 }
 
+/** Grey review badges. Never orange or green: they are not goals. */
+function RosterFlags({ u }: { u: RosterRow }) {
+  const mock = u.mockEventsThisMonth ?? 0;
+  const ignored = u.ignoredEventsThisMonth ?? 0;
+  const notSyncing = u.notSyncing === true;
+  if (!mock && !ignored && !notSyncing) return null;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+      {notSyncing ? (
+        <span className="op-badge out" title="Has a phone, but it has not synced for 24 hours.">
+          Not syncing
+        </span>
+      ) : null}
+      {mock ? (
+        <span
+          className="op-badge out"
+          title={`${mock} location fix${mock === 1 ? "" : "es"} from a mock location app this month.`}
+        >
+          Mock GPS {mock}
+        </span>
+      ) : null}
+      {ignored ? (
+        <span
+          className="op-badge out"
+          title={`${ignored} event${ignored === 1 ? " was" : "s were"} ignored this month. They were not counted.`}
+        >
+          Ignored {ignored}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function buildQuery(opts: {
   q: string;
   office: string;
   status: StatusFilter;
   belowTarget: boolean;
+  team?: string;
+  manager?: string;
 }): string {
   const sp = new URLSearchParams();
   if (opts.q.trim()) sp.set("q", opts.q.trim());
   if (opts.office) sp.set("office", opts.office);
+  if (opts.team) sp.set("team", opts.team);
+  if (opts.manager) sp.set("manager", opts.manager);
   if (opts.status !== "all") sp.set("status", opts.status);
   if (opts.belowTarget) sp.set("belowTarget", "1");
   const s = sp.toString();
@@ -137,10 +174,16 @@ function buildQuery(opts: {
 export default function AdminClient({
   initial,
   offices = [],
+  teams = [],
+  managers = [],
 }: {
   initial: Roster;
   offices?: OfficeOpt[];
+  teams?: OfficeOpt[];
+  managers?: OfficeOpt[];
 }) {
+  const [team, setTeam] = useState("");
+  const [manager, setManager] = useState("");
   const [data, setData] = useState(initial);
   const [updated, setUpdated] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
@@ -162,8 +205,10 @@ export default function AdminClient({
         office,
         status,
         belowTarget: belowTarget || statFilter === "belowTarget",
+        team,
+        manager,
       }),
-    [q, office, status, belowTarget, statFilter],
+    [q, office, status, belowTarget, statFilter, team, manager],
   );
 
   const load = useCallback(
@@ -395,6 +440,27 @@ export default function AdminClient({
                 </option>
               ))}
             </select>
+            {teams.length ? (
+              <select className="op-sel" value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Team filter">
+                <option value="">All teams</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+                <option value="none">No team</option>
+              </select>
+            ) : null}
+            {managers.length ? (
+              <select className="op-sel" value={manager} onChange={(e) => setManager(e.target.value)} aria-label="Manager filter">
+                <option value="">All managers</option>
+                {managers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <div className="op-seg" role="group" aria-label="Status filter">
               {(["all", "in", "out"] as const).map((s) => (
                 <button
@@ -559,6 +625,8 @@ export default function AdminClient({
                           <td data-label="Person">
                             <div className="person-name">{u.name ?? u.email}</div>
                             <div className="person-email">{u.email}</div>
+                            {u.teamName ? <div className="person-email">{u.teamName}</div> : null}
+                            <RosterFlags u={u} />
                           </td>
                           <td data-label="Status">
                             <span className={`op-badge ${u.inOffice ? "in" : "out"}`}>

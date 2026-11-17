@@ -44,7 +44,20 @@ type Device = {
   createdAt: string;
 };
 
-type Section = "profile" | "notifications" | "sharing" | "appearance" | "nicknames" | "suggest";
+type Section = "profile" | "notifications" | "sharing" | "privacy" | "appearance" | "nicknames" | "suggest";
+
+type Consent = {
+  requiredVersion: string;
+  acceptedVersion: string | null;
+  acceptedAt: string | null;
+  accepted: boolean;
+  required: boolean;
+  retentionDays: number;
+  noticeUrl: string;
+};
+
+export const WITHDRAW_CONFIRM_TEXT =
+  "Stop tracking? Every phone stops recording visits and signs out. Days you miss will not count unless an admin adds them. Your past visits are kept.";
 
 export const PEER_CONSENT_TEXT =
   "Share my presence with colleagues who also opted in. Shared: In or Out, since when, and the office name. Not shared: live GPS, coordinates, hours, or points. You can turn this off at any time.";
@@ -53,6 +66,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "profile", label: "Profile" },
   { id: "notifications", label: "Notifications" },
   { id: "sharing", label: "Sharing and devices" },
+  { id: "privacy", label: "Privacy" },
   { id: "appearance", label: "Appearance" },
   { id: "nicknames", label: "Office nicknames" },
   { id: "suggest", label: "Suggest an office" },
@@ -78,6 +92,7 @@ export default function UserSettingsClient({
     colleagueDisplayMode: ColleagueDisplayMode;
     displayName: string;
     greeting: string;
+    consent: Consent;
   };
   policy: {
     monthlyPointsTarget: number;
@@ -98,6 +113,8 @@ export default function UserSettingsClient({
   const [offices, setOffices] = useState<Office[] | null>(null);
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [share, setShare] = useState(initial.sharePresenceWithPeers);
+  const [consent, setConsent] = useState<Consent>(initial.consent);
+  const [consentBusy, setConsentBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [suggestName, setSuggestName] = useState("");
   const [suggestAddress, setSuggestAddress] = useState("");
@@ -217,6 +234,40 @@ export default function UserSettingsClient({
       setShare((await res.json()).sharePresenceWithPeers);
       setMsg({ kind: "ok", text: next ? "Sharing on" : "Sharing off" });
     } else setMsg({ kind: "error", text: "Could not update sharing" });
+  }
+
+  async function acceptConsent() {
+    if (viewAsReadonly || viewAsName) {
+      setMsg({ kind: "error", text: "Only the person themselves can accept the notice." });
+      return;
+    }
+    setConsentBusy(true);
+    const res = await fetch("/api/me/consent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: consent.requiredVersion }),
+    });
+    setConsentBusy(false);
+    if (res.ok) {
+      setConsent(await res.json());
+      setMsg({ kind: "ok", text: "Notice accepted" });
+    } else setMsg({ kind: "error", text: "Could not save. Try again." });
+  }
+
+  async function withdrawConsent() {
+    if (viewAsReadonly || viewAsName) {
+      setMsg({ kind: "error", text: "Only the person themselves can withdraw consent." });
+      return;
+    }
+    if (!window.confirm(WITHDRAW_CONFIRM_TEXT)) return;
+    setConsentBusy(true);
+    const res = await fetch("/api/me/consent", { method: "DELETE" });
+    setConsentBusy(false);
+    if (res.ok) {
+      setConsent(await res.json());
+      setMsg({ kind: "ok", text: "Consent withdrawn. Your phones are signed out." });
+      loadDevices();
+    } else setMsg({ kind: "error", text: "Could not withdraw. Try again." });
   }
 
   async function suggestOffice() {
@@ -566,15 +617,15 @@ export default function UserSettingsClient({
                         {
                           key: "summary",
                           title: "Weekly summary",
-                          hint: "Monday 9:00 am: points so far this month",
+                          hint: "Monday 9:00 am: your week and month so far",
                           on: !!prefs.notifyDailySummary,
                           patch: { notifyDailySummary: true },
                           offPatch: { notifyDailySummary: false },
                         },
                         {
                           key: "corr",
-                          title: "Correction requests",
-                          hint: "When an admin decides on your request",
+                          title: "Correction decisions",
+                          hint: "When an admin approves or does not approve your request",
                           on: prefs.notifyCorrections !== false,
                           patch: { notifyCorrections: true },
                           offPatch: { notifyCorrections: false },
@@ -719,6 +770,69 @@ export default function UserSettingsClient({
                 )}
               </div>
             </>
+          ) : null}
+
+          {section === "privacy" ? (
+            <div className="card">
+              <div className="op-set-row">
+                <div>
+                  <div className="op-set-h">Privacy notice</div>
+                  <div className="op-meta">
+                    {consent.accepted && consent.acceptedAt
+                      ? `Version ${consent.acceptedVersion} accepted on ${new Date(consent.acceptedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
+                      : consent.acceptedVersion
+                        ? `You accepted version ${consent.acceptedVersion}. Version ${consent.requiredVersion} is now current.`
+                        : "Not accepted yet."}
+                  </div>
+                </div>
+                <a className="btn btn-secondary btn-xs" href={consent.noticeUrl} target="_blank" rel="noreferrer">
+                  Read the notice
+                </a>
+              </div>
+              <div className="op-share-boxes">
+                <div className="op-sunk-box">
+                  <div className="op-set-h" style={{ fontSize: 14 }}>
+                    What is kept
+                  </div>
+                  <div className="op-meta" style={{ marginTop: 4, color: "var(--op-ink)" }}>
+                    Office, day and points. Coordinates only inside offices, cleared after {consent.retentionDays} days.
+                  </div>
+                </div>
+                <div className="op-sunk-box">
+                  <div className="op-set-h" style={{ fontSize: 14 }}>
+                    Who can see visits
+                  </div>
+                  <div className="op-meta" style={{ marginTop: 4 }}>
+                    You and admins. Colleagues only see In or Out if you share.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                {!consent.accepted ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={consentBusy || viewAsReadonly}
+                    onClick={() => void acceptConsent()}
+                  >
+                    Accept the notice
+                  </button>
+                ) : null}
+                <button type="button" className="btn btn-secondary" onClick={() => go("sharing")}>
+                  Change sharing
+                </button>
+                {consent.acceptedVersion ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={consentBusy || viewAsReadonly}
+                    onClick={() => void withdrawConsent()}
+                  >
+                    Withdraw consent and stop tracking
+                  </button>
+                ) : null}
+              </div>
+            </div>
           ) : null}
 
           {section === "appearance" ? (

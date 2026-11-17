@@ -70,7 +70,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.concurrent.thread
 
-private enum class YouSub { Main, Devices, Corrections, Notifications, Rules, Nicknames, Profile, ViewAs }
+private enum class YouSub { Main, Devices, Corrections, Notifications, Rules, Nicknames, Profile, ViewAs, Privacy }
 
 @Composable
 fun YouScreen(
@@ -80,9 +80,17 @@ fun YouScreen(
     onOpenDeveloper: () -> Unit,
     onSignOut: () -> Unit,
     onUnauthorized: () -> Unit = {},
+    openDevices: Boolean = false,
+    onOpenDevicesHandled: () -> Unit = {},
     onViewAsStarted: () -> Unit = {},
 ) {
-    var sub by remember { mutableStateOf(YouSub.Main) }
+    var sub by remember { mutableStateOf(if (openDevices) YouSub.Devices else YouSub.Main) }
+    LaunchedEffect(openDevices) {
+        if (openDevices) {
+            sub = YouSub.Devices
+            onOpenDevicesHandled()
+        }
+    }
     when (sub) {
         YouSub.Main -> YouMain(
             repo = repo,
@@ -96,6 +104,14 @@ fun YouScreen(
             onViewAs = { sub = YouSub.ViewAs },
             onOpenDeveloper = onOpenDeveloper,
             onSignOut = onSignOut,
+            onPrivacy = { sub = YouSub.Privacy },
+        )
+        YouSub.Privacy -> PrivacyScreen(
+            repo = repo,
+            prefs = prefs,
+            onBack = { sub = YouSub.Main },
+            onChangeSharing = { sub = YouSub.Main },
+            onWithdrawn = onSignOut,
         )
         YouSub.Devices -> DevicesScreen(
             repo = repo,
@@ -134,6 +150,7 @@ private fun YouMain(
     onViewAs: () -> Unit,
     onOpenDeveloper: () -> Unit,
     onSignOut: () -> Unit,
+    onPrivacy: () -> Unit,
 ) {
     val p = LocalOpPalette.current
     val ctx = LocalContext.current
@@ -284,8 +301,13 @@ private fun YouMain(
                 )
             }
             DividerLine()
+            SettingsRow("Privacy", value = privacySummary(prefs), onClick = onPrivacy, stackValue = true)
+            DividerLine()
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClickLabel = "Open Devices", onClick = onDevices)
+                    .padding(vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Tracking", style = OpType.Body, color = p.ink, modifier = Modifier.weight(1f))
@@ -406,6 +428,9 @@ private fun YouMain(
                 )
             }
         }
+        if (prefs.isManager && !prefs.isViewAsActive) {
+            MyTeamSection(people = prefs.teamPeople, belowTarget = prefs.teamBelowTarget)
+        }
         if (prefs.role == "admin" && !prefs.isViewAsActive) {
             Spacer(Modifier.height(20.dp))
             Text("Admin", style = OpType.Meta, color = p.ink3, fontWeight = FontWeight.Bold)
@@ -435,7 +460,7 @@ private fun YouMain(
                         .fillMaxWidth()
                         .clickable {
                             ctx.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://office-presence-psi.vercel.app/admin/roster")),
+                                Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.API_BASE_URL + "/admin/roster")),
                             )
                         }
                         .padding(vertical = 14.dp),

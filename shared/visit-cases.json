@@ -100,7 +100,7 @@
       },
       "expected": {
         "visitCount": 2,
-        "totalHours": 0.5,
+        "totalHours": 1,
         "dayMet": false
       }
     },
@@ -320,7 +320,7 @@
       },
       "expected": {
         "visitCount": 2,
-        "totalHours": 0.002778,
+        "totalHours": 0.011111,
         "dayMet": false
       }
     },
@@ -509,6 +509,35 @@
         "visitDays": 1,
         "totalPoints": 1,
         "targetMet": false
+      }
+    },
+    {
+      "id": "open-visit-spans-to-now",
+      "now": "2026-10-27T06:00:00.000Z",
+      "rules": {
+        "gapMinutes": 15,
+        "dayHours": 5,
+        "monthlyDaysTarget": 8,
+        "monthlyPointsTarget": 8,
+        "timezone": "Asia/Kolkata",
+        "fenceRadiusMeters": 100
+      },
+      "events": [
+        { "type": "enter", "at": "2026-10-27T04:00:00.000Z", "lat": 12.97, "lng": 77.59, "accuracyMeters": 20, "simulated": false },
+        { "type": "sample", "at": "2026-10-27T04:10:00.000Z", "lat": 12.97, "lng": 77.59, "accuracyMeters": 20, "simulated": false },
+        { "type": "sample", "at": "2026-10-27T05:50:00.000Z", "lat": 12.97, "lng": 77.59, "accuracyMeters": 20, "simulated": false }
+      ],
+      "adminVisits": [],
+      "exclusions": [],
+      "office": { "lat": 12.97, "lng": 77.59, "radiusMeters": 100 },
+      "expected": {
+        "visitCount": 2,
+        "totalHours": 2,
+        "dayMet": false,
+        "visitDays": 1,
+        "totalPoints": 1,
+        "targetMet": false,
+        "open": true
       }
     }
   ]

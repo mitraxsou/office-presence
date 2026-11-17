@@ -7,8 +7,76 @@ import Mark from "@/components/Mark";
 type Mode = "otp" | "password";
 type Step = "email" | "code";
 
+const LOCK_KEY = "op-login-locked-until";
+
+function formatMmSs(totalSeconds: number): string {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Sign-in lock from a 429. The unlock time is kept in localStorage so a reload keeps the countdown. */
+function useSignInLock() {
+  const [until, setUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem(LOCK_KEY) || 0);
+    if (saved > Date.now()) setUntil(saved);
+    else window.localStorage.removeItem(LOCK_KEY);
+  }, []);
+
+  useEffect(() => {
+    if (until <= now) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [until, now]);
+
+  const remaining = until > now ? Math.ceil((until - now) / 1000) : 0;
+
+  useEffect(() => {
+    if (until > 0 && remaining === 0) {
+      window.localStorage.removeItem(LOCK_KEY);
+      setUntil(0);
+    }
+  }, [remaining, until]);
+
+  function lockFor(seconds: number) {
+    const next = Date.now() + Math.max(1, seconds) * 1000;
+    window.localStorage.setItem(LOCK_KEY, String(next));
+    setNow(Date.now());
+    setUntil(next);
+  }
+
+  return { remaining, label: formatMmSs(remaining), lockFor };
+}
+
+function retryAfterFrom(res: Response, data: { retryAfterSeconds?: unknown }): number {
+  const fromBody = Number(data.retryAfterSeconds);
+  if (Number.isFinite(fromBody) && fromBody > 0) return fromBody;
+  const fromHeader = Number(res.headers.get("Retry-After"));
+  return Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : 15 * 60;
+}
+
+function LockedCard({ label, mode }: { label: string; mode: Mode }) {
+  return (
+    <div className="op-msg-err" role="alert" style={{ marginTop: 16 }}>
+      <span className="op-msg-err-icon" aria-hidden>
+        !
+      </span>
+      <div>
+        <b>Too many attempts</b>
+        {mode === "password"
+          ? `Wait ${label}, then try again. You can also sign in with a Teams code after that.`
+          : `Wait ${label}, then try again. Ask for a new code after that.`}
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
+  const lock = useSignInLock();
+  const locked = lock.remaining > 0;
   const [mode, setMode] = useState<Mode>("otp");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,13 +101,14 @@ export default function LoginPage() {
       autoSubmittedCode.current = "";
       return;
     }
-    if (step !== "code" || deliveryFailed || busy) return;
+    if (step !== "code" || deliveryFailed || busy || locked) return;
     if (autoSubmittedCode.current === code) return;
     autoSubmittedCode.current = code;
     void verify();
-  }, [code, step, deliveryFailed, busy]);
+  }, [code, step, deliveryFailed, busy, locked]);
 
   async function sendCode() {
+    if (locked) return;
     setBusy(true);
     setVerifyError("");
     setDeliveryFailed(false);
@@ -50,6 +119,11 @@ export default function LoginPage() {
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
+    if (res.status === 429) {
+      lock.lockFor(retryAfterFrom(res, data));
+      setStep("email");
+      return;
+    }
     if (!res.ok) {
       setStep("code");
       setDeliveryFailed(true);
@@ -64,7 +138,7 @@ export default function LoginPage() {
   }
 
   async function verify() {
-    if (code.length !== 6) return;
+    if (code.length !== 6 || locked) return;
     setBusy(true);
     setVerifyError("");
     const res = await fetch("/api/auth/otp/verify", {
@@ -74,6 +148,11 @@ export default function LoginPage() {
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
+    if (res.status === 429) {
+      lock.lockFor(retryAfterFrom(res, data));
+      setDigits(["", "", "", "", "", ""]);
+      return;
+    }
     if (!res.ok) {
       setVerifyError(typeof data.error === "string" ? data.error : "That code did not match");
       return;
@@ -83,6 +162,7 @@ export default function LoginPage() {
   }
 
   async function signInWithPassword() {
+    if (locked) return;
     setBusy(true);
     setVerifyError("");
     const res = await fetch("/api/auth/password/login", {
@@ -92,6 +172,10 @@ export default function LoginPage() {
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
+    if (res.status === 429) {
+      lock.lockFor(retryAfterFrom(res, data));
+      return;
+    }
     if (!res.ok) {
       setVerifyError(typeof data.error === "string" ? data.error : "Email or password is incorrect");
       return;
@@ -188,7 +272,8 @@ export default function LoginPage() {
                   }}
                 />
               </label>
-              {verifyError ? (
+              {locked ? <LockedCard label={lock.label} mode="password" /> : null}
+              {verifyError && !locked ? (
                 <div className="op-msg-err" role="alert" style={{ marginTop: 16 }}>
                   <span className="op-msg-err-icon" aria-hidden>
                     !
@@ -202,7 +287,7 @@ export default function LoginPage() {
               <button
                 className="btn btn-primary btn-block"
                 style={{ marginTop: 24 }}
-                disabled={busy || !email.trim() || !password}
+                disabled={busy || locked || !email.trim() || !password}
                 onClick={() => void signInWithPassword()}
                 aria-busy={busy || undefined}
               >
@@ -211,12 +296,14 @@ export default function LoginPage() {
                     <span className="op-spin" aria-hidden />
                     Signing in
                   </>
+                ) : locked ? (
+                  `Sign in after ${lock.label}`
                 ) : (
                   "Sign in"
                 )}
               </button>
               <div className="op-login-alt">
-                <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => switchMode("otp")}>
+                <button className="btn btn-ghost" type="button" disabled={busy || locked} onClick={() => switchMode("otp")}>
                   Sign in with Teams code
                 </button>
               </div>
@@ -240,10 +327,11 @@ export default function LoginPage() {
                   disabled={busy}
                 />
               </label>
+              {locked ? <LockedCard label={lock.label} mode="otp" /> : null}
               <button
                 className="btn btn-primary btn-block"
                 style={{ marginTop: 24 }}
-                disabled={busy || !email.trim()}
+                disabled={busy || locked || !email.trim()}
                 onClick={() => void sendCode()}
                 aria-busy={busy || undefined}
               >
@@ -252,6 +340,8 @@ export default function LoginPage() {
                     <span className="op-spin" aria-hidden />
                     Sending code
                   </>
+                ) : locked ? (
+                  `Send code in ${lock.label}`
                 ) : (
                   "Send code"
                 )}
@@ -260,7 +350,7 @@ export default function LoginPage() {
                 <p className="op-login-hint">Look for a chat from Office Presence in Teams.</p>
               ) : (
                 <div className="op-login-alt">
-                  <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => switchMode("password")}>
+                  <button className="btn btn-ghost" type="button" disabled={busy || locked} onClick={() => switchMode("password")}>
                     Sign in with password
                   </button>
                 </div>
@@ -283,7 +373,9 @@ export default function LoginPage() {
                 </div>
               ) : null}
 
-              {verifyError && !deliveryFailed ? (
+              {locked ? <LockedCard label={lock.label} mode="otp" /> : null}
+
+              {verifyError && !deliveryFailed && !locked ? (
                 <div className="op-msg-err" role="alert">
                   <span className="op-msg-err-icon" aria-hidden>
                     !
@@ -307,7 +399,7 @@ export default function LoginPage() {
                     autoComplete={i === 0 ? "one-time-code" : "off"}
                     maxLength={6}
                     value={d}
-                    disabled={busy || deliveryFailed}
+                    disabled={busy || deliveryFailed || locked}
                     onChange={(e) => setDigitAt(i, e.target.value)}
                     onKeyDown={(e) => onKeyDown(i, e)}
                     aria-label={`Digit ${i + 1}`}
@@ -319,7 +411,7 @@ export default function LoginPage() {
                 <button
                   className="btn btn-primary btn-block"
                   style={{ marginTop: 24 }}
-                  disabled={busy || !email.trim()}
+                  disabled={busy || locked || !email.trim()}
                   onClick={() => void sendCode()}
                   aria-busy={busy || undefined}
                 >
@@ -328,6 +420,8 @@ export default function LoginPage() {
                       <span className="op-spin" aria-hidden />
                       Sending code
                     </>
+                  ) : locked ? (
+                    `Send code in ${lock.label}`
                   ) : (
                     "Resend code"
                   )}
@@ -337,13 +431,13 @@ export default function LoginPage() {
                   <button
                     className="btn btn-primary btn-block"
                     style={{ marginTop: 24 }}
-                    disabled={busy || code.length !== 6}
+                    disabled={busy || locked || code.length !== 6}
                     onClick={() => void verify()}
                   >
-                    {busy ? "Signing in" : "Sign in"}
+                    {busy ? "Signing in" : locked ? `Verify in ${lock.label}` : "Sign in"}
                   </button>
                   <div className="op-login-resend">
-                    <button className="btn btn-ghost" type="button" disabled={busy} onClick={() => void sendCode()}>
+                    <button className="btn btn-ghost" type="button" disabled={busy || locked} onClick={() => void sendCode()}>
                       Resend code
                     </button>
                   </div>
@@ -367,6 +461,10 @@ export default function LoginPage() {
         <div style={{ marginTop: 8 }}>
           <a href="/download" style={{ color: "inherit" }}>
             Download the Android app
+          </a>
+          {" · "}
+          <a href="/privacy" style={{ color: "inherit" }}>
+            Privacy notice
           </a>
         </div>
       </footer>

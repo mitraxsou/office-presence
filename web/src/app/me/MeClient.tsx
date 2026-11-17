@@ -29,7 +29,19 @@ type Day = {
   lastOut: string | null;
   officeName: string | null;
   intervals: Interval[];
+  exception?: { id: string; points: number } | null;
 };
+type ExceptionDay = {
+  dayKey: string;
+  points: number;
+  officeName: string;
+  homeOffice: boolean;
+  reason: string;
+  grantedBy: string | null;
+  grantedAt: string;
+};
+type LeaveDay = { dayKey: string; kind: string; note: string | null; source: string };
+type Holiday = { dayKey: string; name: string };
 type Report = {
   month: string;
   currentMonth: string;
@@ -47,6 +59,11 @@ type Report = {
     pointsToday: number;
   };
   days: Day[];
+  exceptionDayCount?: number;
+  allowSelfLeave?: boolean;
+  holidays?: Holiday[];
+  leaveDays?: LeaveDay[];
+  exceptionDays?: ExceptionDay[];
 };
 type Office = { id: string; name: string; pointsPerVisitDay: number };
 type CorrectionRow = { id: string; dayKey: string; status: string };
@@ -62,6 +79,16 @@ function shiftMonth(key: string, delta: number) {
   const [y, m] = key.split("-").map(Number);
   const d = new Date(Date.UTC(y, m - 1 + delta, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function leaveLabel(kind: string) {
+  return kind === "other_duty" ? "Other duty" : "Leave";
+}
+
+function isWeekdayKey(dayKey: string) {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return dow >= 1 && dow <= 5;
 }
 
 function chipLabel(points: number) {
@@ -181,6 +208,15 @@ export default function MeClient({
     () => new Map((monthReady ? data?.days ?? [] : []).map((d) => [d.dayKey, d])),
     [data, monthReady],
   );
+  const records = useMemo(() => {
+    const r = monthReady ? data : null;
+    return {
+      holidays: new Map((r?.holidays ?? []).map((h) => [h.dayKey, h])),
+      leave: new Map((r?.leaveDays ?? []).map((l) => [l.dayKey, l])),
+      exceptions: new Map((r?.exceptionDays ?? []).map((e) => [e.dayKey, e])),
+    };
+  }, [data, monthReady]);
+  const exceptionCount = monthReady ? data?.exceptionDayCount ?? records.exceptions.size : 0;
   const tz = (monthReady ? data?.timezone : null) ?? "Asia/Kolkata";
   const todayKey = useMemo(
     () => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()),
@@ -318,6 +354,11 @@ export default function MeClient({
                 <p className="op-meta" style={{ marginTop: 10 }}>
                   {visitDaysFyi(data.monthVisitDays)}
                 </p>
+                {exceptionCount > 0 ? (
+                  <p className="op-meta" style={{ marginTop: 4 }}>
+                    Includes {exceptionCount} HR exception {exceptionCount === 1 ? "day" : "days"}
+                  </p>
+                ) : null}
                 <div className="op-hours-fyi">
                   <div>
                     <span className="op-label">Hours today</span>
@@ -358,22 +399,35 @@ export default function MeClient({
                 const isToday = c === todayKey;
                 const isSel = selected === c;
                 const isPend = pendingDays.has(c);
+                const ex = records.exceptions.get(c);
+                const hol = records.holidays.get(c);
+                const lv = records.leave.get(c);
                 const cls = [
                   "op-wcal-d",
                   d ? "has-visit" : "",
+                  ex ? "ex" : "",
+                  hol ? "hol" : "",
+                  lv ? "lv" : "",
                   isToday ? "today" : "",
                   isSel ? "sel" : "",
                   isPend ? "pend" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
+                const visited = !!d && d.intervals.length > 0;
                 const sub = isPend && !d
                   ? "Pending review"
-                  : d
+                  : visited
                     ? isToday && data?.today.inOffice
                       ? "In now"
                       : calendarOfficeLabel(d.intervals, d.officeName)
-                    : "";
+                    : ex
+                      ? "HR exception"
+                      : hol
+                        ? hol.name
+                        : lv
+                          ? leaveLabel(lv.kind)
+                          : "";
                 return (
                   <button
                     key={c}
@@ -390,6 +444,12 @@ export default function MeClient({
                   </button>
                 );
               })}
+          <div className="op-wcal-legend" aria-label="Legend">
+            <span><i className="visit" />Visit day</span>
+            <span><i className="ex" />HR exception</span>
+            <span><i className="hol" />Holiday (info)</span>
+            <span><i className="lv" />Leave (info)</span>
+          </div>
         </div>
       </div>
 
@@ -421,6 +481,23 @@ export default function MeClient({
               autoId={autoIds[selected] ?? null}
               viewAsReadonly={viewAsReadonly}
               viewAsName={viewAs?.name}
+              exception={records.exceptions.get(selected)}
+              holiday={records.holidays.get(selected)}
+              leave={records.leave.get(selected)}
+              canMarkLeave={
+                !!data?.allowSelfLeave &&
+                !viewAsReadonly &&
+                isWeekdayKey(selected) &&
+                !records.holidays.has(selected) &&
+                !records.exceptions.has(selected) &&
+                !(sel && sel.intervals.length > 0) &&
+                !!currentMonth &&
+                (selected.slice(0, 7) === currentMonth || selected.slice(0, 7) === shiftMonth(currentMonth, -1))
+              }
+              pointsTarget={data?.pointsTarget ?? 8}
+              onLeaveChanged={() => {
+                void load(month);
+              }}
               onClose={closeDrawer}
               onCorrect={() => {
                 if (viewAsReadonly) return;
@@ -442,19 +519,53 @@ function DayDrawer({
   autoId,
   viewAsReadonly,
   viewAsName,
+  exception,
+  holiday,
+  leave,
+  canMarkLeave,
+  pointsTarget,
+  onLeaveChanged,
   onClose,
   onCorrect,
 }: {
   dayKey: string;
+  pointsTarget: number;
   day?: Day;
   timezone: string;
   pending: boolean;
   autoId?: string | null;
   viewAsReadonly?: boolean;
   viewAsName?: string;
+  exception?: ExceptionDay;
+  holiday?: Holiday;
+  leave?: LeaveDay;
+  canMarkLeave: boolean;
+  onLeaveChanged: () => void;
   onClose: () => void;
   onCorrect: () => void;
 }) {
+  if (exception && (!day || day.intervals.length === 0)) {
+    return <ExceptionDrawer dayKey={dayKey} timezone={timezone} exception={exception} onClose={onClose} />;
+  }
+  if (!day || day.intervals.length === 0) {
+    return (
+      <NoVisitDrawer
+        key={dayKey}
+        dayKey={dayKey}
+        pointsTarget={pointsTarget}
+        timezone={timezone}
+        pending={pending}
+        holiday={holiday}
+        leave={leave}
+        canMarkLeave={canMarkLeave}
+        viewAsReadonly={viewAsReadonly}
+        viewAsName={viewAsName}
+        onLeaveChanged={onLeaveChanged}
+        onClose={onClose}
+        onCorrect={onCorrect}
+      />
+    );
+  }
   const visits = day?.intervals.length ?? 0;
   const groups = day ? groupOfficesFromIntervals(day.intervals) : [];
   const multi = groups.length >= 2;
@@ -487,8 +598,16 @@ function DayDrawer({
             </span>
             {autoId ? <span className="op-badge">Corrected by you</span> : null}
             {autoId ? <span className="op-badge">Auto approved</span> : null}
+            {exception ? <span className="op-badge pending">HR exception</span> : null}
           </div>
         ) : null}
+        {exception ? (
+          <p className="op-meta" style={{ marginTop: 8 }}>
+            HR exception for this day: {chipLabel(exception.points)} ({exceptionOfficeLabel(exception)}). The day counts the higher value.
+          </p>
+        ) : null}
+        {holiday ? <p className="op-meta" style={{ marginTop: 8 }}>Holiday: {holiday.name}. Info only.</p> : null}
+        {leave ? <p className="op-meta" style={{ marginTop: 8 }}>{leaveLabel(leave.kind)} is recorded. Info only.</p> : null}
 
         {day && day.points > 0 ? (
           <div
@@ -627,6 +746,218 @@ function DayDrawer({
               disabled={viewAsReadonly}
               onClick={onCorrect}
             >
+              Request a correction
+            </button>
+            {viewAsReadonly ? (
+              <p className="op-meta" style={{ marginTop: 8 }}>
+                Not available while viewing as {viewAsName ?? "this user"}.
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function exceptionOfficeLabel(e: ExceptionDay) {
+  return e.homeOffice ? `${e.officeName} home office` : e.officeName;
+}
+
+function ExceptionDrawer({
+  dayKey,
+  timezone,
+  exception,
+  onClose,
+}: {
+  dayKey: string;
+  timezone: string;
+  exception: ExceptionDay;
+  onClose: () => void;
+}) {
+  const grantedOn = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: timezone }).format(
+    new Date(exception.grantedAt),
+  );
+  return (
+    <aside className="op-drawer" role="dialog" aria-label="Day detail">
+      <div className="op-drawer-body">
+        <div className="op-drawer-head">
+          <span className="op-meta">Day detail</span>
+          <button type="button" className="op-icon-btn" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <h2 className="op-drawer-title">{dayTitle(dayKey, timezone)}</h2>
+        <div className="op-drawer-chip-row">
+          <span className="op-badge pending">HR exception</span>
+        </div>
+        <p className="op-ink2" style={{ margin: "12px 0" }}>
+          HR exception. Counts as {chipLabel(exception.points)} ({exceptionOfficeLabel(exception)}).
+        </p>
+        <div className="op-dkv">
+          <span>Counts as</span>
+          <b>{chipLabel(exception.points)}</b>
+        </div>
+        <div className="op-dkv">
+          <span>Office</span>
+          <b>{exception.homeOffice ? `${exception.officeName}, home office` : exception.officeName}</b>
+        </div>
+        <div className="op-dkv">
+          <span>Reason</span>
+          <b>{exception.reason}</b>
+        </div>
+        <div className="op-dkv">
+          <span>Granted by</span>
+          <b>{exception.grantedBy ? `${exception.grantedBy}, ${grantedOn}` : grantedOn}</b>
+        </div>
+        <p className="op-meta" style={{ marginTop: 12 }}>
+          Ask HR to change it.
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function NoVisitDrawer({
+  dayKey,
+  pointsTarget,
+  timezone,
+  pending,
+  holiday,
+  leave,
+  canMarkLeave,
+  viewAsReadonly,
+  viewAsName,
+  onLeaveChanged,
+  onClose,
+  onCorrect,
+}: {
+  dayKey: string;
+  pointsTarget: number;
+  timezone: string;
+  pending: boolean;
+  holiday?: Holiday;
+  leave?: LeaveDay;
+  canMarkLeave: boolean;
+  viewAsReadonly?: boolean;
+  viewAsName?: string;
+  onLeaveChanged: () => void;
+  onClose: () => void;
+  onCorrect: () => void;
+}) {
+  const [kind, setKind] = useState<"leave" | "other_duty">(leave?.kind === "other_duty" ? "other_duty" : "leave");
+  const [note, setNote] = useState(leave?.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const ownLeave = !leave || leave.source === "self";
+
+  async function send(method: "PUT" | "DELETE") {
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/me/leave/${dayKey}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method === "PUT" ? JSON.stringify({ kind, note }) : undefined,
+    });
+    const json = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setError(typeof json.error === "string" ? json.error : "Could not save leave. Try again.");
+      return;
+    }
+    setEditing(false);
+    onLeaveChanged();
+  }
+
+  return (
+    <aside className="op-drawer" role="dialog" aria-label="Day detail">
+      <div className="op-drawer-body">
+        <div className="op-drawer-head">
+          <span className="op-meta">Day detail</span>
+          <button type="button" className="op-icon-btn" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <h2 className="op-drawer-title">{dayTitle(dayKey, timezone)}</h2>
+        <p className="op-ink2" style={{ margin: "4px 0 0" }}>
+          {pending ? "Recorded: no visit" : "No visit"}
+        </p>
+        {holiday ? (
+          <p className="op-meta" style={{ marginTop: 12 }}>
+            Holiday: {holiday.name}. Your target stays {pointsTarget} points.
+          </p>
+        ) : null}
+        {leave && !editing ? (
+          <div style={{ marginTop: 14 }}>
+            <span className="op-badge">{leaveLabel(leave.kind)}</span>
+            {leave.note ? <p className="op-ink2" style={{ margin: "8px 0 0" }}>{leave.note}</p> : null}
+            <p className="op-meta" style={{ marginTop: 8 }}>
+              {leave.source === "self" ? "Marked by you." : "Marked by an admin."} Leave is recorded for your records. Your
+              target stays {pointsTarget} points.
+            </p>
+          </div>
+        ) : null}
+        {canMarkLeave && (editing || !leave) && ownLeave ? (
+          <div style={{ marginTop: 16 }}>
+            {!editing && !leave ? (
+              <p className="op-meta">Leave is recorded for your records. Your target stays {pointsTarget} points.</p>
+            ) : null}
+            {editing ? (
+              <>
+                <div className="op-seg" role="radiogroup" aria-label="Kind" style={{ marginTop: 8 }}>
+                  <button type="button" className={kind === "leave" ? "on" : ""} onClick={() => setKind("leave")}>
+                    Leave
+                  </button>
+                  <button type="button" className={kind === "other_duty" ? "on" : ""} onClick={() => setKind("other_duty")}>
+                    Other duty
+                  </button>
+                </div>
+                <label className="op-field" style={{ marginTop: 12 }}>
+                  <span className="op-field-lab">Note (optional)</span>
+                  <input className="op-input" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+                </label>
+                <p className="op-meta" style={{ marginTop: 8 }}>
+                  Leave is recorded for your records. Your target stays {pointsTarget} points.
+                </p>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {error ? <p className="op-ferr" style={{ marginTop: 8 }}>{error}</p> : null}
+        {!holiday ? (
+          <p className="op-meta" style={{ marginTop: 16 }}>
+            No visit recorded for this day.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="op-drawer-actions">
+        {canMarkLeave && ownLeave ? (
+          editing ? (
+            <>
+              <button type="button" className="btn btn-primary" disabled={busy} style={{ marginBottom: 8 }} onClick={() => void send("PUT")}>
+                {busy ? "Saving" : "Save leave"}
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={busy} style={{ marginBottom: 8 }} onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            </>
+          ) : leave ? (
+            <button type="button" className="btn btn-secondary" disabled={busy} style={{ marginBottom: 8 }} onClick={() => void send("DELETE")}>
+              Remove leave
+            </button>
+          ) : (
+            <button type="button" className="btn btn-secondary" style={{ marginBottom: 8 }} onClick={() => setEditing(true)}>
+              Mark as leave
+            </button>
+          )
+        ) : null}
+        {pending ? (
+          <p className="op-badge accent">Pending review</p>
+        ) : (
+          <>
+            <button type="button" className="btn btn-secondary" disabled={viewAsReadonly} onClick={onCorrect}>
               Request a correction
             </button>
             {viewAsReadonly ? (

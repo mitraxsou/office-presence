@@ -1,7 +1,10 @@
 package com.pwc.officepresence.ui.compose
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -19,13 +22,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -33,28 +36,38 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.pwc.officepresence.data.AppPrefs
-import com.pwc.officepresence.data.DebugTrace
 import com.pwc.officepresence.data.Office
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
-import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.notify.WeeklySummaryWorker
 import com.pwc.officepresence.presence.GeofenceHelper
+import com.pwc.officepresence.presence.LiveStatus
+import com.pwc.officepresence.presence.LocationFlags
 import com.pwc.officepresence.ui.PointsFormat
 import com.pwc.officepresence.ui.theme.LocalOpPalette
 import com.pwc.officepresence.ui.theme.OpColor
@@ -67,6 +80,27 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.concurrent.thread
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+/** Foreground fix cadence while Today is on screen. Background sampling keeps the policy interval. */
+private const val LIVE_FIX_MS = 5_000L
+private const val RECORD_GAP_MS = 60_000L
+
+@SuppressLint("MissingPermission")
+private suspend fun currentFix(ctx: Context): Location? = suspendCancellableCoroutine { cont ->
+    val cts = CancellationTokenSource()
+    cont.invokeOnCancellation { cts.cancel() }
+    try {
+        LocationServices.getFusedLocationProviderClient(ctx)
+            .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
+            .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+            .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+            .addOnCanceledListener { if (cont.isActive) cont.resume(null) }
+    } catch (_: SecurityException) {
+        if (cont.isActive) cont.resume(null)
+    }
+}
 
 private data class TodayVisitRow(
     val officeName: String,
@@ -75,14 +109,15 @@ private data class TodayVisitRow(
     val stillIn: Boolean,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(
     repo: PresenceRepository,
     prefs: AppPrefs,
     onRequestPermissions: () -> Unit,
-    onForceDetect: ((String) -> Unit) -> Unit,
     onOpenColleagues: () -> Unit = {},
     onOpenMonth: () -> Unit = {},
+    onOpenYou: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
@@ -90,7 +125,10 @@ fun TodayScreen(
     val main = remember { Handler(Looper.getMainLooper()) }
     var state by remember { mutableStateOf(repo.cached()) }
     var loading by remember { mutableStateOf(true) }
-    var checking by remember { mutableStateOf(false) }
+    val pullState = rememberPullToRefreshState(enabled = { !loading })
+    var stateAtMs by remember { mutableLongStateOf(prefs.lastSyncAtMs) }
+    val live by LiveStatus.latest.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     var peersIn by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var visitRows by remember { mutableStateOf<List<TodayVisitRow>>(emptyList()) }
     var tick by remember { mutableStateOf(0) }
@@ -113,20 +151,6 @@ fun TodayScreen(
             val day = LocalDate.now(zone).toString()
             val corr = runCatching { repo.api.listCorrections(day.take(7)) }.getOrNull()
             val arr = corr?.optJSONArray("requests") ?: return@thread
-            // #region agent log
-            val correctionSummary = (0 until arr.length()).joinToString(";") { i ->
-                val row = arr.getJSONObject(i)
-                val pendingReason = row.optString("pendingReason").takeIf { it.isNotBlank() }
-                "${row.optString("dayKey")}:${row.optString("status")}:${row.optString("issue")}" +
-                    if (pendingReason != null) "(${pendingReason.take(40)})" else ""
-            }
-            DebugTrace.write(
-                "H4",
-                "TodayScreen.kt:111",
-                "correction requests for month",
-                mapOf("count" to arr.length(), "rows" to correctionSummary.take(500), "role" to prefs.role, "today" to day),
-            )
-            // #endregion
             var edited = false
             var pending: String? = null
             for (i in 0 until arr.length()) {
@@ -154,8 +178,10 @@ fun TodayScreen(
             }
             if (s.ok) {
                 com.pwc.officepresence.ui.analytics.OpAnalytics.log(ctx, "sync_completed")
-                DailySummaryWorker.schedule(ctx)
+                WeeklySummaryWorker.schedule(ctx)
                 com.pwc.officepresence.notify.SyncRefreshWorker.schedule(ctx)
+                com.pwc.officepresence.notify.TrackingHealthWorker.schedule(ctx)
+                com.pwc.officepresence.notify.AppUpdateWorker.schedule(ctx)
                 GeofenceHelper.registerAll(ctx, prefs.offices())
                 com.pwc.officepresence.notify.FcmTokenSync.refreshAndUpload(ctx)
             } else {
@@ -186,11 +212,86 @@ fun TodayScreen(
             )
             main.post {
                 state = s
+                stateAtMs = System.currentTimeMillis()
                 visitRows = visits
                 peersIn = peers
                 loading = false
+                if (pullState.isRefreshing) {
+                    pullState.endRefresh()
+                    if (!s.ok) Toast.makeText(ctx, s.message ?: "Sync failed", Toast.LENGTH_SHORT).show()
+                }
             }
         }
+    }
+
+    LaunchedEffect(pullState.isRefreshing) {
+        if (pullState.isRefreshing) reload += 1
+    }
+
+    val liveEnabled = fineOk && !prefs.isViewAsActive && prefs.hasTrackingConsent
+    LaunchedEffect(liveEnabled) {
+        if (!liveEnabled) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var candidate: String? = null
+            var lastRecordAtMs = 0L
+            while (true) {
+                val loc = currentFix(ctx)
+                val now = System.currentTimeMillis()
+                val reading = loc?.let {
+                    LiveStatus.fromFix(it.latitude, it.longitude, it.accuracy.toDouble(), prefs.offices(), prefs.rules(), now)
+                }
+                if (loc != null && reading != null) {
+                    LiveStatus.publish(reading)
+                    val target = reading.officeId.orEmpty()
+                    when {
+                        target == prefs.lastSampleOfficeId -> candidate = null
+                        candidate != target || now - lastRecordAtMs < RECORD_GAP_MS -> candidate = target
+                        else -> {
+                            // Two fixes in a row agree on a change: record it the same way Check now does.
+                            candidate = null
+                            lastRecordAtMs = now
+                            val mock = LocationFlags.isMock(loc)
+                            thread {
+                                val s = repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble(), mock)
+                                main.post {
+                                    if (s.unauthorized) {
+                                        onUnauthorized()
+                                        return@post
+                                    }
+                                    if (!s.ok) return@post
+                                    state = s
+                                    stateAtMs = System.currentTimeMillis()
+                                    visitRows = parseTodayVisits(
+                                        prefs.cachedTodayOfficesJson,
+                                        s.inOffice,
+                                        s.officeName,
+                                        prefs.timezone,
+                                        prefs.gapMinutes,
+                                        prefs.sampleIntervalMinutes,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(LIVE_FIX_MS)
+            }
+        }
+    }
+
+    val liveReading = live?.takeIf { liveEnabled && it.atMs >= stateAtMs }
+    val heroIn = liveReading?.inOffice ?: state.inOffice
+    val heroOffice = when {
+        liveReading == null -> state.officeName
+        liveReading.inOffice -> liveReading.officeName ?: state.officeName
+        else -> null
+    }
+    val heroSince = when {
+        liveReading == null -> state.sinceAt
+        liveReading.inOffice == state.inOffice &&
+            (!state.inOffice || liveReading.officeId == prefs.lastSampleOfficeId) ->
+            state.sinceAt ?: java.time.Instant.ofEpochMilli(liveReading.sinceMs).toString()
+        else -> java.time.Instant.ofEpochMilli(liveReading.sinceMs).toString()
     }
 
     LaunchedEffect(tick) {
@@ -208,156 +309,144 @@ fun TodayScreen(
         else -> OpFormat.updatedAgo(prefs.lastSyncAtMs)
     }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .nestedScroll(pullState.nestedScrollConnection),
     ) {
-        Wordmark(Modifier.fillMaxWidth())
-        Spacer(Modifier.height(16.dp))
-        if (!loading || state.ok) {
-            Text(
-                OpFormat.greetingLine(
-                    prefs.preferredName,
-                    prefs.firstName,
-                    prefs.displayName,
-                    prefs.email,
-                    prefs.timezone,
-                ),
-                style = OpType.Label.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
-                color = p.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+        ) {
+            Wordmark(
+                Modifier
+                    .clip(OpShape.Pill)
+                    .clickable(onClickLabel = "Open You", onClick = onOpenYou)
+                    .padding(vertical = 4.dp),
             )
-            Text(
-                OpFormat.todayDateLabel(prefs.timezone),
-                style = OpType.Meta,
-                color = p.ink2,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
-            Spacer(Modifier.height(4.dp))
-        }
-
-        when {
-            loading && !state.ok -> TodaySkeleton()
-            needsPerms && !prefs.isViewAsActive -> {
-                PermissionsBlock(onRequestPermissions)
-                Spacer(Modifier.height(16.dp))
-                CompactMonthProgress(
-                    current = state.monthPoints,
-                    target = state.pointsTarget,
-                    visitDays = state.monthVisitDays,
-                    onClick = onOpenMonth,
+            Spacer(Modifier.height(16.dp))
+            if (!loading || state.ok) {
+                Text(
+                    OpFormat.greetingLine(
+                        prefs.preferredName,
+                        prefs.firstName,
+                        prefs.displayName,
+                        prefs.email,
+                        prefs.timezone,
+                    ),
+                    style = OpType.Label.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
+                    color = p.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    OpFormat.todayDateLabel(prefs.timezone),
+                    style = OpType.Meta,
+                    color = p.ink2,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Spacer(Modifier.height(4.dp))
             }
-            else -> {
-                StatusHero(
-                    inOffice = state.inOffice,
-                    officeName = state.officeName,
-                    forSinceLabel = OpFormat.forSinceLabel(state.sinceAt, prefs.timezone),
-                    lastInOffice = prefs.lastOfficeName.takeIf { it.isNotBlank() },
-                    updatedLabel = updatedMeta,
-                    fenceRadiusMeters = prefs.fenceRadius.toInt().coerceAtLeast(1),
-                )
-                Spacer(Modifier.height(16.dp))
-                TodayPointsCard(
-                    pointsToday = state.pointsToday,
-                    visits = visitRows,
-                    hoursToday = state.hoursToday,
-                    advised = prefs.dayHours.toDouble(),
-                    edited = editedToday,
-                    pendingReason = pendingToday,
-                    onFix = { fixing = true },
-                )
-                Spacer(Modifier.height(8.dp))
-                CompactMonthProgress(
-                    current = state.monthPoints,
-                    target = state.pointsTarget,
-                    visitDays = state.monthVisitDays,
-                    onClick = onOpenMonth,
-                )
-                Spacer(Modifier.height(24.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (prefs.sharePresenceWithPeers && peersIn.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .clickable(onClick = onOpenColleagues)
-                                .padding(end = 12.dp),
-                        ) {
-                            peersIn.take(3).forEachIndexed { i, peer ->
-                                val name = peer.optString("name").ifBlank { peer.optString("email") }
-                                Box(Modifier.padding(start = if (i == 0) 0.dp else (-8).dp)) {
-                                    AvatarCircle(name, size = 32.dp)
+
+            when {
+                loading && !state.ok -> TodaySkeleton()
+                needsPerms && !prefs.isViewAsActive -> {
+                    PermissionsBlock(onRequestPermissions)
+                    Spacer(Modifier.height(16.dp))
+                    CompactMonthProgress(
+                        current = state.monthPoints,
+                        target = state.pointsTarget,
+                        visitDays = state.monthVisitDays,
+                        onClick = onOpenMonth,
+                    )
+                }
+                else -> {
+                    StatusHero(
+                        inOffice = heroIn,
+                        officeName = heroOffice,
+                        forSinceLabel = OpFormat.forSinceLabel(heroSince, prefs.timezone),
+                        lastInOffice = prefs.lastOfficeName.takeIf { it.isNotBlank() },
+                        updatedLabel = updatedMeta,
+                        fenceRadiusMeters = prefs.fenceRadius.toInt().coerceAtLeast(1),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    val todayRecord = remember(state) {
+                        val zone = OpFormat.zone(prefs.timezone)
+                        MonthRecords.parseToday(prefs.cachedHolidaysJson, prefs.cachedLeaveDaysJson, LocalDate.now(zone).toString())
+                    }
+                    TodayRecordNotice(todayRecord.first, todayRecord.second, state.pointsTarget)
+                    TodayPointsCard(
+                        pointsToday = state.pointsToday,
+                        visits = visitRows,
+                        hoursToday = state.hoursToday,
+                        advised = prefs.dayHours.toDouble(),
+                        edited = editedToday,
+                        pendingReason = pendingToday,
+                        onFix = { fixing = true },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    CompactMonthProgress(
+                        current = state.monthPoints,
+                        target = state.pointsTarget,
+                        visitDays = state.monthVisitDays,
+                        onClick = onOpenMonth,
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (prefs.sharePresenceWithPeers && peersIn.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .clickable(onClick = onOpenColleagues)
+                                    .padding(end = 12.dp),
+                            ) {
+                                peersIn.take(3).forEachIndexed { i, peer ->
+                                    val name = peer.optString("name").ifBlank { peer.optString("email") }
+                                    Box(Modifier.padding(start = if (i == 0) 0.dp else (-8).dp)) {
+                                        AvatarCircle(name, size = 32.dp)
+                                    }
                                 }
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "${peersIn.size} colleagues In",
+                                    style = OpType.Label,
+                                    color = p.ink2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
-                            Spacer(Modifier.width(8.dp))
+                        } else {
                             Text(
-                                "${peersIn.size} colleagues In",
+                                "No colleagues In right now",
                                 style = OpType.Label,
                                 color = p.ink2,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    } else {
-                        Text(
-                            "No colleagues In right now",
-                            style = OpType.Label,
-                            color = p.ink2,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp),
-                        )
-                    }
-                    val checkEnabled = !checking && !prefs.isViewAsReadonly
-                    Column(horizontalAlignment = Alignment.End) {
-                        OpSecondaryButton(
-                            label = if (checking) "Checking..." else "Check now",
-                            onClick = {
-                                checking = true
-                                onForceDetect {
-                                    checking = false
-                                    state = repo.cached()
-                                    visitRows = parseTodayVisits(
-                                        prefs.cachedTodayOfficesJson,
-                                        state.inOffice,
-                                        state.officeName,
-                                        prefs.timezone,
-                                        prefs.gapMinutes,
-                                        prefs.sampleIntervalMinutes,
-                                    )
-                                }
-                            },
-                            enabled = checkEnabled,
-                            leadingIcon = Icons.Outlined.Sync,
-                            modifier = Modifier.wrapContentWidth(),
-                        )
-                        if (prefs.isViewAsReadonly) {
-                            Text(
-                                "Not available while viewing as ${prefs.viewAsTargetName.ifBlank { "user" }}.",
-                                style = OpType.Meta,
-                                color = p.ink3,
-                                modifier = Modifier.padding(top = 6.dp),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 12.dp),
                             )
                         }
                     }
                 }
             }
         }
+        PullToRefreshContainer(
+            state = pullState,
+            modifier = Modifier.align(Alignment.TopCenter),
+            containerColor = p.surface,
+            contentColor = p.ink,
+        )
     }
     if (fixing) {
         FixTodayDialog(
@@ -512,14 +601,6 @@ private fun parseTodayVisits(
     return try {
         val officesArr = JSONArray(json)
         if (officesArr.length() == 0) {
-            // #region agent log
-            DebugTrace.write(
-                "H3",
-                "TodayScreen.kt:464",
-                "today offices cache empty",
-                mapOf("jsonLength" to json.length, "inOffice" to inOffice),
-            )
-            // #endregion
             return emptyList()
         }
         val rows = mutableListOf<TodayVisitRow>()
@@ -564,24 +645,8 @@ private fun parseTodayVisits(
             }
             flush(last = true)
         }
-        // #region agent log
-        DebugTrace.write(
-            "H3",
-            "TodayScreen.kt:491",
-            "today visits parsed for display",
-            mapOf("todayOfficeCount" to officesArr.length(), "visitRowCount" to rows.size, "inOffice" to inOffice),
-        )
-        // #endregion
         rows
     } catch (e: Exception) {
-        // #region agent log
-        DebugTrace.write(
-            "H3",
-            "TodayScreen.kt:500",
-            "today visits failed to parse",
-            mapOf("errorType" to (e::class.simpleName ?: "unknown"), "jsonLength" to json.length),
-        )
-        // #endregion
         emptyList()
     }
 }
@@ -675,14 +740,6 @@ private fun FixTodayDialog(
             prefs.cachedInOffice,
             prefs.cachedOfficeName.ifBlank { null },
         )
-        // #region agent log
-        DebugTrace.write(
-            "H4",
-            "TodayScreen.kt:fix",
-            "merged today visits for edit",
-            mapOf("raw" to fragments.size, "merged" to stays.size, "gapMinutes" to gapMinutes),
-        )
-        // #endregion
         return fragments.size to staysToFixVisits(stays, zone)
     }
     val loaded = remember { loadFromCache(prefs.cachedTodayOfficesJson) }
@@ -705,27 +762,11 @@ private fun FixTodayDialog(
             if (json == cacheFingerprint) continue
             cacheFingerprint = json
             if (rowsDirty) {
-                // #region agent log
-                DebugTrace.write(
-                    "H4",
-                    "TodayScreen.kt:fixCache",
-                    "today cache changed but edits kept",
-                    mapOf("jsonLength" to json.length, "rowCount" to rows.size),
-                )
-                // #endregion
                 continue
             }
             val next = loadFromCache(json)
             rows = next.second
             caption = mergeCaption(next.first, next.second.size, gapMinutes)
-            // #region agent log
-            DebugTrace.write(
-                "H4",
-                "TodayScreen.kt:fixCache",
-                "refreshed fix today from cache",
-                mapOf("raw" to next.first, "rows" to next.second.size),
-            )
-            // #endregion
         }
     }
 
@@ -803,21 +844,6 @@ private fun FixTodayDialog(
                             style = OpType.Label,
                             color = p.ink,
                             modifier = Modifier.clickable {
-                                // #region agent log
-                                DebugTrace.write(
-                                    "H7",
-                                    "TodayScreen.kt:changeOffice",
-                                    "change office tapped",
-                                    mapOf(
-                                        "row" to (index + 1),
-                                        "officeCount" to offices.size,
-                                        "fromId" to row.officeId,
-                                        "fromName" to row.officeName,
-                                        "known" to offices.any { it.id == row.officeId },
-                                        "names" to offices.joinToString(",") { it.displayName }.take(200),
-                                    ),
-                                )
-                                // #endregion
                                 when (offices.size) {
                                     0 -> Toast.makeText(ctx, "No offices are on this phone. Sync, then try again.", Toast.LENGTH_LONG).show()
                                     1 -> Toast.makeText(ctx, "Only one office is available.", Toast.LENGTH_SHORT).show()
@@ -939,58 +965,12 @@ private fun FixTodayDialog(
                     val payload = buildFixTodayBody(dayKey, reason, rows, zone)
                     if (payload is FixTodayPayload.Invalid) {
                         val row = rows.getOrNull(payload.row - 1)
-                        // #region agent log
-                        DebugTrace.write(
-                            "H4",
-                            "TodayScreen.kt:validate",
-                            "fix today row failed validation",
-                            mapOf(
-                                "row" to payload.row,
-                                "message" to payload.message,
-                                "inHm" to (row?.inHm ?: ""),
-                                "outHm" to (row?.outHm ?: ""),
-                                "stillIn" to (row?.stillIn ?: false),
-                            ),
-                        )
-                        // #endregion
                         Toast.makeText(ctx, "Visit ${payload.row}: ${payload.message}", Toast.LENGTH_LONG).show()
                     } else if (payload is FixTodayPayload.Ready) {
                     busy = true
                     thread {
                         val body = payload.body
-                        // #region agent log
-                        DebugTrace.write(
-                            "H4",
-                            "TodayScreen.kt:submit",
-                            "fix today submit times",
-                            mapOf(
-                                "visitCount" to (body.optJSONObject("requested")?.optJSONArray("visits")?.length() ?: 0),
-                                "inAt" to (body.optJSONObject("requested")?.optString("in_at") ?: ""),
-                                "remove" to (body.optJSONObject("requested")?.optBoolean("remove") ?: false),
-                            ),
-                        )
-                        // #endregion
                         val res = runCatching { repo.api.submitCorrection(body) }.getOrNull()
-                        // #region agent log
-                        val sentVisits = body.optJSONObject("requested")?.optJSONArray("visits")
-                        val storedReq = res?.optJSONObject("request")?.optJSONObject("requested")
-                        DebugTrace.write(
-                            "H5",
-                            "TodayScreen.kt:submitResult",
-                            "fix today server answer",
-                            mapOf(
-                                "httpStatus" to (res?.optInt("_httpStatus") ?: -1),
-                                "outcome" to (res?.optString("outcome") ?: ""),
-                                "reason" to (res?.optString("reason") ?: ""),
-                                "error" to (res?.optString("error") ?: ""),
-                                "role" to prefs.role,
-                                "sentVisits" to (sentVisits?.length() ?: 0),
-                                "sentOffices" to (sentVisits?.let { a -> (0 until a.length()).joinToString(",") { a.getJSONObject(it).optString("office_id") } } ?: ""),
-                                "storedVisits" to (storedReq?.optJSONArray("visits")?.length() ?: if (storedReq?.has("in_at") == true) 1 else 0),
-                                "storedOffice" to (storedReq?.optString("office_id") ?: ""),
-                            ),
-                        )
-                        // #endregion
                         main.post {
                             busy = false
                             if (res?.ok() == true) {

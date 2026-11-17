@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPolicy } from "@/lib/policy";
-import { sendPresenceCheckToActiveDevices } from "@/lib/firebase-admin";
+import { pushDailyAppUpdateReminders, sendPresenceCheckToActiveDevices } from "@/lib/firebase-admin";
 import { inPresencePingWindow } from "@/lib/presence-ping-window";
 
 function authorized(request: Request): boolean {
@@ -28,7 +28,8 @@ async function handle(request: Request) {
     });
   }
   const result = await sendPresenceCheckToActiveDevices();
-  return NextResponse.json({ ok: true, timezone, ...result });
+  const appUpdate = await pushDailyAppUpdateReminders();
+  return NextResponse.json({ ok: true, timezone, ...result, appUpdate });
 }
 
 /** External cron: POST every ~60m Mon-Fri. Vercel Hobby native cron is daily-only. */

@@ -28,6 +28,7 @@ class GeofenceReceiver : BroadcastReceiver() {
                 lng = loc?.longitude,
                 accuracy = loc?.accuracy?.toDouble(),
                 officeId = id?.takeIf { offices.containsKey(it) },
+                mock = LocationFlags.isMock(loc),
             )
         }
         val best = ids.mapNotNull { offices[it] }.maxByOrNull { it.pointsPerVisitDay }
@@ -40,8 +41,13 @@ class GeofenceReceiver : BroadcastReceiver() {
             }
             if (best != null) {
                 prefs.lastSampleOfficeId = best.id
+                LiveStatus.publish(
+                    LiveStatus.Reading(true, best.id, best.displayName, System.currentTimeMillis()),
+                )
             }
             PresenceService.start(context)
+            // The server ignores an enter without coordinates. Get a real fix right away.
+            if (loc == null) ArrivalDetect.forceNow(context)
         } else if (!coarseExit) {
             val name = best?.displayName
                 ?: prefs.cachedOfficeName.takeIf { it.isNotBlank() }
@@ -49,6 +55,7 @@ class GeofenceReceiver : BroadcastReceiver() {
                 ?: "office"
             Notifier.officeLeft(context, name)
             prefs.lastSampleOfficeId = ""
+            LiveStatus.publish(LiveStatus.Reading(false, null, null, System.currentTimeMillis()))
             PresenceService.stop(context)
         }
         val pending = goAsync()

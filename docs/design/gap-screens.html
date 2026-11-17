@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Office Presence: designs for the gap fixes</title>
+<style>
+:root{
+  --font:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  --bg:#F4F4F4;--surface:#FFFFFF;--sunk:#ECECEC;--line:rgba(26,26,26,.10);--line-strong:rgba(26,26,26,.18);
+  --ink:#1A1A1A;--ink2:#5E5E5E;--ink3:#8C8C8C;--accent:#FD5108;--accent-hover:#E04A07;--accent-wash:rgba(253,81,8,.15);
+  --on-accent:#1A1A1A;--ok:#2ECC71;--ok-wash:rgba(46,204,113,.16);--scrim:rgba(26,26,26,.32);
+  --board:#E6E6E6;--bezel:#1A1A1A;--ok-ink:#1E9E55;color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1A1A;--surface:#2D2D2D;--sunk:#242424;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);
+  --ink:#F4F4F4;--ink2:#B3B3B3;--ink3:#808080;--scrim:rgba(0,0,0,.5);--board:#111214;--bezel:#000;--ok-ink:#5BE08F;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1A1A1A;--surface:#2D2D2D;--sunk:#242424;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);
+  --ink:#F4F4F4;--ink2:#B3B3B3;--ink3:#808080;--scrim:rgba(0,0,0,.5);--board:#111214;--bezel:#000;--ok-ink:#5BE08F;color-scheme:dark}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 64px)}
+body{margin:0;background:var(--board);color:var(--ink);font:400 14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+/* ---------- board chrome ---------- */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--board);border-bottom:1px solid var(--line);
+  display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:12px 24px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--board)}
+.top h1{font:700 17px/1.2 var(--font);margin:0}
+.top nav{display:flex;flex-wrap:wrap;gap:4px}
+.top nav a{color:var(--ink2);text-decoration:none;padding:6px 12px;border-radius:999px;font-weight:500}
+.top nav a:hover{background:var(--surface);color:var(--ink)}
+.theme{margin-left:auto;display:flex;border:1px solid var(--line-strong);border-radius:999px;overflow:hidden}
+.theme button{border:0;background:none;padding:6px 12px;cursor:pointer;color:var(--ink2)}
+.theme button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.wrap{max-width:1560px;margin:0 auto;padding:24px}
+.intro{max-width:760px;color:var(--ink2);margin:8px 0 8px}
+.intro b{color:var(--ink)}
+section.grp{margin:40px 0 0}
+section.grp>h2{font:700 26px/1.15 var(--font);margin:0 0 4px}
+section.grp>p{margin:0 0 20px;color:var(--ink2);max-width:760px}
+.row{display:flex;flex-wrap:wrap;gap:36px 28px;align-items:flex-start}
+figure{margin:0}
+figcaption{margin-top:10px;max-width:360px}
+figcaption b{display:block;font-weight:600}
+figcaption span{color:var(--ink2);font-size:12.5px}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink2);margin-right:6px}
+/* ---------- phone frame ---------- */
+.ph{width:360px;height:760px;border-radius:40px;border:9px solid var(--bezel);background:var(--bg);overflow:hidden;
+  display:flex;flex-direction:column;position:relative;box-shadow:0 1px 0 var(--line)}
+.sb{height:30px;flex:none;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font:600 12.5px var(--font);color:var(--ink)}
+.sb i{font-style:normal;letter-spacing:1px}
+.scr>*{flex-shrink:0}
+.scr{flex:1;overflow:hidden;padding:8px 16px 16px;display:flex;flex-direction:column;gap:12px;position:relative}
+.bn{height:72px;flex:none;background:var(--surface);display:flex;justify-content:space-around;align-items:center;padding:0 4px;border-top:1px solid var(--line)}
+.bn div{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11.5px;color:var(--ink2);padding:6px 10px;border-radius:999px;font-weight:500}
+.bn div svg{width:20px;height:20px;color:var(--ink3)}
+.bn div.on{background:var(--accent-wash);color:var(--ink);font-weight:700}
+.bn div.on svg{color:var(--accent)}
+.hd{display:flex;align-items:center;gap:8px;min-height:36px}
+.hd .bk{color:var(--ink2);display:flex;align-items:center;gap:2px;font-weight:500}
+.hd h3{margin:0;font:700 22px/1.15 var(--font)}
+.ttl{font:700 28px/1.15 var(--font);margin:0}
+.h2{font:600 18px/1.3 var(--font);margin:0}
+.body{font-size:15px;line-height:1.45;color:var(--ink2);margin:0}
+.meta{font-size:12.5px;color:var(--ink3)}
+.card{background:var(--surface);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.card.wash{background:var(--accent-wash)}
+.card.okw{background:var(--ok-wash)}
+.card.sunk{background:var(--sunk)}
+.btn{display:flex;align-items:center;justify-content:center;height:48px;border-radius:999px;font-weight:700;font-size:15px;border:0;padding:0 20px;white-space:nowrap}
+.btn.p{background:var(--accent);color:var(--on-accent)}
+.btn.s{background:var(--surface);border:1px solid var(--line-strong);color:var(--ink)}
+.btn.dis{background:var(--sunk);color:var(--ink3)}
+.btn.sm{height:36px;font-size:13.5px;padding:0 14px;font-weight:600}
+.lnk{color:var(--ink);font-weight:600;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--accent)}
+.dang{color:var(--accent-hover);font-weight:700}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font-size:13px;font-weight:500;color:var(--ink2)}
+.inp{height:48px;border-radius:12px;background:var(--surface);border:1px solid var(--line-strong);display:flex;align-items:center;padding:0 14px;color:var(--ink)}
+.inp.ph-t{color:var(--ink3)}
+.err{display:flex;gap:10px;align-items:flex-start;background:var(--accent-wash);border-radius:16px;padding:12px 14px}
+.err .ic{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-weight:800;font-size:13px}
+.err b{display:block}
+.dots{display:flex;gap:6px}
+.dots i{width:8px;height:8px;border-radius:50%;background:var(--line-strong)}
+.dots i.on{background:var(--accent);width:22px;border-radius:999px}
+.dots i.dn{background:var(--ink3)}
+.chk{display:flex;gap:10px;align-items:flex-start}
+.chk .c{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok-wash);color:var(--ok-ink);display:grid;place-items:center;font-weight:800;font-size:12px}
+.chk .w{background:var(--accent-wash);color:var(--accent-hover)}
+.lst{background:var(--surface);border-radius:20px;overflow:hidden}
+.li{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line);min-height:52px}
+.li:first-child{border-top:0}
+.li .t{flex:1;min-width:0}
+.li .t b{display:block;font-weight:600;font-size:15px}
+.li .t span{color:var(--ink2);font-size:13px}
+.li .v{color:var(--ink2);font-size:13.5px}
+.li .ch{color:var(--ink3)}
+.new{font-size:10.5px;font-weight:700;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:2px}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--line-strong);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--surface)}
+.sw.on{background:var(--accent)}.sw.on::after{left:21px}
+.meter{display:flex;flex-direction:column;gap:8px}
+.meter .n{display:flex;align-items:baseline;justify-content:space-between}
+.meter .n b{font:800 34px/1 var(--font)}
+.meter .n b small{font-size:18px;font-weight:700;color:var(--ink2)}
+.bar{height:10px;border-radius:999px;background:var(--sunk);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.bar.ok i{background:var(--ok)}
+.why{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink2)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal .wd{font-size:11.5px;color:var(--ink3);font-weight:600;padding-bottom:2px}
+.cal .d{aspect-ratio:1;display:grid;place-items:center;border-radius:50%;font-size:13.5px;font-weight:500;position:relative}
+.cal .we{color:var(--ink3)}
+.cal .v{background:var(--accent-wash);font-weight:700}
+.cal .hp{background:var(--accent);color:var(--on-accent);font-weight:800}
+.cal .hol{color:var(--ink3);background:repeating-linear-gradient(135deg,var(--sunk) 0 4px,transparent 4px 8px);text-decoration:line-through}
+.cal .ex{background:var(--accent-wash);box-shadow:inset 0 0 0 2px var(--accent);font-weight:700}
+.cal .lv{border:1.5px dashed var(--ink2);font-weight:600}
+.cal .td{box-shadow:inset 0 0 0 2px var(--ink)}
+.cal .sel{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent)}
+.leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2)}
+.leg span{display:flex;align-items:center;gap:6px}
+.leg i{width:14px;height:14px;border-radius:50%;display:inline-block}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:24px 24px 0 0;padding:10px 20px 20px;display:flex;flex-direction:column;gap:12px;z-index:3}
+.sheet::before{content:"";align-self:center;width:36px;height:4px;border-radius:999px;background:var(--line-strong)}
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:2}
+.dlg{position:absolute;left:20px;right:20px;top:50%;transform:translateY(-50%);background:var(--surface);border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:12px;z-index:3}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.kv:first-of-type{border-top:0}
+.kv span{color:var(--ink2)}
+.kv.sub{border-top:0;padding:0 0 6px 14px;font-size:12.5px;color:var(--ink3)}
+.math{background:var(--sunk);border-radius:12px;padding:10px 12px;font-weight:600;font-size:14px}
+.status{font:800 96px/.86 var(--font);letter-spacing:-2px;margin:4px 0 0}
+.seg{display:flex;background:var(--sunk);border-radius:999px;padding:3px;gap:2px}
+.seg span{flex:1;text-align:center;padding:8px 6px;border-radius:999px;font-size:13px;font-weight:600;color:var(--ink2)}
+.seg span.on{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.grow{flex:1}
+.ill{height:120px;border-radius:20px;background:var(--sunk);display:grid;place-items:center;color:var(--ink3)}
+.notif{background:var(--surface);border-radius:20px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start}
+.notif .ai{flex:none;width:32px;height:32px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-weight:800;font-size:13px}
+.notif .t{flex:1;min-width:0}
+.notif .t b{font-size:13.5px}
+.notif .t p{margin:2px 0 0;font-size:13.5px;color:var(--ink2)}
+.unread{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+.grph{font-size:12px;font-weight:700;color:var(--ink3);margin:4px 2px -4px}
+/* ---------- web frame ---------- */
+.wscroll{overflow-x:auto;max-width:100%;border-radius:14px}
+.wb{width:1240px;height:760px;border-radius:14px;border:1px solid var(--line-strong);background:var(--bg);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.wb.short{height:auto;min-height:420px}
+.chrome{height:34px;flex:none;background:var(--sunk);display:flex;align-items:center;gap:6px;padding:0 14px;border-bottom:1px solid var(--line)}
+.chrome i{width:10px;height:10px;border-radius:50%;background:var(--line-strong)}
+.chrome span{margin-left:14px;font-size:12px;color:var(--ink3);background:var(--surface);border-radius:8px;padding:3px 12px;min-width:320px}
+.wbody{flex:1;display:flex;min-height:0}
+.rail{width:232px;flex:none;background:var(--surface);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+.rail .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;padding:4px 10px 14px}
+.mark{width:20px;height:20px;display:inline-block;flex:none}
+.rail a{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:999px;color:var(--ink2);text-decoration:none;font-weight:500;font-size:14px}
+.rail a.on{background:var(--accent-wash);color:var(--ink);font-weight:700}
+.rail .sec{font-size:12px;font-weight:700;color:var(--ink3);padding:14px 12px 4px}
+.rail .cnt{font-size:11px;font-weight:700;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:1px 7px}
+.rail .me{margin-top:auto;display:flex;gap:10px;align-items:center;padding:10px;border-top:1px solid var(--line)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--sunk);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
+.rail .me b{display:block;font-size:13.5px}.rail .me span{font-size:12px;color:var(--ink3)}
+.main{flex:1;min-width:0;padding:24px 28px;display:flex;flex-direction:column;gap:16px;overflow:hidden;position:relative}
+.wh{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.wh h4{margin:0;font:700 28px/1.15 var(--font)}
+.wh .sp{flex:1}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sel{height:38px;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface);display:flex;align-items:center;gap:8px;padding:0 12px;font-size:13.5px;color:var(--ink2);white-space:nowrap}
+.sel.srch{min-width:220px}
+.sel.on{border-color:var(--accent);color:var(--ink);background:var(--accent-wash)}
+.tbl{background:var(--surface);border-radius:16px;overflow:hidden;font-size:13.5px}
+.tr{display:grid;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid var(--line)}
+.tr.th{border-top:0;color:var(--ink3);font-size:12px;font-weight:600;padding:10px 16px;background:var(--surface)}
+.tr .nm b{display:block;font-weight:600}.tr .nm span{font-size:12px;color:var(--ink3)}
+.tr .mut{color:var(--ink2)}
+.bdg{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.bdg.mock{background:var(--accent);color:var(--on-accent)}
+.bdg.sync{border:1.5px solid var(--accent);color:var(--accent-hover)}
+.bdg.ign{background:var(--sunk);color:var(--ink2)}
+.bdg.met{background:var(--ok-wash);color:var(--ok-ink)}
+.bdg.below{background:var(--sunk);color:var(--ink)}
+.bdg.in{background:var(--ok);color:#0F3D22}
+.bdg.out{background:var(--sunk);color:var(--ink2)}
+.bdg.pend{background:var(--accent-wash);color:var(--ink)}
+.stats{display:flex;gap:12px}
+.stat{background:var(--surface);border-radius:16px;padding:14px 18px;min-width:150px}
+.stat b{display:block;font:800 30px/1.05 var(--font)}
+.stat span{font-size:13px;color:var(--ink2)}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:440px;background:var(--surface);border-left:1px solid var(--line);z-index:3;padding:20px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.wscrim{position:absolute;inset:0;background:var(--scrim);z-index:2}
+.wdlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;background:var(--surface);border-radius:24px;padding:24px;z-index:3;display:flex;flex-direction:column;gap:14px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rcard{background:var(--surface);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:0}
+.rcard h5{margin:0 0 6px;font:600 17px/1.3 var(--font)}
+.rrow{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.rrow b{font-weight:600;display:block}
+.rrow span{font-size:12.5px;color:var(--ink2)}
+.num{height:36px;min-width:70px;border-radius:10px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:flex-end;padding:0 10px;font-weight:600}
+.pop{position:absolute;background:var(--surface);border-radius:16px;padding:14px 16px;width:300px;z-index:4;box-shadow:0 0 0 1px var(--line-strong),0 12px 32px rgba(0,0,0,.18)}
+.tip{position:absolute;background:var(--ink);color:var(--bg);border-radius:10px;padding:8px 10px;font-size:12px;width:240px;z-index:4}
+.split{display:grid;grid-template-columns:300px 1fr;gap:16px;min-height:0;flex:1}
+.ok-g{color:var(--ok-ink);font-weight:700}
+.hc{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.hcard{background:var(--surface);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;border-left:5px solid var(--ok)}
+.hcard.late{border-left-color:var(--accent)}
+.hcard.bad{border-left-color:var(--ink)}
+.hcard b{font-size:15px}.hcard span{font-size:13px;color:var(--ink2)}
+.vbar{display:flex;height:14px;border-radius:999px;overflow:hidden;background:var(--sunk)}
+.vbar i{display:block;height:100%}
+@media (max-width:700px){.wrap{padding:16px}.top{padding:10px 16px}.top nav{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.lph{width:300px;height:620px;border-radius:36px;border:8px solid var(--bezel);background:var(--bg);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.lph.still{width:200px;height:414px;border-radius:28px;border-width:6px}
+.lph.still .sb,.lph.still .today-under{zoom:.6667}
+.today-under{padding:8px 16px;display:flex;flex-direction:column;gap:12px}
+.ov{position:absolute;inset:0;background:var(--bg);z-index:2}
+.mk{position:absolute;left:50%;top:50%;width:132px;height:132px;margin:-66px 0 0 -66px;overflow:visible}
+.txt{position:absolute;left:0;right:0;top:calc(50% + 74px);display:flex;flex-direction:column;align-items:center;gap:6px}
+.lph.still .txt{top:calc(50% + 50px);gap:4px}
+.lph.still .mk{width:88px;height:88px;margin:-44px 0 0 -44px}
+.mk g,.mk path{transform-box:view-box;transform-origin:52px 56px}
+.wm{font:700 22px/1.2 var(--font);color:var(--ink)}
+.gr{font-size:14.5px;color:var(--ink2)}
+.lph.still .wm{font-size:15px}.lph.still .gr{font-size:10.5px}
+.skip{position:absolute;bottom:28px;left:0;right:0;text-align:center;font-size:12px;color:var(--ink3)}
+.lph.still .skip{font-size:9px;bottom:18px}
+.lph .ring{animation:l-ring 450ms cubic-bezier(.2,.7,.2,1) calc(0ms - var(--t,0ms)) both}
+.lph .dot{animation:l-dot 350ms cubic-bezier(.3,1.6,.5,1) calc(200ms - var(--t,0ms)) both}
+.lph .arc{animation:l-fade 400ms ease-out calc(500ms - var(--t,0ms)) both}
+.lph .rp1{animation:l-rip 550ms cubic-bezier(.2,.7,.2,1) calc(550ms - var(--t,0ms)) both}
+.lph .rp2{animation:l-rip 550ms cubic-bezier(.2,.7,.2,1) calc(680ms - var(--t,0ms)) both}
+.lph .wm{animation:l-rise 320ms cubic-bezier(.2,.7,.2,1) calc(820ms - var(--t,0ms)) both}
+.lph .gr{animation:l-rise 320ms cubic-bezier(.2,.7,.2,1) calc(950ms - var(--t,0ms)) both}
+.lph .ov{animation:l-out 220ms ease-in calc(1280ms - var(--t,0ms)) both}
+.lph.still + figcaption{max-width:200px}
+.lph.still *{animation-play-state:paused!important}
+@keyframes l-ring{from{transform:scale(.6)}to{transform:scale(1)}}
+@keyframes l-dot{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes l-fade{from{opacity:0}to{opacity:1}}
+@keyframes l-rip{0%{transform:scale(1);opacity:0}15%{opacity:.7}100%{transform:scale(3.2);opacity:0}}
+@keyframes l-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes l-out{from{opacity:1}to{opacity:0;visibility:hidden}}
+@media (prefers-reduced-motion:reduce){.lph.live .ov{display:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <defs>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-bar" viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-ppl" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="9" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 20c0-3.2 2.7-5.5 7-5.5s7 2.3 7 5.5M15 15.5c3.5-.6 7 1 7 4.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+ </defs>
+</svg>
+<header class="top">
+  <h1>Office Presence: designs for the gap fixes</h1>
+  <nav aria-label="Sections">
+    <a href="#launch">Launch</a><a href="#phone">Phone</a><a href="#web-employee">Web employee</a><a href="#admin">Admin</a><a href="#manager">Manager</a><a href="#later">Later</a>
+  </nav>
+  <div class="theme" role="group" aria-label="Theme">
+    <button type="button" data-t="light" aria-pressed="false">Light</button>
+    <button type="button" data-t="dark" aria-pressed="false">Dark</button>
+    <button type="button" data-t="system" aria-pressed="true">System</button>
+  </div>
+</header>
+<main class="wrap">
+  <p class="intro"><b>Built with the live app tokens</b> (PwC orange #FD5108, Helvetica Neue, 20 px cards, green only for In and Goal met). Every frame is labelled with its section in SCREENS_FOR_GAPS.md and its prompt in CURSOR_FIX_PLAN.md. Sample data: Tue 17 Nov 2026. Target 8 points for everyone. Gurugram and Bengaluru count 1 point, Mumbai 2, Pune 4. Priya has 5 visit points plus 1 HR exception day.</p>
+
+<section class="grp" id="launch"><h2>Launch animation</h2>
+<p>One continuous sequence from the system splash into the app, 1.5 seconds in total instead of about 2.2. The mark stays at the exact screen centre the whole time, where Android draws the splash icon, so the hand-off never jumps. Text appears below it, and the ripples stop before they reach the text. Tap anywhere to skip. With Startup animation off, or Android animations off, the app opens straight to Today.</p>
+<div class="row" style="align-items:center">
+<figure><div class="lph live">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">1.8</span><span class="tag">Prompt 14</span><b>Launch animation, live</b><span>Plays on load. Use Replay to watch again.</span><br><button type="button" class="btn sm s" id="replay" style="margin-top:10px">Replay</button></figcaption></figure>
+<div style="max-width:520px;display:flex;flex-direction:column;gap:12px">
+<div class="card"><b>Timing</b>
+<div class="kv"><span>0 to 450 ms</span><b>Ring scales 0.6 to 1 (system splash)</b></div>
+<div class="kv"><span>200 to 550 ms</span><b>Dot pops in with a small overshoot</b></div>
+<div class="kv"><span>500 to 900 ms</span><b>Signal arc fades in</b></div>
+<div class="kv"><span>550 to 1230 ms</span><b>Two ripples, 130 ms apart, scale 1 to 3.2 and fade. Stroke stays 2.5 dp</b></div>
+<div class="kv"><span>820 to 1140 ms</span><b>Wordmark rises 12 dp and fades in, below the mark</b></div>
+<div class="kv"><span>950 to 1270 ms</span><b>Greeting rises and fades in</b></div>
+<div class="kv"><span>1280 to 1500 ms</span><b>Overlay fades out over Today</b></div></div>
+<div class="card"><b>Rules</b>
+<span class="body" style="font-size:14px">Once per app start, never on return from background. Launch sound starts with the dot at 200 ms. The greeting uses the cached preferred name and is left out on the very first launch. Sync and location checks start at 0 ms underneath, so the animation never delays data.</span></div>
+</div></div>
+<div class="row" style="margin-top:28px"><figure><div class="lph still" style="--t:0ms">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">0 ms</span><span>System splash starts. Ring grows from 60 percent.</span></figcaption></figure><figure><div class="lph still" style="--t:450ms">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">450 ms</span><span>Dot lands in the ring. Same timing as today's splash.</span></figcaption></figure><figure><div class="lph still" style="--t:750ms">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">750 ms</span><span>Fence ripple: two rings spread out once, like a geofence.</span></figcaption></figure><figure><div class="lph still" style="--t:1050ms">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">1050 ms</span><span>Wordmark and greeting rise in under the mark.</span></figcaption></figure><figure><div class="lph still" style="--t:1400ms">
+<div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div>
+<div class="today-under">
+ <div class="hd"><h3>Today</h3></div><p class="meta" style="margin:-8px 0 0">Tuesday 17 November</p>
+ <div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="font-size:44px;letter-spacing:-1px;color:var(--ink3)">Checking</p><span class="body" style="font-size:14px">Getting your latest status.</span></div>
+ <div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+</div>
+<div class="ov"><svg class="mk" viewBox="0 0 108 108" aria-hidden="true">
+<g class="rp rp1"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="rp rp2"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></g>
+<g class="ring"><circle cx="52" cy="56" r="16" fill="none" stroke="var(--accent)" stroke-width="5"/></g>
+<g class="dot"><circle cx="52" cy="56" r="7" fill="var(--accent)"/></g>
+<path class="arc" d="M64,33 A24,24 0 0,1 75,44" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/>
+</svg><div class="txt"><div class="wm">Office Presence</div><div class="gr">Good morning, Priya</div></div><div class="skip">Tap to skip</div></div>
+</div><figcaption><span class="tag">1400 ms</span><span>Overlay fades and Today is already behind it.</span></figcaption></figure></div>
+</section>
+<section class="grp" id="phone"><h2>Phone (Android)</h2><p>360 × 760 dp frames. Bottom navigation is unchanged. New rows are marked New.</p><div class="row"><figure><div class="ph" role="img" aria-label="Sign in: too many attempts"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div style="display:flex;align-items:center;gap:8px;font-weight:700;padding-top:8px"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div>
+<p class="ttl" style="margin-top:12px">Sign in</p>
+<p class="body">Use your PwC email. We send a 6-digit code to you in Microsoft Teams.</p>
+<div class="fld"><label>Work email</label><div class="inp">priya.sharma@pwc.com</div></div>
+<div class="err"><div class="ic">!</div><div><b>Too many attempts</b><span class="body" style="font-size:14px">Wait 14:32, then try again. Ask for a new code after that.</span></div></div>
+<div class="grow"></div>
+<div class="btn dis">Send code in 14:32</div>
+<div style="text-align:center;color:var(--ink3);font-weight:600">Sign in with password</div></div></div>
+<figcaption><span class="tag">1.1</span><span class="tag">Prompt 1</span><b>Sign in: too many attempts</b><span>Countdown from retryAfterSeconds. Buttons stay disabled until it ends, also after an app restart.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: welcome"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div><div class="grow"></div></div>
+<div style="display:grid;place-items:center;height:150px"><svg class="mark" style="width:96px;height:96px" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg></div>
+<p class="ttl">Welcome, Priya</p>
+<p class="body">Office Presence counts the days you are at a PwC office. Each office day earns points toward your monthly target.</p>
+<p class="body">Setup takes about a minute.</p><div class="grow"></div><div class="btn p">Continue</div></div></div>
+<figcaption><span class="tag">1.2 step 1</span><span class="tag">Prompt 8</span><b>Onboarding: welcome</b><span>Shown once after sign in, before any tracking starts.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: privacy and consent"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="dn"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div><div class="grow"></div><span class="bk">Back</span></div>
+<p class="ttl">Your privacy</p>
+<div class="card" style="gap:12px">
+<div class="chk"><span class="c">✓</span><span>We record when you are inside a PwC office: time, office and GPS accuracy.</span></div>
+<div class="chk"><span class="c">✓</span><span>We do not store where you are outside offices.</span></div>
+<div class="chk"><span class="c">✓</span><span>Raw location is deleted after 90 days. Your monthly totals stay.</span></div>
+<div class="chk"><span class="c">✓</span><span>Admins and your manager see your visits. Colleagues see In or Out only if you share.</span></div>
+<div class="chk"><span class="c">✓</span><span>You can withdraw at any time in You, Privacy.</span></div>
+</div>
+<span class="lnk">Read the full notice</span><div class="grow"></div><div class="btn p">I agree</div><div style="text-align:center;color:var(--ink2);font-weight:600">Not now (signs you out)</div></div></div>
+<figcaption><span class="tag">1.2 step 2</span><span class="tag">Prompt 8</span><b>Onboarding: privacy and consent</b><span>Retention days and who can see come from the server. I agree posts /api/me/consent with the version.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: location"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="dn"></i><i class="dn"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></div><div class="grow"></div><span class="bk">Back</span></div>
+<p class="ttl">Location: All the time</p>
+<div class="ill"><svg width="44" height="44" style="color:var(--accent)"><use href="#i-pin"/></svg></div>
+<p class="body">The app needs location all the time to notice when you arrive, even when it is closed. It checks near offices and a few times a day.</p>
+<div class="card sunk"><span class="meta" style="color:var(--ink2)">On the next screen choose</span><b>Allow all the time</b></div>
+<div class="chk"><span class="c">✓</span><span>Precise location allowed</span></div><div class="grow"></div><div class="btn p">Open settings</div><div style="text-align:center;color:var(--ink2);font-weight:600">Skip for now</div></div></div>
+<figcaption><span class="tag">1.2 step 3</span><span class="tag">Prompt 8</span><b>Onboarding: location</b><span>First the fine location prompt, then Android settings for Allow all the time.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: notifications"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="on"></i><i class=""></i><i class=""></i></div><div class="grow"></div><span class="bk">Back</span></div>
+<p class="ttl">Notifications</p>
+<div class="ill"><svg width="44" height="44" style="color:var(--accent)"><use href="#i-bell"/></svg></div>
+<p class="body">Get told when you arrive, when a correction is decided, and if tracking stops working.</p><div class="grow"></div><div class="btn p">Allow notifications</div><div style="text-align:center;color:var(--ink2);font-weight:600">Skip for now</div></div></div>
+<figcaption><span class="tag">1.2 step 4</span><span class="tag">Prompt 8</span><b>Onboarding: notifications</b><span>Same template as step 3.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: battery"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="on"></i><i class=""></i></div><div class="grow"></div><span class="bk">Back</span></div>
+<p class="ttl">Battery</p>
+<div class="ill" style="font:800 28px var(--font);color:var(--ink2)">▭ ▮▮▮</div>
+<p class="body">Some phones stop apps in the background. Set battery to Unrestricted so visits are not missed.</p>
+<div class="card"><div class="kv"><span>Battery now</span><b>Optimized</b></div></div><div class="grow"></div><div class="btn p">Open battery settings</div><div style="text-align:center;color:var(--ink2);font-weight:600">Skip for now</div></div></div>
+<figcaption><span class="tag">1.2 step 5</span><span class="tag">Prompt 8</span><b>Onboarding: battery</b><span>Shows the current battery state and updates when the person returns.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Onboarding: done"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><div class="dots"><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="dn"></i><i class="on"></i></div><div class="grow"></div></div>
+<p class="ttl">You are set up</p>
+<div class="card" style="gap:14px">
+<div class="chk"><span class="c">✓</span><span>Privacy accepted</span></div>
+<div class="chk"><span class="c">✓</span><span>Location: All the time</span></div>
+<div class="chk"><span class="c w">!</span><span style="flex:1">Notifications: off</span><span class="lnk">Fix</span></div>
+<div class="chk"><span class="c">✓</span><span>Battery: Unrestricted</span></div>
+</div>
+<p class="body">Your first visit counts when you reach an office.</p><div class="grow"></div><div class="btn p">Go to Today</div></div></div>
+<figcaption><span class="tag">1.2 step 6</span><span class="tag">Prompt 8</span><b>Onboarding: done</b><span>Skipped steps show a Fix link and the Today banner stays.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="You: new Privacy and My team rows"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><h3>You</h3></div>
+<div class="lst">
+<div class="li"><div class="av">PS</div><div class="t"><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div><span class="ch">›</span></div>
+<div class="li"><div class="t"><b>Share my status</b><span>Colleagues see In or Out</span></div><div class="sw on"></div></div>
+<div class="li"><div class="t"><b>Privacy<span class="new">New</span></b><span>Notice version 1, accepted 18 Nov</span></div><span class="ch">›</span></div>
+<div class="li"><div class="t"><b>Tracking</b><span>Location all the time. Synced 2 min ago</span></div><span class="ch">›</span></div>
+<div class="li"><div class="t"><b>Notifications</b><span>Quiet 22:00 to 07:00</span></div><span class="ch">›</span></div>
+</div>
+<div class="lst">
+<div class="li"><div class="t"><b>My team<span class="new">New</span></b><span>3 of 9 below target this month</span></div><span class="ch">↗</span></div>
+<div class="li"><div class="t"><b>Correction requests</b><span>1 open</span></div><span class="ch">›</span></div>
+<div class="li"><div class="t"><b>Rules</b><span>Read only</span></div><span class="ch">›</span></div>
+</div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class="on"><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.3 a</span><span class="tag">Prompt 8, 12</span><b>You: new Privacy and My team rows</b><span>My team appears only for managers and opens /team in the browser.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="You, Privacy"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><span class="bk">‹ Back</span></div><p class="ttl">Privacy</p>
+<div class="card"><b>Privacy notice</b><span class="body" style="font-size:14px">Version 1, accepted 18 Nov 2026</span><span class="lnk">Read the notice</span></div>
+<div class="card"><b>What is kept</b>
+<div class="kv"><span>Office visits and points</span><b>Kept for reports</b></div>
+<div class="kv"><span>Location inside offices</span><b>90 days</b></div>
+<div class="kv"><span>Location outside offices</span><b>Never stored</b></div></div>
+<div class="card"><b>Who can see your visits</b><span class="body" style="font-size:14px">You, admins and your manager. Colleagues see In or Out only, because you share.</span><span class="lnk">Change sharing</span></div>
+<div class="grow"></div>
+<div style="text-align:center" class="dang">Withdraw consent and stop tracking</div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class="on"><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.3 b</span><span class="tag">Prompt 8</span><b>You, Privacy</b><span>Values come from /api/me/consent and the policy.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Withdraw consent: confirm"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><span class="bk">‹ Back</span></div><p class="ttl">Privacy</p>
+<div class="card"><b>Privacy notice</b><span class="body">Version 1, accepted 18 Nov 2026</span></div>
+<div class="scrim"></div>
+<div class="dlg"><p class="h2">Stop tracking?</p><p class="body">This phone stops recording visits and signs out. Days you miss will not count unless an admin adds them. Your past visits are kept.</p>
+<div class="btn p" style="background:var(--ink);color:var(--bg)">Withdraw and sign out</div><div class="btn s">Cancel</div></div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class="on"><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.3 c</span><span class="tag">Prompt 8</span><b>Withdraw consent: confirm</b><span>DELETE /api/me/consent, stop geofences and the service, sign out this phone.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Tracking with problems"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><span class="bk">‹ Back</span></div><p class="ttl">Tracking</p>
+<div class="card wash"><b>Location is not set to All the time</b><span class="body" style="font-size:14px;color:var(--ink)">Visits may be missed when the app is closed.</span><div class="btn sm p" style="align-self:flex-start">Open location settings</div></div>
+<div class="card wash"><b>Not synced for 26 hours</b><span class="body" style="font-size:14px;color:var(--ink)">Your visits are saved on this phone and will upload.</span><div class="btn sm s" style="align-self:flex-start">Sync now</div></div>
+<div class="lst"><div class="li"><div class="t"><b>Location</b></div><span class="v">While using ›</span></div>
+<div class="li"><div class="t"><b>Battery</b></div><span class="v ok-g">Unrestricted ✓</span></div>
+<div class="li"><div class="t"><b>Last sync</b></div><span class="v">Mon 16 Nov, 10:42</span></div></div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class="on"><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.4 a</span><span class="tag">Prompt 7</span><b>Tracking with problems</b><span>A tracking-problem notification opens this screen. One card per problem, each with its fix.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Notifications: corrected labels"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><span class="bk">‹ Back</span></div><p class="ttl">Notifications</p>
+<div class="lst">
+<div class="li"><div class="t"><b>Arrivals and leaving</b><span>When you are In or Out at an office</span></div><div class="sw on"></div></div>
+<div class="li"><div class="t"><b>Goal met</b><span>When you reach your points for the month</span></div><div class="sw on"></div></div>
+<div class="li"><div class="t"><b>Weekly summary</b><span>Monday 9:00 am: your week and month so far</span></div><div class="sw on"></div></div>
+<div class="li"><div class="t"><b>Correction decisions</b><span>When an admin approves or does not approve your request</span></div><div class="sw on"></div></div>
+<div class="li"><div class="t"><b>Tracking problems</b><span>Location off, permission changed, or no sync for a day</span></div><div class="sw on"></div></div>
+</div>
+<p class="meta" style="margin:0 4px">Personal alerts come to this phone. Teams is used for sign-in codes.</p>
+</div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class="on"><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.4 b</span><span class="tag">Prompt 6, 7</span><b>Notifications: corrected labels</b><span>Weekly summary is truly weekly now. Teams is only for codes.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="New notification texts"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div style="text-align:center;padding:18px 0 8px"><div style="font:300 64px/1 var(--font)">9:41</div><div class="body">Monday 23 November</div></div>
+<div class="notif"><div class="ai">OP</div><div class="t"><b>HR exception added</b><p>Fri 13 Nov counts as 1 point (Gurugram home office).</p></div></div>
+<div class="notif"><div class="ai">OP</div><div class="t"><b>Correction not approved</b><p>Fri 6 Nov. Admin note: badge records show no entry that day.</p></div></div>
+<div class="notif"><div class="ai">OP</div><div class="t"><b>Weekly summary</b><p>This week: 2 visit days. Month so far: 6 of 8 points, 2 to go.</p></div></div>
+<div class="notif"><div class="ai">OP</div><div class="t"><b>Location is off</b><p>Visits are not being counted on this phone.</p></div></div></div></div>
+<figcaption><span class="tag">1.4 c</span><span class="tag">Prompt 6, 7</span><b>New notification texts</b><span>How they look on the lock screen. Tapping deep-links to the day or to Tracking.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Month: holidays, leave and HR exceptions"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><span class="meta">‹</span><h3 style="flex:1;text-align:center">November 2026</h3><span class="meta">›</span></div><div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div>
+    <div class="why"><span>Includes 1 HR exception day</span><span class="lnk">Details</span></div></div><div class="card"><div class="cal"><div class="wd">M</div><div class="wd">T</div><div class="wd">W</div><div class="wd">T</div><div class="wd">F</div><div class="wd">S</div><div class="wd">S</div><div></div><div></div><div></div><div></div><div></div><div></div><div class="d we">1</div><div class="d v">2</div><div class="d">3</div><div class="d hp">4</div><div class="d">5</div><div class="d">6</div><div class="d we">7</div><div class="d we">8</div><div class="d">9</div><div class="d">10</div><div class="d">11</div><div class="d v">12</div><div class="d ex">13</div><div class="d we">14</div><div class="d we">15</div><div class="d v">16</div><div class="d td">17</div><div class="d">18</div><div class="d lv">19</div><div class="d lv">20</div><div class="d we">21</div><div class="d we">22</div><div class="d lv">23</div><div class="d hol">24</div><div class="d">25</div><div class="d">26</div><div class="d">27</div><div class="d we">28</div><div class="d we">29</div><div class="d">30</div></div></div><div class="leg"><span><i style="background:var(--accent-wash)"></i>Visit day</span><span><i style="background:var(--accent)"></i>Higher points</span><span><i style="background:repeating-linear-gradient(135deg,var(--sunk) 0 3px,transparent 3px 6px);border:1px solid var(--line-strong)"></i>Holiday (info)</span><span><i style="background:var(--accent-wash);box-shadow:inset 0 0 0 2px var(--accent)"></i>HR exception</span><span><i style="border:1.5px dashed var(--ink2)"></i>Leave (info)</span></div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class="on"><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class=""><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.5 a</span><span class="tag">Prompt 10</span><b>Month: holidays, leave and HR exceptions</b><span>Target is always 8. Leave and holidays are shown for information. An HR exception day counts the home office points.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Day detail: HR exception"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><span class="meta">‹</span><h3 style="flex:1;text-align:center">November 2026</h3><span class="meta">›</span></div><div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div>
+    <div class="why"><span>Includes 1 HR exception day</span><span class="lnk">Details</span></div></div><div class="card"><div class="cal"><div class="wd">M</div><div class="wd">T</div><div class="wd">W</div><div class="wd">T</div><div class="wd">F</div><div class="wd">S</div><div class="wd">S</div><div></div><div></div><div></div><div></div><div></div><div></div><div class="d we">1</div><div class="d v">2</div><div class="d">3</div><div class="d hp">4</div><div class="d">5</div><div class="d">6</div><div class="d we">7</div><div class="d we">8</div><div class="d">9</div><div class="d">10</div><div class="d">11</div><div class="d v">12</div><div class="d ex sel">13</div><div class="d we">14</div><div class="d we">15</div><div class="d v">16</div><div class="d td">17</div><div class="d">18</div><div class="d lv">19</div><div class="d lv">20</div><div class="d we">21</div><div class="d we">22</div><div class="d lv">23</div><div class="d hol">24</div><div class="d">25</div><div class="d">26</div><div class="d">27</div><div class="d we">28</div><div class="d we">29</div><div class="d">30</div></div></div><div class="scrim"></div><div class="sheet"><p class="h2">Fri 13 Nov</p>
+<span class="bdg pend" style="align-self:flex-start">HR exception</span>
+<div><div class="kv"><span>Counts as</span><b>1 point</b></div>
+<div class="kv"><span>Office</span><b>Gurugram, home office</b></div>
+<div class="kv"><span>Reason</span><b>Client workshop at Noida</b></div>
+<div class="kv"><span>Granted by</span><b>Anjali Desai, HR, 14 Nov</b></div></div>
+<p class="meta" style="margin:0">Granted by HR. Ask HR to change it.</p>
+<div class="btn s">Close</div></div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class="on"><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class=""><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.5 b</span><span class="tag">Prompt 9, 10</span><b>Day detail: HR exception</b><span>Read only for the employee. Points come from the home office at the time HR granted it.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Day detail: mark as leave"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr"><div class="hd"><span class="meta">‹</span><h3 style="flex:1;text-align:center">November 2026</h3><span class="meta">›</span></div><div class="card"><div class="cal"><div class="wd">M</div><div class="wd">T</div><div class="wd">W</div><div class="wd">T</div><div class="wd">F</div><div class="wd">S</div><div class="wd">S</div><div></div><div></div><div></div><div></div><div></div><div></div><div class="d we">1</div><div class="d v">2</div><div class="d">3</div><div class="d hp">4</div><div class="d">5</div><div class="d">6</div><div class="d we">7</div><div class="d we">8</div><div class="d">9</div><div class="d">10</div><div class="d sel">11</div><div class="d v">12</div><div class="d ex">13</div><div class="d we">14</div><div class="d we">15</div><div class="d v">16</div><div class="d td">17</div><div class="d">18</div><div class="d lv">19</div><div class="d lv">20</div><div class="d we">21</div><div class="d we">22</div><div class="d lv">23</div><div class="d hol">24</div><div class="d">25</div><div class="d">26</div><div class="d">27</div><div class="d we">28</div><div class="d we">29</div><div class="d">30</div></div></div><div class="scrim"></div><div class="sheet"><p class="h2">Wed 11 Nov</p>
+<p class="body">No visit recorded for this day.</p>
+<div class="fld"><label>Mark this day as</label><div class="seg"><span class="on">Leave</span><span>Other duty</span></div></div>
+<div class="fld"><label>Note (optional)</label><div class="inp ph-t">For example: family function</div></div>
+<p class="meta" style="margin:0">Leave is recorded for your records. Your target stays 8 points.</p>
+<div class="btn p">Mark as leave</div><div style="text-align:center;font-weight:600">Request a correction instead</div></div></div><div class="bn"><div class=""><svg><use href="#i-pin"/></svg>Today</div><div class="on"><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class=""><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.5 c</span><span class="tag">Prompt 10</span><b>Day detail: mark as leave</b><span>Working day, no visit, month open. Leave is a record only and never changes the 8-point target.</span></figcaption></figure>
+<figure><div class="ph" role="img" aria-label="Today on a leave day"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><h3>Today</h3><div class="grow"></div><svg width="22" height="22" style="color:var(--ink2)"><use href="#i-bell"/></svg></div>
+<p class="meta" style="margin:-8px 0 0">Thursday 19 November</p>
+<div class="card" style="padding:20px"><span class="meta">Status</span><p class="status" style="color:var(--ink3)">Out</p></div>
+<div class="card wash"><b>On leave today</b><span class="body" style="color:var(--ink);font-size:14px">Recorded for your records. Your target stays 8 points. If you come in, the visit still counts.</span></div>
+<div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div></div>
+<div class="card sunk"><b style="font-size:14px">Colleagues In now</b><span class="body" style="font-size:14px">Arjun, Neha and 4 others at Gurugram</span></div></div><div class="bn"><div class="on"><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class=""><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">1.6</span><span class="tag">Prompt 10</span><b>Today on a leave day</b><span>Shown on Thu 19 Nov. Tracking keeps running, so a visit still counts.</span></figcaption></figure>
+</div></section>
+<section class="grp" id="web-employee"><h2>Web for employees</h2><p>1240 px wide frames with the existing left rail.</p><div class="row"><figure style="max-width:100%"><div class="wscroll"><div class="wb short" role="img" aria-label="Web sign in: too many attempts"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/login</span></div><div class="wbody">
+<div style="flex:1;display:grid;place-items:center;padding:40px">
+<div class="card" style="width:420px;padding:28px;gap:14px">
+<div style="display:flex;align-items:center;gap:8px;font-weight:700"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div>
+<p class="ttl">Sign in</p><p class="body">Use your PwC email. We send a 6-digit code to you in Microsoft Teams.</p>
+<div class="fld"><label>Work email</label><div class="inp">priya.sharma@pwc.com</div></div>
+<div class="fld"><label>Teams code</label><div class="inp">••••••</div></div>
+<div class="err"><div class="ic">!</div><div><b>Too many attempts</b><span class="body" style="font-size:14px">Wait 14:32, then try again. Ask for a new code after that.</span></div></div>
+<div class="btn dis">Verify in 14:32</div>
+<div style="text-align:center;font-size:13px;color:var(--ink3)">Privacy notice</div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">2.1</span><span class="tag">Prompt 1</span><b>Web sign in: too many attempts</b><span>Same message and countdown as the phone.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="My month: holidays, leave and HR exceptions"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/month</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class="on"><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="me"><div class="av">PS</div><div><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div></aside><div class="main">
+<div class="wh"><h4>Good morning, Priya</h4><div class="sp"></div><span class="body">Tuesday 17 November 2026</span></div>
+<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px">
+<div class="card meter" style="padding:20px"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div>
+<div class="why"><span>Includes 1 HR exception day</span><span class="lnk">Details</span></div></div>
+<div class="card" style="padding:20px"><span class="meta">Hours today</span><b style="font:800 34px/1 var(--font)">0.0</b><span class="body" style="font-size:13.5px">Suggested 5 hours. Advice only.</span></div></div>
+<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;flex:1;min-height:0">
+<div class="card" style="padding:18px"><div class="wh"><b style="font-size:17px">‹ November 2026 ›</b></div><div class="cal"><div class="wd">M</div><div class="wd">T</div><div class="wd">W</div><div class="wd">T</div><div class="wd">F</div><div class="wd">S</div><div class="wd">S</div><div></div><div></div><div></div><div></div><div></div><div></div><div class="d we">1</div><div class="d v">2</div><div class="d">3</div><div class="d hp">4</div><div class="d">5</div><div class="d">6</div><div class="d we">7</div><div class="d we">8</div><div class="d">9</div><div class="d">10</div><div class="d">11</div><div class="d v">12</div><div class="d ex sel">13</div><div class="d we">14</div><div class="d we">15</div><div class="d v">16</div><div class="d td">17</div><div class="d">18</div><div class="d lv">19</div><div class="d lv">20</div><div class="d we">21</div><div class="d we">22</div><div class="d lv">23</div><div class="d hol">24</div><div class="d">25</div><div class="d">26</div><div class="d">27</div><div class="d we">28</div><div class="d we">29</div><div class="d">30</div></div><div class="leg"><span><i style="background:var(--accent-wash)"></i>Visit day</span><span><i style="background:var(--accent)"></i>Higher points</span><span><i style="background:repeating-linear-gradient(135deg,var(--sunk) 0 3px,transparent 3px 6px);border:1px solid var(--line-strong)"></i>Holiday (info)</span><span><i style="background:var(--accent-wash);box-shadow:inset 0 0 0 2px var(--accent)"></i>HR exception</span><span><i style="border:1.5px dashed var(--ink2)"></i>Leave (info)</span></div></div>
+<div class="card" style="padding:20px;gap:10px"><p class="h2">Fri 13 Nov</p><span class="bdg pend" style="align-self:flex-start">HR exception</span>
+<div class="kv"><span>Counts as</span><b>1 point</b></div><div class="kv"><span>Office</span><b>Gurugram, home office</b></div>
+<div class="kv"><span>Reason</span><b>Client workshop at Noida</b></div><div class="kv"><span>Granted by</span><b>Anjali Desai, HR, 14 Nov</b></div>
+<p class="meta" style="margin:0">Granted by HR. Ask HR to change it.</p>
+<div class="card sunk" style="margin-top:6px"><b style="font-size:14px">Days without a visit</b><span class="body" style="font-size:13.5px">Open the day to mark it as leave. Leave is recorded for your records. Your target stays 8 points.</span></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">2.3</span><span class="tag">Prompt 10</span><b>My month: holidays, leave and HR exceptions</b><span>Target stays 8. The drawer shows the HR exception day, read only. Leave is a record only.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Settings, Privacy"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/settings?section=privacy</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class="on"><span>Settings</span></a><div class="me"><div class="av">PS</div><div><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div></aside><div class="main">
+<div class="wh"><h4>Settings</h4></div>
+<div style="display:grid;grid-template-columns:220px 1fr;gap:20px;min-height:0">
+<div class="lst" style="align-self:start"><div class="li"><b style="font-weight:500">Profile</b></div><div class="li"><b style="font-weight:500">Notifications</b></div><div class="li"><b style="font-weight:500">Sharing and devices</b></div><div class="li" style="background:var(--accent-wash)"><b>Privacy</b></div><div class="li"><b style="font-weight:500">Appearance</b></div><div class="li"><b style="font-weight:500">Office nicknames</b></div></div>
+<div style="display:flex;flex-direction:column;gap:14px;max-width:640px">
+<div class="card"><b>Privacy notice</b><span class="body" style="font-size:14px">Version 1, accepted 18 Nov 2026 on Pixel 8.</span><span class="lnk">Read the notice</span></div>
+<div class="card"><b>What is kept</b><div class="kv"><span>Office visits and points</span><b>Kept for reports</b></div><div class="kv"><span>Location inside offices</span><b>Deleted after 90 days</b></div><div class="kv"><span>Location outside offices</span><b>Never stored</b></div></div>
+<div class="card"><b>Who can see your visits</b><span class="body" style="font-size:14px">You, admins and your manager, Rohan Gupta. Colleagues see In or Out only, because you share.</span><span class="lnk">Change sharing</span></div>
+<div class="card"><b>Withdraw consent</b><span class="body" style="font-size:14px">All your phones stop recording visits and sign out. Your past visits are kept.</span><div class="btn sm s" style="align-self:flex-start;color:var(--accent-hover)">Withdraw consent</div></div>
+</div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">2.4</span><span class="tag">Prompt 8</span><b>Settings, Privacy</b><span>New section in /settings?section=privacy. Withdraw on the web signs out all phones.</span></figcaption></figure>
+</div></section>
+<section class="grp" id="admin"><h2>Admin web</h2><p>New rail links: Teams and Holidays. Existing pages gain badges, filters and fields.</p><div class="row"><figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Roster: badges and Needs attention filter"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/roster</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class="on"><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Roster</h4><div class="sp"></div><span class="meta">Updated just now</span><div class="btn sm s">Export CSV</div></div>
+<div class="filters"><div class="sel srch">⌕ Search name or email</div><div class="sel">All offices ▾</div><div class="sel">All status ▾</div><div class="sel">All teams ▾</div><div class="sel on">Needs attention: any ▾</div></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div>Person</div><div>Status, since</div><div>Office</div><div>Month points</div><div>Hours today</div><div>Phone</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Priya Sharma</b><span>Audit North</span></div></div><div><span class="bdg in">In</span> <span class="mut">09:12</span></div><div>Gurugram</div><div>6 / 8 <span class="bdg below">Below</span></div><div>3.2 h</div><div>Pixel 8</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Arjun Mehta</b><span>Audit North <span class="bdg sync">Not syncing 2 d</span></span></div></div><div><span class="bdg out">Out</span></div><div>·</div><div>7 / 8 <span class="bdg below">Below</span></div><div>0.0 h</div><div>Galaxy S23</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Neha Rao</b><span>Tax <span class="bdg mock">Mock GPS 4</span></span></div></div><div><span class="bdg in">In</span> <span class="mut">10:05</span></div><div>Bengaluru</div><div>9 / 8 <span class="bdg met">Met</span></div><div>2.1 h</div><div>Moto G54</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Vikram Iyer</b><span>Tax <span class="bdg ign">Ignored 3</span></span></div></div><div><span class="bdg out">Out</span></div><div>·</div><div>4 / 8 <span class="bdg below">Below</span></div><div>0.0 h</div><div>OnePlus 12</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Sana Qureshi</b><span>Advisory</span></div></div><div><span class="bdg in">In</span> <span class="mut">08:47</span></div><div>Mumbai</div><div>10 / 8 <span class="bdg met">Met</span></div><div>4.0 h</div><div>Pixel 7a</div></div><div class="tr " style="grid-template-columns:1.7fr 1.2fr 1fr 1.1fr 0.8fr 1fr"><div><div class="nm"><b>Kabir Malhotra</b><span>Advisory</span></div></div><div><span class="bdg out">Out</span></div><div>·</div><div>8 / 8 <span class="bdg met">Met</span></div><div>0.0 h</div><div>Galaxy A55</div></div></div>
+<div class="tip" style="top:610px;left:28px;width:320px">Tooltip on Mock GPS 4: 4 location fixes from a mock location app this month. They were not counted.</div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.1</span><span class="tag">Prompt 4, 7, 12</span><b>Roster: badges and Needs attention filter</b><span>Mock GPS = solid orange, Not syncing = orange outline, Ignored = grey. Tooltips explain each.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Person page: HR exceptions, leave, holidays, ignored events"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/people/priya</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class="on"><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><span class="meta">‹ Roster</span></div>
+<div class="wh"><h4>Priya Sharma</h4><div class="sp"></div><div class="btn sm p">Add exception</div><div class="btn sm s">Add a visit</div><div class="btn sm s">Export CSV</div></div>
+<div class="filters"><div class="sel">‹ November 2026 ›</div><span class="body"><b style="color:var(--ink)">6 / 8 points.</b> Includes 1 HR exception day</span><div class="sp" style="flex:1"></div><span class="meta">Home office Gurugram (1 point). Team Audit North. Manager Rohan Gupta</span></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div>Day</div><div>Office</div><div>In</div><div>Out</div><div>Time</div><div>Counts as</div><div>Note</div><div></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div>Mon 2 Nov</div><div>Gurugram</div><div>09:10</div><div>17:40</div><div>8.5 h</div><div>1 point</div><div></div><div></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div>Wed 4 Nov</div><div>Mumbai</div><div>10:02</div><div>16:15</div><div>6.2 h</div><div>2 points</div><div></div><div></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div><b>Wed 11 Nov</b></div><div><span class="mut">No visit</span></div><div></div><div></div><div></div><div></div><div></div><div><span class="bdg ign">3 ignored (i)</span> <span class="lnk">Mark leave</span></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div>Thu 12 Nov</div><div>Gurugram</div><div>09:30</div><div>17:05</div><div>7.6 h</div><div>1 point</div><div></div><div></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div><b>Fri 13 Nov</b></div><div><span class="bdg pend">HR exception</span> Gurugram</div><div></div><div></div><div></div><div>1 point</div><div><span class="mut">Client workshop</span></div><div><span class="lnk">Revoke</span></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div>Mon 16 Nov</div><div>Gurugram</div><div>09:05</div><div>18:01</div><div>8.9 h</div><div>1 point</div><div></div><div></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div><b>Thu 19 Nov</b></div><div><span class="mut">Leave, marked by Priya. Info only</span></div><div></div><div></div><div></div><div></div><div></div><div><span class="lnk">Remove</span></div></div><div class="tr " style="grid-template-columns:0.9fr 1.8fr 0.5fr 0.5fr 0.5fr 0.7fr 0.9fr 1.7fr"><div><b>Tue 24 Nov</b></div><div><span class="mut">Holiday: Guru Nanak Jayanti. Info only</span></div><div></div><div></div><div></div><div></div><div></div><div></div></div></div>
+<div class="tip" style="top:610px;right:28px;width:320px">Tooltip on 3 ignored, Wed 11 Nov: 2 fixes had no location, 1 came from a mock location app. None were counted.</div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.2</span><span class="tag">Prompt 3, 9, 12</span><b>Person page: HR exceptions, leave, holidays, ignored events</b><span>Target is 8 for everyone. Add exception opens the grant drawer (3.9 b) with Priya filled in.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Users drawer: team, manager, HR access"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/users</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class="on"><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Users</h4></div><div class="filters"><div class="sel srch">⌕ Search name or email</div><div class="sel">All roles ▾</div><div class="btn sm s">Import CSV</div><div class="btn sm p">Add user</div></div>
+<div class="tbl" style="opacity:.6"><div class="tr th" style="grid-template-columns:2fr 1fr 1fr 1fr"><div>Person</div><div>Role</div><div>Home office</div><div>Last seen</div></div><div class="tr " style="grid-template-columns:2fr 1fr 1fr 1fr"><div><div class="nm"><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div><div>Employee</div><div>Gurugram</div><div>2 min ago</div></div><div class="tr " style="grid-template-columns:2fr 1fr 1fr 1fr"><div><div class="nm"><b>Arjun Mehta</b><span>arjun.mehta@pwc.com</span></div></div><div>Employee</div><div>Gurugram</div><div>2 days ago</div></div></div>
+<div class="wscrim"></div>
+<div class="drawer"><div class="wh"><b style="font-size:20px">Priya Sharma</b><div class="sp"></div><span class="meta">✕</span></div>
+<div class="fld"><label>Home office</label><div class="sel">Gurugram ▾</div><span class="meta">HR exception days count 1 point at this office.</span></div>
+<div class="fld"><label>Team <span class="new">New</span></label><div class="sel">Audit North ▾</div></div>
+<div class="fld"><label>Manager <span class="new">New</span></label><div class="sel">⌕ Rohan Gupta</div></div>
+<div class="rrow" style="border-top:1px solid var(--line)"><div><b>Can grant HR exceptions <span class="new">New</span></b><span>Opens the Exceptions page only. No roster, no visit edits.</span></div><div class="sw"></div></div>
+<div class="grow" style="flex:1"></div><div class="btn p">Save changes</div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.3 a</span><span class="tag">Prompt 9, 12</span><b>Users drawer: team, manager, HR access</b><span>Home office now also sets the points for HR exception days. HR access lets a person grant exceptions without being an admin.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Reset test data (test accounts only)"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/users</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class="on"><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Users</h4></div>
+<div class="wscrim"></div>
+<div class="wdlg"><p class="h2">Reset test data for test.user1@example.pwc.local?</p>
+<p class="body">Deletes this test account's events, visits and corrections. Real accounts cannot be reset here.</p>
+<div class="fld"><label>Type the email to confirm</label><div class="inp">test.user1@example.pwc.local</div></div>
+<div class="fld"><label>Reason (required)</label><div class="inp">Clearing data after geofence testing</div></div>
+<div style="display:flex;gap:10px;justify-content:flex-end"><div class="btn s">Cancel</div><div class="btn p">Reset test data</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.3 b</span><span class="tag">Prompt 5</span><b>Reset test data (test accounts only)</b><span>Reset is enabled only when the email matches and the reason has 10 or more characters.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Holidays (records only)"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/holidays</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class="on"><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Holidays</h4><div class="sel">‹ 2026 ›</div><div class="sp"></div><div class="btn sm s">Import CSV</div><div class="btn sm p">Add holiday</div></div>
+<div class="filters"><div class="sel">All offices ▾</div><span class="meta">Holidays are shown on calendars and reports. Targets stay 8 points.</span></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Date</div><div>Name</div><div>Applies to</div><div>Working day?</div><div></div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Mon 26 Jan</div><div>Republic Day</div><div>All offices</div><div>Weekday</div><div>⋯</div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Wed 4 Mar</div><div>Holi</div><div>All offices</div><div>Weekday</div><div>⋯</div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Sat 15 Aug</div><div>Independence Day</div><div>All offices</div><div><span class="mut">Weekend, no effect</span></div><div>⋯</div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Fri 2 Oct</div><div>Gandhi Jayanti</div><div>All offices</div><div>Weekday</div><div>⋯</div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Tue 24 Nov</div><div>Guru Nanak Jayanti</div><div>Gurugram, Mumbai</div><div>Weekday</div><div>⋯</div></div><div class="tr " style="grid-template-columns:1fr 2fr 1.4fr 1.2fr 40px"><div>Fri 25 Dec</div><div>Christmas</div><div>All offices</div><div>Weekday</div><div>⋯</div></div></div>
+<div class="drawer"><div class="wh"><p class="h2">Add holiday</p><div class="sp"></div><span class="meta">✕</span></div>
+<div class="fld"><label>Date</label><div class="inp">Tue 24 Nov 2026</div></div><div class="fld"><label>Name</label><div class="inp">Guru Nanak Jayanti</div></div>
+<div class="fld"><label>Applies to</label><div class="seg"><span>All offices</span><span class="on">Selected offices</span></div></div>
+<div class="filters"><span class="bdg pend">Gurugram ✕</span><span class="bdg pend">Mumbai ✕</span><div class="sel" style="height:30px">+ Add office</div></div>
+<p class="meta" style="margin:0">Shown on calendars for these offices. HR exception ranges skip it. Targets stay 8 points.</p><div class="grow" style="flex:1"></div><div style="display:flex;gap:10px;justify-content:flex-end"><div class="btn s">Cancel</div><div class="btn p">Add holiday</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.4</span><span class="tag">Prompt 9</span><b>Holidays (records only)</b><span>Year list, office scope, CSV import with a dry run. Holidays never change the target.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Teams"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/teams</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class="on"><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Teams</h4><div class="sp"></div><div class="btn sm p">New team</div></div>
+<div class="split">
+<div class="lst" style="align-self:start">
+<div class="li" style="background:var(--accent-wash)"><div class="t"><b>Audit North</b></div><span class="v">12 ›</span></div>
+<div class="li"><div class="t"><b style="font-weight:500">Audit South</b></div><span class="v">9</span></div>
+<div class="li"><div class="t"><b style="font-weight:500">Tax</b></div><span class="v">15</span></div>
+<div class="li"><div class="t"><b style="font-weight:500">Advisory</b></div><span class="v">11</span></div>
+<div class="li"><div class="t"><b style="font-weight:500;color:var(--ink2)">No team</b></div><span class="v">4</span></div></div>
+<div class="card" style="padding:20px;gap:14px;align-self:start">
+<div class="wh"><b style="font-size:20px">Audit North</b><div class="sp"></div><span class="lnk">Rename</span></div>
+<div class="fld" style="max-width:340px"><label>Team lead</label><div class="sel">⌕ Rohan Gupta</div></div>
+<div class="wh"><b>Members (12)</b><div class="sp"></div><div class="btn sm s">Add people</div></div>
+<div class="tbl" style="border:1px solid var(--line)"><div class="tr th" style="grid-template-columns:1.6fr 1.4fr 1fr 60px"><div>Person</div><div>Manager</div><div>Home office</div><div></div></div><div class="tr " style="grid-template-columns:1.6fr 1.4fr 1fr 60px"><div><div class="nm"><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div><div>Rohan Gupta</div><div>Gurugram</div><div><span class="lnk">Remove</span></div></div><div class="tr " style="grid-template-columns:1.6fr 1.4fr 1fr 60px"><div><div class="nm"><b>Arjun Mehta</b><span>arjun.mehta@pwc.com</span></div></div><div>Rohan Gupta</div><div>Gurugram</div><div><span class="lnk">Remove</span></div></div><div class="tr " style="grid-template-columns:1.6fr 1.4fr 1fr 60px"><div><div class="nm"><b>Meera Pillai</b><span>meera.pillai@pwc.com</span></div></div><div>Rohan Gupta</div><div>Mumbai</div><div><span class="lnk">Remove</span></div></div></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.5</span><span class="tag">Prompt 12</span><b>Teams</b><span>Team list on the left, members and lead on the right. Deleting a team moves members to No team.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Users CSV import: check file"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/users</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class="on"><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Users</h4></div><div class="wscrim"></div>
+<div class="wdlg" style="width:640px"><p class="h2">Import managers and teams</p>
+<p class="body" style="font-size:14px">Columns: email, managerEmail, teamName. Teams that do not exist are created.</p>
+<div class="card sunk" style="flex-direction:row;gap:24px"><div><b style="font-size:24px">18</b><div class="meta">updates</div></div><div><b style="font-size:24px">2</b><div class="meta">new teams</div></div><div><b style="font-size:24px;color:var(--accent-hover)">2</b><div class="meta">problems</div></div></div>
+<div class="tbl" style="border:1px solid var(--line)"><div class="tr th" style="grid-template-columns:70px 1fr"><div>Line</div><div>Problem</div></div><div class="tr " style="grid-template-columns:70px 1fr"><div>7</div><div>manager.x@pwc.com was not found</div></div><div class="tr " style="grid-template-columns:70px 1fr"><div>9</div><div>This would make a loop: Rohan Gupta reports to Priya Sharma, who reports to Rohan Gupta</div></div></div>
+<div style="display:flex;gap:10px;justify-content:flex-end"><div class="btn s">Choose another file</div><div class="btn p">Import 18 rows</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.6</span><span class="tag">Prompt 12</span><b>Users CSV import: check file</b><span>Two steps like the Office Tracker card. Only valid rows are imported.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Rules: grouped cards with new sections"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/settings</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class="on"><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Rules</h4><div class="sp"></div><span class="meta">Apply to everyone. Phones show them read only.</span><div class="btn sm p">Save rules</div></div>
+<div class="two" style="min-height:0">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div class="rcard"><h5>Targets</h5>
+<div class="rrow"><div><b>Monthly target</b><span>Same for everyone, every month. Leave and holidays are recorded only.</span></div><div class="num">8</div></div>
+<div class="rrow"><div><b>Employees can mark their own leave</b><span>Admins can always add leave</span></div><div class="sw on"></div></div></div>
+<div class="rcard"><h5>HR exceptions</h5>
+<div class="rrow"><div><b>Who can grant</b><span>Admins, and people with HR access in Users</span></div><span class="lnk">Users</span></div>
+<div class="rrow"><div><b>Points for an exception day</b><span>The person's home office points, for example Pune 4, Bengaluru 1</span></div><span class="meta">Fixed rule</span></div>
+<div class="rrow"><div><b>Allow exceptions in closed months</b><span>Needs a reason. Always logged.</span></div><div class="sw on"></div></div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+<div class="rcard"><h5>Privacy</h5>
+<div class="rrow"><div><b>Privacy notice version</b><span>Raising it asks everyone to agree again</span></div><div class="num">1</div></div>
+<div class="rrow"><div><b>Require consent before tracking</b><span>Turn on after most phones are on app 2.1.0. On 2.1.0 now: 64 of 80 phones.</span></div><div class="sw"></div></div>
+<div class="rrow"><div><b>Keep raw location for</b><span>Visits and points are kept</span></div><div style="display:flex;gap:8px;align-items:center"><div class="num">90</div><span class="meta">days</span></div></div></div>
+<div class="rcard"><h5>Location checks</h5>
+<div class="rrow"><div><b>Ignore mock GPS for real accounts</b><span>Test accounts always count</span></div><div class="sw on"></div></div></div>
+<div class="rcard"><h5>Corrections</h5>
+<div class="rrow"><div><b>Correction approval</b><span>Auto approve up to 4 per person per month</span></div><span class="lnk">Edit</span></div>
+<div class="rrow"><div><b>Managers can decide their team's corrections</b><span>Managers never decide their own</span></div><div class="sw"></div></div></div>
+</div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.7</span><span class="tag">Prompt 4, 8, 9, 12</span><b>Rules: grouped cards with new sections</b><span>Existing rows stay. New cards: Targets, HR exceptions, Location checks, Privacy, and a manager row under Corrections.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Offices: changing points keeps history"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/offices</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class="on"><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Offices</h4></div><div class="wscrim"></div>
+<div class="wdlg"><p class="h2">Change Gurugram from 1 to 2 points?</p>
+<p class="body">Days already recorded keep 1 point. New visits from now on count 2 points.</p>
+<div class="fld"><label>Counts as (points)</label><div class="num" style="max-width:90px">2</div><span class="meta">Applies to visits from now on. Past days keep their points.</span></div>
+<div style="display:flex;gap:10px;justify-content:flex-end"><div class="btn s">Cancel</div><div class="btn p">Change to 2 points</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.8</span><span class="tag">Prompt 2</span><b>Offices: changing points keeps history</b><span>Hint under the field, then a confirm when an existing office changes.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="HR exceptions: list"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/exceptions</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class="on"><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>HR exceptions</h4><div class="sp"></div><div class="btn sm s">Export CSV</div><div class="btn sm p">Grant exception</div></div>
+<div class="filters"><div class="sel srch">⌕ Search person</div><div class="sel">November 2026 ▾</div><div class="sel">All offices ▾</div><div class="sel">All, including revoked ▾</div></div>
+<div class="stats"><div class="stat"><b>3</b><span>active exceptions</span></div><div class="stat"><b>27</b><span>working days covered</span></div><div class="stat"><b>42</b><span>points added</span></div></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div>Person</div><div>Dates</div><div>Working days</div><div>Home office</div><div>Points</div><div>Reason</div><div>Granted by</div><div></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Rahul Kulkarni</b><span>rahul.kulkarni@pwc.com</span></div></div><div>Mon 2 to Fri 6 Nov</div><div>5</div><div>Pune, 4</div><div>20</div><div>Medical leave approved <span class="mut">HR-2291</span></div><div>Anjali Desai</div><div><span class="lnk">Revoke</span></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div><div>Fri 13 Nov</div><div>1</div><div>Gurugram, 1</div><div>1</div><div>Client workshop at Noida</div><div>Anjali Desai</div><div><span class="lnk">Revoke</span></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Neha Rao</b><span>neha.rao@pwc.com</span></div></div><div>Whole month, November</div><div>21</div><div>Bengaluru, 1</div><div>21</div><div>Return from maternity leave <span class="mut">HR-2310</span></div><div>Anjali Desai</div><div><span class="lnk">Revoke</span></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Arjun Mehta</b><span>arjun.mehta@pwc.com</span></div></div><div>Mon 9 Nov</div><div>1</div><div>Gurugram, 1</div><div><span class="mut">0</span></div><div><span class="bdg ign">Revoked 10 Nov</span> Duplicate request</div><div>Anita Kapoor</div><div></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.9 a</span><span class="tag">Prompt 9</span><b>HR exceptions: list</b><span>Admins and HR-access users. Points per day are copied from the home office when granted. Revoked rows stay for the record.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Grant exception"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/exceptions</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class="on"><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class=""><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>HR exceptions</h4></div>
+<div class="tbl" style="opacity:.5"><div class="tr th" style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div>Person</div><div>Dates</div><div>Working days</div><div>Home office</div><div>Points</div><div>Reason</div><div>Granted by</div><div></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Rahul Kulkarni</b><span>rahul.kulkarni@pwc.com</span></div></div><div>Mon 2 to Fri 6 Nov</div><div>5</div><div>Pune, 4</div><div>20</div><div>Medical leave approved <span class="mut">HR-2291</span></div><div>Anjali Desai</div><div><span class="lnk">Revoke</span></div></div><div class="tr " style="grid-template-columns:1.4fr 1.3fr 0.8fr 1.1fr 0.6fr 1.6fr 1.1fr 0.7fr"><div><div class="nm"><b>Priya Sharma</b><span>priya.sharma@pwc.com</span></div></div><div>Fri 13 Nov</div><div>1</div><div>Gurugram, 1</div><div>1</div><div>Client workshop at Noida</div><div>Anjali Desai</div><div><span class="lnk">Revoke</span></div></div></div>
+<div class="wscrim"></div>
+<div class="drawer" style="width:460px;gap:10px"><div class="wh"><b style="font-size:20px">Grant exception</b><div class="sp"></div><span class="meta">✕</span></div>
+<div class="fld"><label>Person</label><div class="sel">⌕ Rahul Kulkarni, Pune</div></div>
+<div class="fld"><label>Type</label><div class="seg"><span>Single day</span><span class="on">Several days</span><span>Whole month</span></div></div>
+<div class="two"><div class="fld"><label>From</label><div class="sel">Mon 2 Nov 2026</div></div><div class="fld"><label>To</label><div class="sel">Fri 6 Nov 2026</div></div></div>
+<div class="fld"><label>Office (defaults to home office)</label><div class="sel">Pune, 4 points a day ▾</div></div>
+<div class="card wash" style="gap:4px"><b>5 working days. 4 points a day.</b><span style="font-size:14px">Adds 20 points to November. Rahul goes from 3 to 23 of 8 points.</span><span class="meta" style="color:var(--ink2)">Weekends and holidays are skipped.</span></div>
+<div class="two" style="grid-template-columns:1.5fr 1fr;gap:10px"><div class="fld"><label>Reason (required)</label><div class="inp">Medical leave approved</div></div><div class="fld"><label>HR reference</label><div class="inp">HR-2291</div></div></div>
+<div class="grow" style="flex:1"></div><div style="display:flex;gap:10px"><div class="btn s" style="flex:1">Cancel</div><div class="btn p" style="flex:1">Grant exception</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">3.9 b</span><span class="tag">Prompt 9</span><b>Grant exception</b><span>Preview updates as you type. Weekends and holidays for the home office are skipped. Whole month covers every working day.</span></figcaption></figure>
+</div></section>
+<section class="grp" id="manager"><h2>Manager web</h2><p>A My team section in the rail for anyone with reports. Read only, no location detail.</p><div class="row"><figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="My team"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/team</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">My team</div><a class="on"><span>Team<span class="new">New</span></span></a><a class=""><span>Team corrections<span class="new">New</span></span><span class="cnt">2</span></a><div class="me"><div class="av">RG</div><div><b>Rohan Gupta</b><span>Manager</span></div></div></aside><div class="main">
+<div class="wh"><h4>My team</h4><div class="sp"></div><div class="sel">‹ November 2026 ›</div><div class="btn sm s">Export CSV</div></div>
+<div class="stats"><div class="stat"><b>9</b><span>people</span></div><div class="stat"><b>3</b><span>In now</span></div><div class="stat"><b>5</b><span>goal met</span></div><div class="stat"><b>4</b><span>below target</span></div></div>
+<div class="filters"><div class="sel srch">⌕ Search</div><div class="sel">All teams ▾</div><div class="sel">☐ Below target only</div></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div>Person</div><div>Today</div><div>Month points</div><div>Days left</div><div>Requests</div></div><div class="tr " style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div><div class="nm"><b>Priya Sharma</b><span>Audit North</span></div></div><div><span class="bdg in">In</span> Gurugram</div><div>6 / 8 <span class="bdg below">Below</span></div><div>9 working</div><div><span class="bdg pend">1 pending</span></div></div><div class="tr " style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div><div class="nm"><b>Arjun Mehta</b><span>Audit North</span></div></div><div><span class="bdg out">Out</span></div><div>7 / 8 <span class="bdg below">Below</span></div><div>9 working</div><div></div></div><div class="tr " style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div><div class="nm"><b>Meera Pillai</b><span>Audit North</span></div></div><div><span class="bdg in">In</span> Mumbai</div><div>9 / 8 <span class="bdg met">Met</span></div><div>·</div><div></div></div><div class="tr " style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div><div class="nm"><b>Dev Banerjee</b><span>Audit North</span></div></div><div><span class="bdg out">On leave</span></div><div>3 / 8 <span class="bdg below">Below</span></div><div>7 working</div><div><span class="bdg pend">1 pending</span></div></div><div class="tr " style="grid-template-columns:1.6fr 1.3fr 1.3fr 1fr 1fr"><div><div class="nm"><b>Ishaan Verma</b><span>Audit North</span></div></div><div><span class="bdg out">Out</span></div><div>8 / 8 <span class="bdg met">Met</span></div><div>·</div><div></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">4.1</span><span class="tag">Prompt 12</span><b>My team</b><span>For anyone with reports. Days left helps a manager see who can still make it. No GPS anywhere.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Team member, read only"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/team/priya</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">My team</div><a class="on"><span>Team<span class="new">New</span></span></a><a class=""><span>Team corrections<span class="new">New</span></span><span class="cnt">2</span></a><div class="me"><div class="av">RG</div><div><b>Rohan Gupta</b><span>Manager</span></div></div></aside><div class="main">
+<div class="wh"><span class="meta">‹ My team</span></div>
+<div class="wh"><h4>Priya Sharma</h4><div class="sp"></div><span class="bdg ign">Read only. Ask an admin to change visits.</span></div>
+<div style="display:grid;grid-template-columns:1fr 1.3fr;gap:16px;min-height:0">
+<div style="display:flex;flex-direction:column;gap:14px"><div class="card meter"><div class="n"><b>6 <small>/ 8 points</small></b><span class="body">2 to go</span></div><div class="bar"><i style="width:75%"></i></div>
+    <div class="why"><span>Includes 1 HR exception day</span><span class="lnk">Details</span></div></div><div class="card"><div class="cal"><div class="wd">M</div><div class="wd">T</div><div class="wd">W</div><div class="wd">T</div><div class="wd">F</div><div class="wd">S</div><div class="wd">S</div><div></div><div></div><div></div><div></div><div></div><div></div><div class="d we">1</div><div class="d v">2</div><div class="d">3</div><div class="d hp">4</div><div class="d">5</div><div class="d">6</div><div class="d we">7</div><div class="d we">8</div><div class="d">9</div><div class="d">10</div><div class="d">11</div><div class="d v">12</div><div class="d ex">13</div><div class="d we">14</div><div class="d we">15</div><div class="d v">16</div><div class="d td">17</div><div class="d">18</div><div class="d lv">19</div><div class="d lv">20</div><div class="d we">21</div><div class="d we">22</div><div class="d lv">23</div><div class="d hol">24</div><div class="d">25</div><div class="d">26</div><div class="d">27</div><div class="d we">28</div><div class="d we">29</div><div class="d">30</div></div><div class="leg"><span><i style="background:var(--accent-wash)"></i>Visit day</span><span><i style="background:var(--accent)"></i>Higher points</span><span><i style="background:repeating-linear-gradient(135deg,var(--sunk) 0 3px,transparent 3px 6px);border:1px solid var(--line-strong)"></i>Holiday (info)</span><span><i style="background:var(--accent-wash);box-shadow:inset 0 0 0 2px var(--accent)"></i>HR exception</span><span><i style="border:1.5px dashed var(--ink2)"></i>Leave (info)</span></div></div></div>
+<div class="tbl" style="align-self:start"><div class="tr th" style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Day</div><div>Office</div><div>First In</div><div>Last Out</div><div>Counts as</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Mon 2 Nov</div><div>Gurugram</div><div>09:10</div><div>17:40</div><div>1 point</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Wed 4 Nov</div><div>Mumbai</div><div>10:02</div><div>16:15</div><div>2 points</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Thu 12 Nov</div><div>Gurugram</div><div>09:30</div><div>17:05</div><div>1 point</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Fri 13 Nov</div><div><span class="bdg pend">HR exception</span></div><div></div><div></div><div>1 point</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Mon 16 Nov</div><div>Gurugram</div><div>09:05</div><div>18:01</div><div>1 point</div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Thu 19 Nov</div><div><span class="mut">Leave (info)</span></div><div></div><div></div><div></div></div><div class="tr " style="grid-template-columns:1fr 1fr .7fr .7fr .8fr"><div>Tue 24 Nov</div><div><span class="mut">Holiday (info)</span></div><div></div><div></div><div></div></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">4.2</span><span class="tag">Prompt 12</span><b>Team member, read only</b><span>Same month components as the employee view (target 8, HR exception days marked), without edit actions, device names or Wi-Fi.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Team corrections (when the rule is on)"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/team/corrections</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">My team</div><a class=""><span>Team<span class="new">New</span></span></a><a class="on"><span>Team corrections<span class="new">New</span></span><span class="cnt">2</span></a><div class="me"><div class="av">RG</div><div><b>Rohan Gupta</b><span>Manager</span></div></div></aside><div class="main">
+<div class="wh"><h4>Team corrections</h4></div>
+<div class="tbl" style="opacity:.6"><div class="tr th" style="grid-template-columns:1.4fr 1fr 1.4fr 1fr"><div>Person</div><div>Day</div><div>Issue</div><div>Sent</div></div><div class="tr " style="grid-template-columns:1.4fr 1fr 1.4fr 1fr"><div><div class="nm"><b>Priya Sharma</b><span>Audit North</span></div></div><div>Fri 13 Nov</div><div>A visit is missing</div><div>2 h ago</div></div><div class="tr " style="grid-template-columns:1.4fr 1fr 1.4fr 1fr"><div><div class="nm"><b>Dev Banerjee</b><span>Audit North</span></div></div><div>Mon 9 Nov</div><div>Times are wrong</div><div>Yesterday</div></div></div>
+<div class="wscrim"></div>
+<div class="drawer"><div class="wh"><b style="font-size:20px">Correction request</b><div class="sp"></div><span class="meta">✕</span></div>
+<span class="bdg pend" style="align-self:flex-start">Pending review</span>
+<div class="kv"><span>Person</span><b>Priya Sharma</b></div><div class="kv"><span>Day</span><b>Fri 13 Nov</b></div><div class="kv"><span>Issue</span><b>A visit is missing</b></div>
+<div class="two"><div class="card sunk"><span class="meta">Recorded</span><b>No visit</b><span class="meta">0 points</span></div><div class="card wash"><span class="meta">Requested</span><b>Gurugram 09:15 to 17:30</b><span class="meta">1 point</span></div></div>
+<div class="card sunk"><span class="meta">Reason from Priya</span><span>My phone battery died at 9 am. I was at my desk all day.</span></div>
+<div class="fld"><label>Note to Priya (required for Not approved)</label><div class="inp ph-t">Write a short note</div></div>
+<div class="grow" style="flex:1"></div><div style="display:flex;gap:10px"><div class="btn s" style="flex:1">Not approved</div><div class="btn p" style="flex:1">Approve</div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">4.3</span><span class="tag">Prompt 12</span><b>Team corrections (when the rule is on)</b><span>Approve and Not approved only. No Revert, no Edit. A manager's own requests never show here.</span></figcaption></figure>
+</div></section>
+<section class="grp" id="later"><h2>Later screens</h2><p>For gaps not yet in the fix plan.</p><div class="row"><figure><div class="ph" role="img" aria-label="Notification inbox"><div class="sb"><span>9:41</span><i>▴ ▮▮▮ ■</i></div><div class="scr">
+<div class="hd"><span class="bk">‹ Back</span><div class="grow"></div><span class="meta">Mark all read</span></div><p class="ttl">Notifications</p>
+<div class="grph">Today</div>
+<div class="notif"><div class="unread"></div><div class="t"><b>Correction approved</b><p>Wed 11 Nov is updated. 10:42</p></div><span class="meta">›</span></div>
+<div class="grph">Yesterday</div>
+<div class="notif"><div class="t"><b>Arrived at Gurugram</b><p>09:12</p></div></div>
+<div class="notif"><div class="t"><b>Left Gurugram</b><p>17:40</p></div></div>
+<div class="grph">Monday</div>
+<div class="notif"><div class="t"><b>Weekly summary</b><p>6 of 8 points, 2 to go</p></div><span class="meta">›</span></div>
+<div class="notif"><div class="t"><b>App update ready</b><p>Version 2.1.0</p></div><span class="meta">›</span></div></div><div class="bn"><div class="on"><svg><use href="#i-pin"/></svg>Today</div><div class=""><svg><use href="#i-cal"/></svg>Month</div><div class=""><svg><use href="#i-bar"/></svg>Year</div><div class=""><svg><use href="#i-ppl"/></svg>Colleagues</div><div class=""><svg><use href="#i-me"/></svg>You</div></div></div>
+<figcaption><span class="tag">5.1</span><span class="tag">Prompt later (gap P2-5)</span><b>Notification inbox</b><span>Bell on Today opens it. Stored on the phone for 60 days. Rows deep-link.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="Audit log"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/audit</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class="on"><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>Audit log</h4><div class="sp"></div><div class="btn sm s">Export CSV</div></div>
+<div class="filters"><div class="sel">Who did it ▾</div><div class="sel">Action ▾</div><div class="sel">About person ▾</div><div class="sel">1 Nov to 18 Nov</div></div>
+<div class="tbl"><div class="tr th" style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>When</div><div>Who</div><div>Action</div><div>About</div></div><div class="tr " style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>18 Nov 10:42</div><div>Rohan Gupta</div><div>Correction approved</div><div>Priya Sharma ›</div></div><div class="tr " style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>18 Nov 09:05</div><div>System</div><div>Retention job</div><div>41,200 events ›</div></div><div class="tr " style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>17 Nov 16:20</div><div>Anita Kapoor</div><div>Rules changed</div><div>Target mode ›</div></div><div class="tr " style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>17 Nov 11:02</div><div>Anita Kapoor</div><div>Holiday added</div><div>Guru Nanak Jayanti ›</div></div><div class="tr " style="grid-template-columns:1fr 1fr 1.3fr 1.3fr"><div>17 Nov 09:00</div><div>System</div><div>Office Tracker sync</div><div>312 days added ›</div></div></div>
+<div class="drawer" style="width:420px"><div class="wh"><b style="font-size:20px">Rules changed</b><div class="sp"></div><span class="meta">✕</span></div>
+<span class="meta">Anita Kapoor, 17 Nov 2026 16:20</span>
+<div class="two"><div class="card sunk"><span class="meta">Before</span><b>Target mode</b><span>Same for everyone</span></div><div class="card wash"><span class="meta">After</span><b>Target mode</b><span>Adjust for holidays, leave and joining date</span></div></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">5.2</span><span class="tag">Prompt later (gap P2-6)</span><b>Audit log</b><span>Row opens a drawer with before and after values. Needs the AuditLog indexes from P3-11.</span></figcaption></figure>
+<figure style="max-width:100%"><div class="wscroll"><div class="wb" role="img" aria-label="System health"><div class="chrome"><i></i><i></i><i></i><span>office-presence.pwc/admin/health</span></div><div class="wbody"><aside class="rail"><div class="brand"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><circle cx="30" cy="34" r="20" fill="none" stroke="var(--accent)" stroke-width="5"/><circle cx="30" cy="34" r="8" fill="var(--accent)"/><path d="M44 8 A30 30 0 0 1 58 22" fill="none" stroke="var(--accent)" stroke-width="4.5" stroke-linecap="round"/></svg>Office Presence</div><a class=""><span>My month</span></a><a class=""><span>My year</span></a><a class=""><span>Colleagues</span></a><a class=""><span>Settings</span></a><div class="sec">Admin</div><a class=""><span>Roster</span></a><a class=""><span>Corrections</span><span class="cnt">3</span></a><a class=""><span>Users</span></a><a class=""><span>Teams<span class="new">New</span></span></a><a class=""><span>Offices</span></a><a class=""><span>Holidays<span class="new">New</span></span></a><a class=""><span>Exceptions<span class="new">New</span></span></a><a class=""><span>Reports</span></a><a class="on"><span>Rules</span></a><div class="me"><div class="av">AK</div><div><b>Anita Kapoor</b><span>Admin</span></div></div></aside><div class="main">
+<div class="wh"><h4>System health</h4><div class="sp"></div><span class="meta">Checked just now</span></div>
+<div class="hc">
+<div class="hcard"><b>Presence ping</b><span>14:00 today. 41 phones pinged.</span><span class="lnk">Run now</span></div>
+<div class="hcard"><b>Correction digest</b><span>09:00 today. Sent to 3 admins.</span><span class="lnk">Run now</span></div>
+<div class="hcard late"><b>Office Tracker sync</b><span>Late. Last run yesterday 06:00.</span><span class="lnk">Run now</span></div>
+<div class="hcard"><b>Retention job</b><span>02:00 today. 41,200 events cleaned.</span><span class="lnk">Run now</span></div>
+<div class="hcard bad"><b>Teams messages</b><span>3 failed in 24 h. Check the Power Automate flow.</span></div>
+<div class="hcard"><b>Push messages</b><span>0 failed in 24 h. 2 stale tokens removed.</span></div></div>
+<div class="card" style="padding:18px"><b>App versions in use</b><div class="vbar"><i style="width:80%;background:var(--ok)"></i><i style="width:20%;background:var(--accent)"></i></div><div class="leg"><span><i style="background:var(--ok)"></i>2.1.0: 64 phones</span><span><i style="background:var(--accent)"></i>2.0.7: 16 phones</span></div></div></div></div></div></div>
+<figcaption style="max-width:760px"><span class="tag">5.3</span><span class="tag">Prompt later (gap P2-10)</span><b>System health</b><span>Green on time, orange late, dark failed. Run now for each cron.</span></figcaption></figure>
+</div></section>
+</main>
+<script>
+(function(){
+  var root=document.documentElement, btns=document.querySelectorAll('.theme button');
+  function set(t){
+    if(t==='system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',t);
+    btns.forEach(function(b){b.setAttribute('aria-pressed', String(b.dataset.t===t));});
+    try{localStorage.setItem('op-board-theme',t);}catch(e){}
+  }
+  var saved='system'; try{saved=localStorage.getItem('op-board-theme')||'system';}catch(e){}
+  set(saved);
+  btns.forEach(function(b){b.addEventListener('click',function(){set(b.dataset.t);});});
+})();
+</script>
+
+<script>
+(function(){var b=document.getElementById('replay');if(!b)return;b.addEventListener('click',function(){
+var live=document.querySelector('.lph.live');var c=live.cloneNode(true);live.parentNode.replaceChild(c,live);});})();
+</script>
+</body></html>

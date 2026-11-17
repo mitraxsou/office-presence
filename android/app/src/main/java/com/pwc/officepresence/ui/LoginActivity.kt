@@ -130,6 +130,10 @@ private fun LoginScreen(
     var resendSeconds by remember { mutableIntStateOf(0) }
     var banner by remember { mutableStateOf(forcedSignOutMessage) }
     val emailOk = OpFormat.emailValid(email)
+    var lockSeconds by remember {
+        mutableIntStateOf(SignInLock.remainingSeconds(prefs.signInLockedUntilMs, System.currentTimeMillis()))
+    }
+    val locked = lockSeconds > 0
 
     LaunchedEffect(resendSeconds) {
         if (resendSeconds > 0) {
@@ -138,8 +142,28 @@ private fun LoginScreen(
         }
     }
 
+    LaunchedEffect(lockSeconds) {
+        if (lockSeconds > 0) {
+            delay(1000)
+            lockSeconds = SignInLock.remainingSeconds(prefs.signInLockedUntilMs, System.currentTimeMillis())
+            if (lockSeconds == 0) {
+                prefs.signInLockedUntilMs = 0L
+                errorTitle = null
+                errorBody = null
+            }
+        }
+    }
+
+    fun lockFrom(res: org.json.JSONObject) {
+        val now = System.currentTimeMillis()
+        prefs.signInLockedUntilMs = SignInLock.unlockAtMs(res, now)
+        lockSeconds = SignInLock.remainingSeconds(prefs.signInLockedUntilMs, now)
+        errorTitle = null
+        errorBody = null
+    }
+
     fun requestCode() {
-        if (!emailOk || sending) return
+        if (!emailOk || sending || locked) return
         sending = true
         errorTitle = null
         errorBody = null
@@ -148,7 +172,10 @@ private fun LoginScreen(
                 val res = ApiClient(BuildConfig.API_BASE_URL) { null }.requestOtp(email.trim())
                 main.post {
                     sending = false
-                    if (res.ok()) {
+                    if (SignInLock.isThrottled(res)) {
+                        lockFrom(res)
+                        step = LoginStep.Email
+                    } else if (res.ok()) {
                         step = LoginStep.Code
                         code = ""
                         resendSeconds = 45
@@ -170,7 +197,7 @@ private fun LoginScreen(
     }
 
     fun verifyCode() {
-        if (code.length != 6 || verifying) return
+        if (code.length != 6 || verifying || locked) return
         verifying = true
         errorTitle = null
         errorBody = null
@@ -185,9 +212,13 @@ private fun LoginScreen(
                 val token = res.optString("token")
                 main.post {
                     verifying = false
-                    if (res.ok() && token.isNotBlank()) {
+                    if (SignInLock.isThrottled(res)) {
+                        lockFrom(res)
+                        code = ""
+                    } else if (res.ok() && token.isNotBlank()) {
                         prefs.token = token
                         prefs.email = email.trim()
+                        prefs.signInLockedUntilMs = 0L
                         res.optString("deviceId", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it }
                         com.pwc.officepresence.ui.analytics.OpAnalytics.log(
                             ctx,
@@ -200,9 +231,9 @@ private fun LoginScreen(
                         triesLeft = (triesLeft - 1).coerceAtLeast(0)
                         errorTitle = "That code did not match"
                         errorBody = if (triesLeft > 0) {
-                            "$triesLeft tries left. After that, wait 10 minutes."
+                            "$triesLeft tries left. After that, wait 15 minutes."
                         } else {
-                            "Wait 10 minutes, then try again."
+                            "Wait 15 minutes, then try again."
                         }
                     }
                 }
@@ -217,7 +248,7 @@ private fun LoginScreen(
     }
 
     fun signInWithPassword() {
-        if (!emailOk || password.isEmpty() || verifying) return
+        if (!emailOk || password.isEmpty() || verifying || locked) return
         verifying = true
         errorTitle = null
         errorBody = null
@@ -232,9 +263,12 @@ private fun LoginScreen(
                 val token = res.optString("token")
                 main.post {
                     verifying = false
-                    if (res.ok() && token.isNotBlank()) {
+                    if (SignInLock.isThrottled(res)) {
+                        lockFrom(res)
+                    } else if (res.ok() && token.isNotBlank()) {
                         prefs.token = token
                         prefs.email = email.trim()
+                        prefs.signInLockedUntilMs = 0L
                         res.optString("deviceId", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it }
                         com.pwc.officepresence.ui.analytics.OpAnalytics.log(
                             ctx,
@@ -305,15 +339,22 @@ private fun LoginScreen(
                         inner()
                     },
                 )
-                if (errorTitle != null) {
+                if (locked) {
+                    Spacer(Modifier.height(12.dp))
+                    ErrorBanner("Too many attempts", SignInLock.body(lockSeconds, password = false))
+                } else if (errorTitle != null) {
                     Spacer(Modifier.height(12.dp))
                     ErrorBanner(errorTitle!!, errorBody)
                 }
                 Spacer(Modifier.weight(1f))
                 OpPrimaryButton(
-                    label = if (sending) "Sending code" else "Send code",
+                    label = when {
+                        sending -> "Sending code"
+                        locked -> "Send code in ${SignInLock.label(lockSeconds)}"
+                        else -> "Send code"
+                    },
                     onClick = { requestCode() },
-                    enabled = emailOk,
+                    enabled = emailOk && !locked,
                     loading = sending,
                 )
                 Text(
@@ -325,13 +366,13 @@ private fun LoginScreen(
                 )
                 Text(
                     "Sign in with password",
-                    color = p.ink,
+                    color = if (locked) p.ink3 else p.ink,
                     style = OpType.Label,
                     textDecoration = TextDecoration.Underline,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .padding(top = 14.dp)
-                        .clickable {
+                        .clickable(enabled = !locked) {
                             step = LoginStep.Password
                             errorTitle = null
                             errorBody = null
@@ -397,26 +438,33 @@ private fun LoginScreen(
                         inner()
                     },
                 )
-                if (errorTitle != null) {
+                if (locked) {
+                    Spacer(Modifier.height(12.dp))
+                    ErrorBanner("Too many attempts", SignInLock.body(lockSeconds, password = true))
+                } else if (errorTitle != null) {
                     Spacer(Modifier.height(12.dp))
                     ErrorBanner(errorTitle!!, errorBody)
                 }
                 Spacer(Modifier.weight(1f))
                 OpPrimaryButton(
-                    label = if (verifying) "Signing in" else "Sign in",
+                    label = when {
+                        verifying -> "Signing in"
+                        locked -> "Sign in after ${SignInLock.label(lockSeconds)}"
+                        else -> "Sign in"
+                    },
                     onClick = { signInWithPassword() },
-                    enabled = emailOk && password.isNotEmpty(),
+                    enabled = emailOk && password.isNotEmpty() && !locked,
                     loading = verifying,
                 )
                 Text(
                     "Sign in with Teams code",
-                    color = p.ink,
+                    color = if (locked) p.ink3 else p.ink,
                     style = OpType.Label,
                     textDecoration = TextDecoration.Underline,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .padding(top = 14.dp)
-                        .clickable {
+                        .clickable(enabled = !locked) {
                             step = LoginStep.Email
                             password = ""
                             errorTitle = null
@@ -453,7 +501,10 @@ private fun LoginScreen(
                         },
                         highlightError = failed,
                     )
-                    if (failed) {
+                    if (locked) {
+                        Spacer(Modifier.height(12.dp))
+                        ErrorBanner("Too many attempts", SignInLock.body(lockSeconds, password = false))
+                    } else if (failed) {
                         Spacer(Modifier.height(12.dp))
                         ErrorBanner(errorTitle!!, errorBody)
                     } else if (resendSeconds > 0) {
@@ -465,7 +516,13 @@ private fun LoginScreen(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    if (failed) {
+                    if (locked) {
+                        OpPrimaryButton(
+                            label = "Verify in ${SignInLock.label(lockSeconds)}",
+                            onClick = {},
+                            enabled = false,
+                        )
+                    } else if (failed) {
                         OpPrimaryButton(label = "Resend code", onClick = { requestCode() })
                     } else {
                         OpPrimaryButton(

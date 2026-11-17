@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { recordApiActivity } from "@/lib/device-api-activity";
 import { loginWithPassword } from "@/lib/password";
+import { clientIp, tooManyResponseInit } from "@/lib/rate-limit";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -19,8 +20,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: NO_STORE });
   }
 
-  const result = await loginWithPassword(body);
+  const result = await loginWithPassword(body, clientIp(request));
   if (!result.ok) {
+    if (result.status === 429 && "retryAfterSeconds" in result) {
+      const r = tooManyResponseInit(result.retryAfterSeconds, NO_STORE);
+      return NextResponse.json(r.body, r.init);
+    }
     return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
   }
 

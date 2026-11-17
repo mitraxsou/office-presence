@@ -1,22 +1,49 @@
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 import { prisma } from "./db";
 import { ensureUser, isPwcEmail } from "./auth";
 import { sendTeamsNotification } from "./notifications";
+import { LIMITS, clear, hit, lockedFor, throttleKeys, throttled, type ThrottledFailure } from "./rate-limit";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 
-function randomOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+export function randomOtp(): string {
+  return String(randomInt(100000, 1000000));
 }
 
-export async function requestOtp(emailRaw: string): Promise<{ ok: true; sent: boolean } | { ok: false; error: string; status: number }> {
+type Failure = { ok: false; error: string; status: number; retryAfterSeconds?: number };
+
+export async function requestOtp(
+  emailRaw: string,
+  ip: string = "unknown",
+): Promise<{ ok: true; sent: boolean } | Failure | ThrottledFailure> {
   const email = emailRaw.trim().toLowerCase();
   if (!isPwcEmail(email)) {
     return { ok: false, error: "Use your PwC email address", status: 400 };
   }
+  const lock = await lockedFor([
+    throttleKeys.otpVerifyEmail(email),
+    throttleKeys.otpRequestEmail(email),
+    throttleKeys.otpRequestIp(ip),
+  ]);
+  if (lock > 0) return throttled(lock);
+  const byIp = await hit(
+    throttleKeys.otpRequestIp(ip),
+    LIMITS.otpRequestIp.limit,
+    LIMITS.otpRequestIp.windowMs,
+    LIMITS.otpRequestIp.lockMs,
+  );
+  if (!byIp.allowed) return throttled(byIp.retryAfterSeconds);
+  const byEmail = await hit(
+    throttleKeys.otpRequestEmail(email),
+    LIMITS.otpRequestEmail.limit,
+    LIMITS.otpRequestEmail.windowMs,
+    LIMITS.otpRequestEmail.lockMs,
+  );
+  if (!byEmail.allowed) return throttled(byEmail.retryAfterSeconds);
   const existing = await prisma.user.findUnique({
     where: { email },
-    select: { deactivatedAt: true },
+    select: { id: true, deactivatedAt: true },
   });
   if (existing?.deactivatedAt) {
     const { ACCOUNT_DEACTIVATED_MESSAGE } = await import("./account-status");
@@ -27,6 +54,7 @@ export async function requestOtp(emailRaw: string): Promise<{ ok: true; sent: bo
   await prisma.otpCode.create({
     data: {
       email,
+      userId: existing?.id ?? null,
       codeHash,
       expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
@@ -43,11 +71,15 @@ export async function requestOtp(emailRaw: string): Promise<{ ok: true; sent: bo
   return { ok: true, sent };
 }
 
-export async function verifyOtp(emailRaw: string, code: string) {
+export async function verifyOtp(emailRaw: string, code: string, ip: string = "unknown") {
   const email = emailRaw.trim().toLowerCase();
   if (!isPwcEmail(email) || !/^\d{6}$/.test(code)) {
     return { ok: false as const, error: "Invalid email or code", status: 400 };
   }
+  const emailKey = throttleKeys.otpVerifyEmail(email);
+  const ipKey = throttleKeys.otpVerifyIp(ip);
+  const lock = await lockedFor([emailKey, ipKey]);
+  if (lock > 0) return throttled(lock);
   const rows = await prisma.otpCode.findMany({
     where: { email, usedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
@@ -60,7 +92,23 @@ export async function verifyOtp(emailRaw: string, code: string) {
       break;
     }
   }
-  if (!matched) return { ok: false as const, error: "Invalid or expired code", status: 401 };
+  if (!matched) {
+    const byIp = await hit(ipKey, LIMITS.otpVerifyIp.limit, LIMITS.otpVerifyIp.windowMs, LIMITS.otpVerifyIp.lockMs);
+    const byEmail = await hit(
+      emailKey,
+      LIMITS.otpVerifyEmail.limit,
+      LIMITS.otpVerifyEmail.windowMs,
+      LIMITS.otpVerifyEmail.lockMs,
+    );
+    if (byEmail.locked) {
+      // A locked email needs a new code once the lock ends.
+      await prisma.otpCode.updateMany({ where: { email, usedAt: null }, data: { usedAt: new Date() } });
+      return throttled(byEmail.retryAfterSeconds);
+    }
+    if (byIp.locked) return throttled(byIp.retryAfterSeconds);
+    return { ok: false as const, error: "Invalid or expired code", status: 401 };
+  }
+  await clear(emailKey);
   const existing = await prisma.user.findUnique({
     where: { email },
     select: { deactivatedAt: true },

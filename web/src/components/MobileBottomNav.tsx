@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 type Props = {
   showAdmin: boolean;
+  showTeam?: boolean;
   pendingCorrections: number;
   name: string;
   email: string;
@@ -98,6 +99,7 @@ function TabLink({
 
 export default function MobileBottomNav({
   showAdmin,
+  showTeam = false,
   pendingCorrections,
   name,
   email,
@@ -130,10 +132,14 @@ export default function MobileBottomNav({
   const isSettings = pathname.startsWith("/settings");
   const isRoster = pathname.startsWith("/admin/roster");
   const isCorrections = pathname.startsWith("/admin/corrections");
+  const isTeam = pathname.startsWith("/team");
   const moreActive =
     showAdmin &&
-    (pathname.startsWith("/admin/users") ||
+    (isTeam ||
+      pathname.startsWith("/admin/users") ||
       pathname.startsWith("/admin/offices") ||
+      pathname.startsWith("/admin/holidays") ||
+      pathname.startsWith("/admin/exceptions") ||
       pathname.startsWith("/admin/reports") ||
       pathname.startsWith("/admin/settings") ||
       isYear ||
@@ -170,6 +176,7 @@ export default function MobileBottomNav({
             <TabLink href="/month" label="My month" icon="month" active={isMonth} />
             <TabLink href="/year" label="My year" icon="year" active={isYear} />
             <TabLink href="/colleagues" label="Colleagues" icon="colleagues" active={isColleagues} />
+            {showTeam ? <TabLink href="/team" label="My team" icon="roster" active={isTeam} /> : null}
             <TabLink href="/settings" label="Settings" icon="settings" active={isSettings} />
           </>
         )}
@@ -193,13 +200,33 @@ export default function MobileBottomNav({
               </div>
             </div>
 
+            {showTeam ? (
+              <>
+                <div className="op-msheet-section">My team</div>
+                <div className="op-msheet-card">
+                  <a href="/team" onClick={() => setMoreOpen(false)}>
+                    Team <span aria-hidden>&gt;</span>
+                  </a>
+                </div>
+              </>
+            ) : null}
+
             <div className="op-msheet-section">Admin</div>
             <div className="op-msheet-card">
               <a href="/admin/users" onClick={() => setMoreOpen(false)}>
                 Users <span aria-hidden>&gt;</span>
               </a>
+              <a href="/admin/teams" onClick={() => setMoreOpen(false)}>
+                Teams <span aria-hidden>&gt;</span>
+              </a>
               <a href="/admin/offices" onClick={() => setMoreOpen(false)}>
                 Offices <span aria-hidden>&gt;</span>
+              </a>
+              <a href="/admin/holidays" onClick={() => setMoreOpen(false)}>
+                Holidays <span aria-hidden>&gt;</span>
+              </a>
+              <a href="/admin/exceptions" onClick={() => setMoreOpen(false)}>
+                Exceptions <span aria-hidden>&gt;</span>
               </a>
               <a href="/admin/reports" onClick={() => setMoreOpen(false)}>
                 Reports <span aria-hidden>&gt;</span>

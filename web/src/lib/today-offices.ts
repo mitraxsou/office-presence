@@ -23,6 +23,7 @@ export function groupTodayOffices(
 ): TodayOfficeGroup[] {
   const order: string[] = [];
   const map = new Map<string, TodayOfficeGroup>();
+  const bounds = new Map<string, { start: number; end: number }>();
   for (const v of [...visits].sort((a, b) => a.startAt.getTime() - b.startAt.getTime())) {
     if (dayKeyInTz(v.startAt, tz) !== todayKey) continue;
     const key = v.officeLocationId || "unknown";
@@ -37,14 +38,24 @@ export function groupTodayOffices(
       map.set(key, g);
       order.push(key);
     }
+    const startMs = v.startAt.getTime();
     const endMs = v.endAt?.getTime() ?? nowMs;
-    const mins = Math.max(0, Math.round((endMs - v.startAt.getTime()) / 60_000));
-    g.minutes += mins;
+    const prev = bounds.get(key);
+    bounds.set(key, {
+      start: prev ? Math.min(prev.start, startMs) : startMs,
+      end: prev ? Math.max(prev.end, endMs) : endMs,
+    });
+    const mins = Math.max(0, Math.round((endMs - startMs) / 60_000));
     g.visits.push({
       in_at: v.startAt.toISOString(),
       out_at: (v.endAt ?? new Date(endMs)).toISOString(),
       minutes: mins,
     });
   }
-  return order.map((k) => map.get(k)!);
+  return order.map((k) => {
+    const g = map.get(k)!;
+    const span = bounds.get(k);
+    g.minutes = span ? Math.max(0, Math.round((span.end - span.start) / 60_000)) : 0;
+    return g;
+  });
 }

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { adminRoster } from "@/lib/roster";
+import { getPolicy } from "@/lib/policy";
+import { monthKeyInTz } from "@/lib/presence";
+import { monthRecordCounts } from "@/lib/month-records";
 
 export async function GET(request: Request) {
   try { await requireAdmin(); } catch (res) { return res as Response; }
@@ -13,8 +16,17 @@ export async function GET(request: Request) {
     prisma.visitCorrectionRequest.count({ where: { status: "pending" } }),
     prisma.officeLocation.count({ where: { status: "pending" } }),
   ]);
+  const policy = await getPolicy();
+  const records = await monthRecordCounts(
+    roster.users.map((u) => ({ id: u.id, homeOfficeId: u.homeOfficeId ?? null })),
+    monthKeyInTz(new Date(), policy.timezone),
+  );
   const rows = roster.users
-    .map((u) => ({ ...u, met: u.monthPoints >= roster.pointsTarget }))
+    .map((u) => ({
+      ...u,
+      met: u.monthPoints >= roster.pointsTarget,
+      ...(records.get(u.id) ?? { exceptionDays: 0, exceptionPoints: 0, leaveDays: 0, holidays: 0 }),
+    }))
     .sort((a, b) => b.monthPoints - a.monthPoints || a.email.localeCompare(b.email));
   return NextResponse.json({
     pointsTarget: roster.pointsTarget,

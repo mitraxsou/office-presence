@@ -11,6 +11,7 @@ type Expected = {
   targetMet?: boolean;
   dayKeys?: string[];
   dayHours?: number[];
+  open?: boolean;
 };
 
 describe("visit-calculator shared cases", () => {
@@ -23,6 +24,7 @@ describe("visit-calculator shared cases", () => {
         exclusions: c.exclusions,
         office: c.office,
         offices: c.offices,
+        now: typeof c.now === "string" ? Date.parse(c.now) : undefined,
       });
       const e = c.expected as Expected;
       expect(result.visits.length).toBe(e.visitCount);
@@ -35,6 +37,7 @@ describe("visit-calculator shared cases", () => {
       if (e.dayHours) {
         result.days.forEach((d, i) => expect(d.hours).toBeCloseTo(e.dayHours![i], 3));
       }
+      if (e.open != null) expect(result.visits.some((v) => v.open)).toBe(e.open);
     });
   }
 });
@@ -109,7 +112,7 @@ describe("points rules", () => {
       ],
     });
     expect(gone.visits.length).toBe(2);
-    expect(gone.totalHours).toBeCloseTo(0.5, 3);
+    expect(gone.totalHours).toBeCloseTo(1, 3);
   });
 
   it("a should-not-count for the previous local day still scores the next morning", () => {
@@ -304,7 +307,7 @@ describe("points rules", () => {
     expect(r.days[1].hours).toBeCloseTo(5 / 60, 5);
   });
 
-  it("counts an admin day as the office points when the stored award is 1", () => {
+  it("counts an admin day as its stored award, not the current office points", () => {
     const offices = [
       { id: "srijan", lat: 22.58, lng: 88.43, radiusMeters: 100, pointsPerVisitDay: 3 },
       { id: "phone-office", lat: 22.57, lng: 88.36, radiusMeters: 100, pointsPerVisitDay: 1 },
@@ -332,10 +335,10 @@ describe("points rules", () => {
         },
       ],
     });
-    expect(r.days.find((d) => d.dayKey === "2026-11-12")?.points).toBe(3);
+    expect(r.days.find((d) => d.dayKey === "2026-11-12")?.points).toBe(1);
     expect(r.days.find((d) => d.dayKey === "2026-11-13")?.points).toBe(1);
-    expect(r.totalPoints).toBe(4);
-    expect(r.visits.find((v) => v.source === "admin")?.pointsAwarded).toBe(3);
+    expect(r.totalPoints).toBe(2);
+    expect(r.visits.find((v) => v.source === "admin")?.pointsAwarded).toBe(1);
   });
 
   it("does not count an admin day when the stored award is 0", () => {

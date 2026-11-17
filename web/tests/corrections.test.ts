@@ -151,9 +151,9 @@ describe("points-format UI helpers", () => {
     expect(pointsCellLabel(1)).toBe("1 point");
     expect(pointsCellLabel(3)).toBe("3 points");
     expect(pointsCellLabel(0)).toBe("0 points");
-    expect(adminVisitPoints(1, 3)).toBe(3);
-    expect(adminVisitPoints(3, 3)).toBe(3);
-    expect(adminVisitPoints(0, 3)).toBe(0);
-    expect(adminVisitPoints(1, undefined)).toBe(1);
+    expect(adminVisitPoints(1)).toBe(1);
+    expect(adminVisitPoints(2)).toBe(2);
+    expect(adminVisitPoints(0)).toBe(0);
+    expect(adminVisitPoints(-1)).toBe(0);
   });
 });

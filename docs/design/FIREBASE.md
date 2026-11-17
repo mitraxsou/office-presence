@@ -7,8 +7,8 @@ Spark / free. Used for remote force-logout, work-hours presence wake, client ana
 | Channel | Who it is for | How |
 |---|---|---|
 | Firebase App Distribution (Console or CLI) | Invited testers via App Tester | Upload APK to project `office-presence-f8100`, group `pilot` (see App Distribution below). Scaffolding stays in repo: `firebase.json`, `.firebaserc`, `scripts/distribute-android.ps1`, `npm run distribute:android`. |
-| GitHub Release | Anyone with repo/release access; also the source URL for the public page | Tag e.g. `v2.0.6-pilot`, attach `app-release.apk`, notes from `docs/releases/<versionName>.md`. Do not commit the APK into the tree. |
-| Public `/download` page | Anyone who can open the pilot web app | `https://office-presence-psi.vercel.app/download`. Button uses `NEXT_PUBLIC_ANDROID_APK_URL` (set on Vercel to the GitHub Release asset browser URL, then redeploy). Login footer links here. |
+| GitHub Release | Anyone with repo/release access | Tag e.g. `v2.0.7-pilot`, attach `app-release.apk`, notes from `docs/releases/<versionName>.md`. Do not commit the APK into the tree. |
+| Public `/download` page | Anyone who can open the pilot web app | `https://office-presence-psi.vercel.app/download`. The button downloads `/downloads/office-presence.apk` hosted with the site, unless policy `appApkUrl` is set. Login footer links here. |
 
 ## Release notes (required for every new version)
 
@@ -25,15 +25,19 @@ Uninstall a debug-signed build before installing a release APK if the signing ke
 
 ### Vercel env for `/download`
 
-Production variable (set for pilot):
+The button defaults to `/downloads/office-presence.apk` on the same host. Policy `appApkUrl` replaces that path when an admin sets it. Redeploy Production from `web/` with `vercel --prod` after replacing the APK file.
 
-```
-NEXT_PUBLIC_ANDROID_APK_URL=https://github.com/mitraxsou/office-presence/releases/download/v2.0.6-pilot/app-release.apk
-```
+Copy the signed APK to `web/public/downloads/office-presence.apk` before that deploy. The file is listed in `.gitignore`, so it is not committed.
 
-After changing it, redeploy Production so the Next.js build inlines the public URL. The `/download` route ships with the web app; commit and push the page, then redeploy (or `vercel --prod` from `web/`) before it appears live.
+**Private repo note:** `mitraxsou/office-presence` is private. A GitHub Release asset URL returns 404 unless the person is signed in to GitHub. The copy under `/downloads/` is the public file.
 
-**Private repo note:** `mitraxsou/office-presence` is private. Unauthenticated browsers get 404 on the GitHub asset URL. Collaborators signed into GitHub can download from the Release page. For a true public `/download` button (no GitHub login), point `NEXT_PUBLIC_ANDROID_APK_URL` at a publicly reachable APK host, or use Firebase App Tester for invited pilots.
+## App update push (download page)
+
+Saving a higher Android version code sends an `app_update` data message (`notifyOutdatedDevices` for every older phone, and `maybeNotifyDeviceUpdate` when one phone checks in). The message `url` is always the public `/download` page (`downloadPageUrl`). `policy.appApkUrl` does not change this push. Phones use that APK URL only on sync, and only when it is a direct `https` link whose path ends in `.apk`.
+
+The notification opens the download page. Tapping it does not start an APK download inside the app. Phones still on an older version are reminded once each weekday by the presence-ping cron (first call inside 09:00 to 19:00). `/api/cron/app-update` sends the same reminder on days that cron does not run. Each phone is marked with `updateRemindedOn` so a later call the same day does not send again. Opening the app on a build that includes this check asks to open the download page. Do not paste the private GitHub Release asset into `appApkUrl`. `mitraxsou/office-presence` returns 404 unless the person is signed in to GitHub.
+
+The APK must use the same keystore as the installed pilot build (`android/office-presence-pilot.jks`). A different signing key cannot replace the app that is already installed.
 
 ## Files (never commit)
 
@@ -44,6 +48,17 @@ After changing it, redeploy Production so the Next.js build inlines the public U
 | Cron auth | `CRON_SECRET` in `web/.env.local` and Vercel |
 | Release keystore | `android/office-presence-pilot.jks` (gitignored) |
 | Keystore passwords | `android/keystore.properties` (gitignored; see `keystore.properties.example`) |
+
+## Staging debug app (`com.pwc.officepresence.staging`)
+
+Debug builds use `applicationIdSuffix ".staging"`, so the package is `com.pwc.officepresence.staging`. The Google Services Gradle plugin fails the build when `android/app/google-services.json` has no client for that package. `FirebaseGate.kt` no-ops at runtime when `google_app_id` is missing, but the Gradle plugin does not.
+
+Before the first debug build on a machine:
+
+1. Firebase console, project settings, Add app, Android, package `com.pwc.officepresence.staging`. Add the debug SHA-1 if Crashlytics or App Check need it.
+2. Download the new `google-services.json`. It contains both clients (production and `.staging`). Replace the local `android/app/google-services.json` with it. Keep it gitignored.
+3. Set `STAGING_API_BASE_URL` in `android/local.properties` to the staging web URL. The debug build fails without it, so it never talks to production.
+4. The staging web app needs its own `FIREBASE_SERVICE_ACCOUNT_JSON` (same project is fine) so pushes reach the staging app.
 
 ## Pilot release signing
 
@@ -137,4 +152,18 @@ Geofence + foreground service remain primary. When OEMs kill the process mid-day
 Example external cron URL:
 
 `https://office-presence-psi.vercel.app/api/cron/presence-ping`  
+Header: `Authorization: Bearer <CRON_SECRET>`
+
+## Office Tracker daily sync
+
+People without an active phone get missing visit days from Office Tracker. People whose phone app has checked in are left alone. This is a separate URL. Do not call it from presence-ping or correction-digest.
+
+- **API:** `GET|POST /api/cron/office-tracker-sync` with `Authorization: Bearer CRON_SECRET` (or `?secret=`).
+- **Tracker:** fetches `OFFICE_TRACKER_SYNC_URL` (default `https://office-tracker-theta.vercel.app/api/cron/presence-backfill`) with `Authorization: Bearer OFFICE_TRACKER_SYNC_SECRET`. That secret must match the tracker `PRESENCE_SYNC_SECRET`. If it is missing, the sync writes nothing.
+- **Once a day:** at most one successful sync per Asia/Kolkata calendar day. A later call the same day returns the previous result and does not fetch again. Pass `?force=1` to run again.
+- **Schedule:** its own daily URL. Vercel Hobby cron is daily-only, so use an external scheduler once each morning.
+
+Example:
+
+`https://office-presence-psi.vercel.app/api/cron/office-tracker-sync`  
 Header: `Authorization: Bearer <CRON_SECRET>`

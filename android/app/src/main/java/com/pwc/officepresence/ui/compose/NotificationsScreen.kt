@@ -1,6 +1,9 @@
 package com.pwc.officepresence.ui.compose
 
 import android.Manifest
+import android.app.Activity
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -224,7 +227,7 @@ private fun NotificationsMain(
             DividerLine()
             NotifToggleRow(
                 title = "Weekly summary",
-                subtitle = "Monday 9:00 am: points so far this month",
+                subtitle = "Monday 9:00 am: your week and month so far",
                 checked = weekly,
                 enabled = permissionOk && !readonly,
                 onCheckedChange = {
@@ -235,8 +238,8 @@ private fun NotificationsMain(
             )
             DividerLine()
             NotifToggleRow(
-                title = "Correction requests",
-                subtitle = "When an admin decides on your request",
+                title = "Correction decisions",
+                subtitle = "When an admin approves or does not approve your request",
                 checked = corrections,
                 enabled = permissionOk && !readonly,
                 onCheckedChange = {
@@ -259,6 +262,12 @@ private fun NotificationsMain(
                 },
             )
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Personal alerts come to this phone. Teams is used for sign-in codes.",
+            style = OpType.Meta,
+            color = p.ink3,
+        )
         Spacer(Modifier.height(20.dp))
         Text("Quiet hours", style = OpType.Meta, color = p.ink3, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
@@ -302,6 +311,19 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val spec = Notifier.CHANNELS.firstOrNull { it.id == channelId }
     var status by remember { mutableStateOf(Notifier.channelStatus(ctx, channelId)) }
+    val soundPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        @Suppress("DEPRECATION")
+        val uri = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        if (uri == null) {
+            Notifier.applyChannelSound(ctx, channelId, null, null, silent = true)
+        } else {
+            Notifier.applyChannelSound(ctx, channelId, uri, Notifier.titleForSoundUri(ctx, uri))
+        }
+        status = Notifier.channelStatus(ctx, channelId)
+    }
 
     DisposableEffect(lifecycleOwner, channelId) {
         val obs = LifecycleEventObserver { _, event ->
@@ -326,33 +348,41 @@ private fun ChannelDetailScreen(channelId: String, onBack: () -> Unit) {
             Text(spec?.name ?: "Channel", style = OpType.Title.copy(fontSize = 24.sp), color = p.ink)
         }
         Text(
-            "Sound, vibration, and pop on screen for this notification are set on one Android screen.",
+            "Pick the sound here. Vibrate, pop on screen, lock screen, and Do Not Disturb open Android settings for this notification.",
             style = OpType.Body,
             color = p.ink2,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
         val openSettings = { Notifier.openChannelSettings(ctx, channelId) }
         OpCard {
-            SettingsRow("Sound", value = status.soundLabel, stackValue = true)
+            SettingsRow(
+                "Sound",
+                value = status.soundLabel,
+                stackValue = true,
+                onClick = { soundPicker.launch(Notifier.ringtonePickerIntent(ctx, channelId)) },
+            )
             DividerLine()
             SettingsRow(
                 "Vibrate",
                 value = if (status.vibrate) "On" else "Off",
                 stackValue = true,
+                onClick = openSettings,
             )
             DividerLine()
             SettingsRow(
                 "Pop on screen",
                 value = if (status.popOnScreen) "On" else "Off",
                 stackValue = true,
+                onClick = openSettings,
             )
             DividerLine()
-            SettingsRow("Show on lock screen", value = status.lockScreen, stackValue = true)
+            SettingsRow("Show on lock screen", value = status.lockScreen, stackValue = true, onClick = openSettings)
             DividerLine()
             SettingsRow(
                 "Override Do Not Disturb",
                 value = if (status.bypassDnd) "On" else "Off",
                 stackValue = true,
+                onClick = openSettings,
             )
         }
         Spacer(Modifier.height(14.dp))

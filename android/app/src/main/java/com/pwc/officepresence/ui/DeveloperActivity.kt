@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
-import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.widget.EditText
@@ -26,7 +25,7 @@ import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.EventLog
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
-import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.notify.WeeklySummaryWorker
 import com.pwc.officepresence.notify.FcmTokenSync
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
@@ -100,9 +99,13 @@ class DeveloperActivity : AppCompatActivity() {
             setStatus("Registered ${prefs.offices().size} office geofence(s)")
             refreshAll()
         }
-        Ui.button(mock, "Send morning summary now", com.google.android.material.R.attr.materialButtonOutlinedStyle) {
-            DailySummaryWorker.runNow(this)
-            setStatus("Morning summary queued")
+        Ui.button(mock, "Send weekly summary now", com.google.android.material.R.attr.materialButtonOutlinedStyle) {
+            WeeklySummaryWorker.runNow(this)
+            setStatus("Weekly summary queued")
+        }
+        Ui.button(mock, "Check tracking now", com.google.android.material.R.attr.materialButtonOutlinedStyle) {
+            com.pwc.officepresence.notify.TrackingHealthWorker.runNow(this)
+            setStatus("Tracking check queued")
         }
 
         val fcm = Ui.card(
@@ -177,7 +180,9 @@ class DeveloperActivity : AppCompatActivity() {
                     log.clearAll()
                     GeofenceHelper.clear(this)
                     PresenceService.stop(this)
-                    DailySummaryWorker.cancel(this)
+                    WeeklySummaryWorker.cancel(this)
+                    com.pwc.officepresence.notify.TrackingHealthWorker.cancel(this)
+                    com.pwc.officepresence.notify.AppUpdateWorker.cancel(this)
                     prefs.resetLocal()
                     startActivity(Intent(this, LoginActivity::class.java))
                     finishAffinity()
@@ -221,7 +226,7 @@ class DeveloperActivity : AppCompatActivity() {
                 setStatus("Checking ${"%.5f".format(loc.latitude)}, ${"%.5f".format(loc.longitude)} ${loc.accuracy.toInt()} m$mockTag...")
                 thread {
                     val state = runCatching {
-                        repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble())
+                        repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble(), isMockLocation(loc))
                     }.getOrNull()
                     runOnUiThread {
                         val line = when {
@@ -373,7 +378,8 @@ class DeveloperActivity : AppCompatActivity() {
 
     private fun refreshRecent() {
         if (!::recentView.isInitialized) return
-        val lines = log.recent(12)
+        val rejected = AppPrefs(this).lastIngestRejected
+        val lines = listOfNotNull(rejected.takeIf { it.isNotBlank() }) + log.recent(12)
         recentView.text = if (lines.isEmpty()) "No local events yet."
         else lines.joinToString("\n")
     }
@@ -384,6 +390,5 @@ class DeveloperActivity : AppCompatActivity() {
     }
 
     private fun isMockLocation(loc: Location): Boolean =
-        if (Build.VERSION.SDK_INT >= 31) loc.isMock
-        else @Suppress("DEPRECATION") loc.isFromMockProvider
+        com.pwc.officepresence.presence.LocationFlags.isMock(loc)
 }

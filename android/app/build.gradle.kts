@@ -13,6 +13,18 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+val productionApiBaseUrl = "https://office-presence-psi.vercel.app"
+val localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties()
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+// Debug builds must never write to production. Set STAGING_API_BASE_URL in
+// gradle.properties, local.properties, or with -PSTAGING_API_BASE_URL=...
+val stagingApiBaseUrl: String = ((project.findProperty("STAGING_API_BASE_URL") as String?)
+    ?: localProperties.getProperty("STAGING_API_BASE_URL")
+    ?: "").trim().trimEnd('/')
+
 android {
     namespace = "com.pwc.officepresence"
     compileSdk = 34
@@ -21,9 +33,9 @@ android {
         applicationId = "com.pwc.officepresence"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "2.0.6"
-        buildConfigField("String", "API_BASE_URL", "\"https://office-presence-psi.vercel.app\"")
+        versionCode = 16
+        versionName = "2.1.0"
+        buildConfigField("String", "API_BASE_URL", "\"$productionApiBaseUrl\"")
     }
 
     signingConfigs {
@@ -56,11 +68,13 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "API_BASE_URL", "\"https://office-presence-psi.vercel.app\"")
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            buildConfigField("String", "API_BASE_URL", "\"$stagingApiBaseUrl\"")
         }
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"https://office-presence-psi.vercel.app\"")
+            buildConfigField("String", "API_BASE_URL", "\"$productionApiBaseUrl\"")
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -70,6 +84,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+}
+
+gradle.taskGraph.whenReady {
+    val buildsDebug = allTasks.any { it.project == project && it.name.contains("Debug") && !it.name.contains("Release") }
+    if (buildsDebug && stagingApiBaseUrl.isBlank()) {
+        throw GradleException(
+            "STAGING_API_BASE_URL is not set. Debug builds talk to staging only. " +
+                "Add STAGING_API_BASE_URL=https://<staging host> to android/local.properties " +
+                "or gradle.properties, or pass -PSTAGING_API_BASE_URL=...",
+        )
+    }
 }
 
 dependencies {

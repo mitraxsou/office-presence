@@ -1,0 +1,10 @@
+---
+description: Keep the living product document current
+alwaysApply: true
+---
+When you add, remove or change a screen, API route, rule, env var, push type, cron job or data field:
+1. Update the matching section of docs/OFFICE_PRESENCE_LIVING_DOC.md (Parts B, C or D).
+2. If you fix a gap from Part E, mark it fixed and add it to the Change log with the date.
+3. Add one line to the Change log: date, what changed, files.
+Keep the style: short plain sentences, tables for reference, no em dashes.
+Always create Prisma migrations with `prisma migrate dev --name <name>`, never `db push`.

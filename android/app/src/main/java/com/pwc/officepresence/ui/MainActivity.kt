@@ -28,7 +28,7 @@ import com.pwc.officepresence.BuildConfig
 import com.pwc.officepresence.R
 import com.pwc.officepresence.data.AppPrefs
 import com.pwc.officepresence.data.PresenceRepository
-import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.notify.WeeklySummaryWorker
 import com.pwc.officepresence.presence.ArrivalDetect
 import com.pwc.officepresence.presence.GeofenceHelper
 import kotlin.concurrent.thread
@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         thread {
             val state = repo.uploadAndSync()
             if (state.ok) {
-                DailySummaryWorker.schedule(this)
+                WeeklySummaryWorker.schedule(this)
                 GeofenceHelper.registerAll(this, prefs.offices())
             }
             runOnUiThread {
@@ -167,7 +167,10 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
                 thread {
-                    val state = repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble())
+                    val state = repo.forceDetect(
+                        loc.latitude, loc.longitude, loc.accuracy.toDouble(),
+                        com.pwc.officepresence.presence.LocationFlags.isMock(loc),
+                    )
                     runOnUiThread {
                         forceDetectBtn.isEnabled = true
                         forceDetectBtn.text = getString(R.string.force_detect)

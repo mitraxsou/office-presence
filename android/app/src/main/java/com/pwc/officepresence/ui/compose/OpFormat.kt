@@ -34,6 +34,13 @@ object OpFormat {
         dayKey
     }
 
+    /** "14 Nov" for an ISO instant in the given zone. */
+    fun fmtShortDate(iso: String, tz: String): String = try {
+        DateTimeFormatter.ofPattern("d MMM", Locale.US).format(Instant.parse(iso).atZone(zone(tz)))
+    } catch (_: Exception) {
+        ""
+    }
+
     fun fmtMonthTitle(ym: String): String = try {
         DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US).format(YearMonth.parse(ym))
     } catch (_: Exception) {
@@ -56,6 +63,13 @@ object OpFormat {
             m == 0 -> "$h h"
             else -> "$h h $m m"
         }
+    }
+
+    /** "Since 9:42 am" (SPEC 27): the hero shows no current-stay duration. */
+    fun sinceOnlyLabel(sinceIso: String?, tz: String, nowMs: Long = System.currentTimeMillis()): String {
+        val full = forSinceLabel(sinceIso, tz, nowMs)
+        val rest = full.substringAfter(", ", "")
+        return if (rest.isBlank()) "" else rest.replaceFirstChar { it.uppercase() }
     }
 
     fun forSinceLabel(sinceIso: String?, tz: String, nowMs: Long = System.currentTimeMillis()): String {

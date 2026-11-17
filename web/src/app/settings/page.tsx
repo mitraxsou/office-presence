@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getPolicy } from "@/lib/policy";
+import { consentState } from "@/lib/consent";
 import { displayName, greeting, greetingName, parseColleagueDisplayMode } from "@/lib/display-name";
 import AppShell from "@/components/AppShell";
 import UserSettingsClient from "./UserSettingsClient";
@@ -26,7 +27,8 @@ export default async function SettingsPage({
     raw === "sharing" ||
     raw === "appearance" ||
     raw === "nicknames" ||
-    raw === "suggest"
+    raw === "suggest" ||
+    raw === "privacy"
       ? raw
       : "profile";
 
@@ -49,6 +51,7 @@ export default async function SettingsPage({
           colleagueDisplayMode: parseColleagueDisplayMode(user.colleagueDisplayMode),
           displayName: displayName(user),
           greeting: greeting(user, new Date(), tz),
+          consent: consentState(user, policy),
         }}
         policy={{
           monthlyPointsTarget: policy.monthlyPointsTarget ?? 8,

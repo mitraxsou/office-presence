@@ -2,12 +2,14 @@ package com.pwc.officepresence.data
 
 import android.content.Context
 import com.pwc.officepresence.BuildConfig
+import com.pwc.officepresence.notify.AppUpdateSignals
+import com.pwc.officepresence.notify.CorrectionDecisions
+import com.pwc.officepresence.notify.ExceptionNotices
 import com.pwc.officepresence.notify.Notifier
 import com.pwc.officepresence.notify.FcmTokenSync
 import com.pwc.officepresence.presence.GeofenceHelper
 import com.pwc.officepresence.presence.PresenceService
 import com.pwc.officepresence.presence.VisitCalculator
-import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
@@ -49,6 +51,7 @@ class PresenceRepository(private val context: Context) {
         prefs.pendingSignInMessage = message
         prefs.clearSession()
         PresenceService.stop(context)
+        com.pwc.officepresence.notify.AppUpdateWorker.cancel(context)
         if (hadToken) {
             com.pwc.officepresence.ui.analytics.OpAnalytics.log(
                 context,
@@ -78,14 +81,6 @@ class PresenceRepository(private val context: Context) {
         // Stop sampling before check_out so a late sample cannot flip status back to In.
         if (type == "check_out") PresenceService.stop(context)
         log.add(type = type, recordedAtIso = Instant.now().toString())
-        // #region agent log
-        DebugTrace.write(
-            "H1",
-            "PresenceRepository.kt:80",
-            "manual event queued",
-            mapOf("type" to type, "pendingEvents" to log.pendingCount(), "cachedInOffice" to prefs.cachedInOffice),
-        )
-        // #endregion
         if (type == "check_in") PresenceService.start(context)
         return uploadAndSync()
     }
@@ -97,6 +92,7 @@ class PresenceRepository(private val context: Context) {
         accuracy: Double? = null,
         simulated: Boolean = false,
         officeId: String? = null,
+        mock: Boolean = false,
     ) {
         log.add(
             type = type,
@@ -106,7 +102,60 @@ class PresenceRepository(private val context: Context) {
             accuracy = accuracy,
             simulated = simulated,
             officeId = officeId,
+            mock = mock,
         )
+    }
+
+    /** Server needs (new) consent: stop tracking until onboarding accepts the notice again. */
+    fun onConsentRequired() {
+        prefs.consentAcceptedVersion = ""
+        stopTracking()
+    }
+
+    fun stopTracking() {
+        PresenceService.stop(context)
+        GeofenceHelper.clear(context)
+    }
+
+    /** POST /api/me/consent for the current notice version. */
+    fun acceptConsent(version: String): Boolean {
+        val res = api.acceptConsent(version)
+        if (!res.ok()) return false
+        applyConsent(res)
+        return true
+    }
+
+    /** Withdraw from this phone: the server revokes this phone only. */
+    fun withdrawConsent(): Boolean {
+        val res = api.withdrawConsent()
+        if (!res.ok()) return false
+        stopTracking()
+        prefs.consentAcceptedVersion = ""
+        prefs.consentAcceptedAtIso = ""
+        return true
+    }
+
+    fun refreshConsent(): Boolean {
+        val res = api.consent()
+        if (!res.ok()) return false
+        applyConsent(res)
+        return true
+    }
+
+    private fun applyConsent(c: JSONObject) {
+        c.optString("requiredVersion").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.consentRequiredVersion = it }
+        prefs.consentAcceptedVersion = if (c.isNull("acceptedVersion")) "" else c.optString("acceptedVersion")
+        prefs.consentAcceptedAtIso = if (c.isNull("acceptedAt")) "" else c.optString("acceptedAt")
+        if (c.has("retentionDays")) prefs.consentRetentionDays = c.optInt("retentionDays", 90)
+    }
+
+    private fun logRejected(res: org.json.JSONObject) {
+        val reasons = res.optJSONObject("rejectedReasons") ?: return
+        if (res.optInt("rejected", 0) <= 0) return
+        val parts = reasons.keys().asSequence().map { "$it ${reasons.optInt(it)}" }.toList()
+        if (parts.isEmpty()) return
+        val at = Instant.now().toString().take(16).replace('T', ' ')
+        prefs.lastIngestRejected = "$at ignored ${parts.joinToString(", ")}"
     }
 
     /** Returns null on success, else an error message. */
@@ -115,43 +164,19 @@ class PresenceRepository(private val context: Context) {
             val batch = log.pendingBatch()
             if (batch.length() == 0) return null
             val ids = (0 until batch.length()).map { batch.getJSONObject(it).getString("clientEventId") }
-            // #region agent log
-            DebugTrace.write(
-                "H1",
-                "PresenceRepository.kt:115",
-                "uploading presence batch",
-                mapOf(
-                    "eventCount" to batch.length(),
-                    "eventTypes" to (0 until batch.length()).joinToString(",") { batch.getJSONObject(it).optString("type") },
-                ),
-            )
-            // #endregion
             val res = client.ingest(batch, prefs.deviceName)
             if (!res.ok()) {
-                // #region agent log
-                DebugTrace.write(
-                    "H1",
-                    "PresenceRepository.kt:128",
-                    "presence upload rejected",
-                    mapOf("httpStatus" to res.optInt("_httpStatus"), "error" to res.optString("error")),
-                )
-                // #endregion
+                if (res.optInt("_httpStatus", 0) == 403 && res.optString("error") == CONSENT_REQUIRED) {
+                    onConsentRequired()
+                    return CONSENT_REQUIRED
+                }
+                // 403: this token is not a device token (only the phone app may send presence).
+                if (res.optInt("_httpStatus", 0) == 403) return "Unauthorized"
                 return res.optString("error", "Upload failed")
             }
-            // #region agent log
-            DebugTrace.write(
-                "H2",
-                "PresenceRepository.kt:133",
-                "presence upload accepted",
-                mapOf(
-                    "accepted" to res.optInt("accepted"),
-                    "pointsToday" to res.optInt("pointsToday"),
-                    "hoursToday" to res.optDouble("hoursToday"),
-                    "inOffice" to res.optBoolean("inOffice"),
-                ),
-            )
-            // #endregion
+            // 200 means the server stored or skipped every event. Never resend rejected ones.
             log.markUploaded(ids)
+            logRejected(res)
             applyStatus(res)
         }
         return null
@@ -227,10 +252,11 @@ class PresenceRepository(private val context: Context) {
         }
     }
 
-    fun syncOnly(): SyncState {
+    /** [full] skips month versions so the server always sends a body (never 304). */
+    fun syncOnly(full: Boolean = false): SyncState {
         if (prefs.token == null) return cached("Signed out", ok = false, unauthorized = true)
         return try {
-            applySync(api.sync(monthVersionsQuery()))
+            applySync(api.sync(if (full) null else monthVersionsQuery()))
         } catch (e: Exception) {
             cached(e.message ?: "Sync failed", ok = false)
         }
@@ -335,18 +361,6 @@ class PresenceRepository(private val context: Context) {
             val now = System.currentTimeMillis()
             prefs.lastSyncAtMs = now
             prefs.lastSuccessfulSyncAtMs = now
-            // #region agent log
-            DebugTrace.write(
-                "H6",
-                "PresenceRepository.kt:334",
-                "sync returned 304, kept cached values",
-                mapOf(
-                    "pointsToday" to prefs.cachedPointsToday,
-                    "monthPoints" to prefs.cachedMonthPoints,
-                    "monthVersionsSent" to prefs.monthVersionsJson,
-                ),
-            )
-            // #endregion
             return cached()
         }
         if (!sync.ok()) {
@@ -364,11 +378,20 @@ class PresenceRepository(private val context: Context) {
             prefs.correctionRequiresApproval = p.optBoolean("correctionRequiresApproval", false)
             prefs.correctionAutoApproveLimit = p.optInt("correctionAutoApproveLimit", 4)
             prefs.correctionRequireSync = p.optBoolean("correctionRequireSync", true)
+            if (p.has("appVersionCode")) {
+                prefs.publishedAppVersionCode = p.optInt("appVersionCode", 0).coerceAtLeast(0)
+                AppUpdateSignals.bump()
+            }
+            if (p.has("appVersionName")) {
+                val name = p.optString("appVersionName", "")
+                prefs.publishedAppVersionName = if (name == "null") "" else name.trim()
+            }
         }
         sync.optJSONObject("user")?.let { u ->
             prefs.developerMode = u.optBoolean("developerMode", false)
             prefs.sharePresenceWithPeers = u.optBoolean("sharePresenceWithPeers", false)
             prefs.role = u.optString("role", "user")
+            prefs.isManager = u.optBoolean("isManager", false)
             u.optString("name", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
             u.optString("email", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.email = it }
             u.optString("timezone", "").takeIf { it.isNotBlank() }?.let { prefs.timezone = it }
@@ -379,8 +402,13 @@ class PresenceRepository(private val context: Context) {
                 ?.let { prefs.colleagueDisplayMode = it }
             u.optString("displayName", "").takeIf { it.isNotBlank() && it != "null" }?.let { prefs.displayName = it }
         }
+        val team = sync.optJSONObject("team")
+        prefs.teamPeople = team?.optInt("people", 0) ?: 0
+        prefs.teamBelowTarget = team?.optInt("belowTarget", 0) ?: 0
         sync.optJSONObject("device")?.let { d -> d.optString("id", "").takeIf { it.isNotBlank() }?.let { prefs.deviceId = it } }
         sync.optJSONObject("prefs")?.let { applyPrefs(it) }
+        // In view-as the consent belongs to someone else.
+        if (!prefs.isViewAsActive) sync.optJSONObject("consent")?.let { applyConsent(it) }
         sync.optJSONArray("offices")?.let { arr ->
             val json = Office.listToJson(Office.listFromJson(arr)).toString()
             if (json != prefs.officesJson) {
@@ -395,35 +423,6 @@ class PresenceRepository(private val context: Context) {
         if (hadTodayOfficesKey) {
             prefs.cachedTodayOfficesJson = sync.optJSONArray("todayOffices")?.toString() ?: "[]"
         }
-        // #region agent log
-        DebugTrace.write(
-            "H2",
-            "PresenceRepository.kt:374",
-            "sync state applied",
-            mapOf(
-                "httpStatus" to http,
-                "inOffice" to prefs.cachedInOffice,
-                "pointsToday" to prefs.cachedPointsToday,
-                "monthPoints" to prefs.cachedMonthPoints,
-                "hasTodayOfficesKey" to hadTodayOfficesKey,
-                "todayOfficeCount" to try { JSONArray(prefs.cachedTodayOfficesJson).length() } catch (_: Exception) { -1 },
-            ),
-        )
-        val visitRows = sync.optJSONArray("visits")
-        val visitStarts = if (visitRows == null) "" else (0 until visitRows.length().coerceAtMost(8)).joinToString(",") {
-            visitRows.getJSONObject(it).optString("startAt")
-        }
-        DebugTrace.write(
-            "H4",
-            "PresenceRepository.kt:396",
-            "sync visit rows",
-            mapOf(
-                "visitCount" to (visitRows?.length() ?: -1),
-                "recentStarts" to visitStarts,
-                "recomputed" to sync.optBoolean("recomputed"),
-            ),
-        )
-        // #endregion
         val now = System.currentTimeMillis()
         prefs.lastSyncAtMs = now
         prefs.lastSuccessfulSyncAtMs = now
@@ -437,10 +436,28 @@ class PresenceRepository(private val context: Context) {
             prefs.dirtyMonthsCsv = set.joinToString(",")
         }
         sync.optJSONArray("correctionDecisions")?.let { arr ->
+            val decisions = mutableListOf<CorrectionDecisions.Decision>()
             for (i in 0 until arr.length()) {
-                val day = arr.optJSONObject(i)?.optString("dayKey").orEmpty()
+                val o = arr.optJSONObject(i) ?: continue
+                val day = o.optString("dayKey").orEmpty()
                 if (day.length >= 7) markMonthDirty(day.take(7))
+                decisions += CorrectionDecisions.Decision(
+                    id = o.optString("id").orEmpty(),
+                    dayKey = day,
+                    status = o.optString("status").orEmpty(),
+                    reviewNote = if (o.isNull("reviewNote")) null else o.optString("reviewNote"),
+                )
             }
+            // In view-as the decisions belong to someone else.
+            if (!prefs.isViewAsActive) notifyNewDecisions(decisions)
+        }
+        // Older servers omit these; keep the cache as is.
+        sync.optJSONArray("holidays")?.let { prefs.cachedHolidaysJson = it.toString() }
+        sync.optJSONArray("leaveDays")?.let { prefs.cachedLeaveDaysJson = it.toString() }
+        sync.optJSONArray("exceptionsAdded")?.let { arr ->
+            val added = ExceptionNotices.parse(arr)
+            added.flatMap { it.days }.map { it.take(7) }.distinct().forEach { markMonthDirty(it) }
+            if (!prefs.isViewAsActive) notifyNewExceptions(added)
         }
         if (prefs.cachedInOffice && !prefs.cachedOfficeName.isBlank()) {
             prefs.lastOfficeName = prefs.cachedOfficeName
@@ -449,7 +466,30 @@ class PresenceRepository(private val context: Context) {
         return cached()
     }
 
+    private fun notifyNewDecisions(decisions: List<CorrectionDecisions.Decision>) {
+        val result = CorrectionDecisions.process(prefs.seenDecisionIds, decisions)
+        prefs.seenDecisionIds = result.seen
+        for (d in result.toNotify) {
+            Notifier.correctionDecided(
+                context,
+                approved = d.status == "approved",
+                dayLabel = CorrectionDecisions.dayLabel(d.dayKey),
+                dayKey = d.dayKey,
+                reviewNote = d.reviewNote,
+            )
+        }
+    }
+
+    private fun notifyNewExceptions(added: List<ExceptionNotices.Added>) {
+        val result = ExceptionNotices.process(prefs.seenExceptionIds, added)
+        prefs.seenExceptionIds = result.seen
+        for (a in result.toNotify) {
+            Notifier.exceptionAdded(context, ExceptionNotices.body(a), a.days.first())
+        }
+    }
+
     companion object {
+        const val CONSENT_REQUIRED = "consent_required"
         private val uploadLock = Any()
         private const val TWENTY_FOUR_H_MS = 24L * 60L * 60L * 1000L
         private const val SYNC_COOLDOWN_MS = 5L * 60L * 1000L
@@ -529,7 +569,7 @@ class PresenceRepository(private val context: Context) {
      * One-shot recovery: match the current fix to an office, record enter/exit,
      * sync, and notify. Not a standing manual check-in control.
      */
-    fun forceDetect(lat: Double, lng: Double, accuracy: Double): SyncState {
+    fun forceDetect(lat: Double, lng: Double, accuracy: Double, mock: Boolean = false): SyncState {
         if (prefs.isViewAsReadonly) {
             return cached("Not available while viewing as ${prefs.viewAsTargetName.ifBlank { "another user" }}", ok = false)
         }
@@ -546,6 +586,7 @@ class PresenceRepository(private val context: Context) {
                 lng = lng,
                 accuracy = accuracy,
                 officeId = matched.id,
+                mock = mock,
             )
             val o = offices.firstOrNull { it.id == matched.id }
             if (prevId != matched.id && o != null) {
@@ -554,7 +595,7 @@ class PresenceRepository(private val context: Context) {
             prefs.lastSampleOfficeId = matched.id ?: ""
             PresenceService.start(context)
         } else {
-            recordLocal(type = if (prevId.isNotEmpty()) "exit" else "sample", lat = lat, lng = lng, accuracy = accuracy)
+            recordLocal(type = if (prevId.isNotEmpty()) "exit" else "sample", lat = lat, lng = lng, accuracy = accuracy, mock = mock)
             if (prevId.isNotEmpty()) {
                 val o = offices.firstOrNull { it.id == prevId }
                 Notifier.officeLeft(context, o?.displayName ?: prefs.cachedOfficeName.ifBlank { "office" }, force = true)
@@ -569,7 +610,7 @@ class PresenceRepository(private val context: Context) {
      * Sign-in check: if this fix is inside an office, record enter the same way forceDetect does.
      * A fix outside the fence, or less accurate than the fence, records nothing.
      */
-    fun arriveIfInside(lat: Double, lng: Double, accuracy: Double): SyncState {
+    fun arriveIfInside(lat: Double, lng: Double, accuracy: Double, mock: Boolean = false): SyncState {
         if (prefs.isViewAsReadonly) {
             return cached("Not available while viewing as ${prefs.viewAsTargetName.ifBlank { "another user" }}", ok = false)
         }
@@ -577,6 +618,6 @@ class PresenceRepository(private val context: Context) {
             lat, lng, accuracy, prefs.offices().map { it.toFence() }, prefs.rules(),
         )
         if (matched == null) return cached("Out of office")
-        return forceDetect(lat, lng, accuracy)
+        return forceDetect(lat, lng, accuracy, mock)
     }
 }

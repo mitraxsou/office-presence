@@ -104,6 +104,7 @@ class PresenceService : Service() {
             wifiBssid = wifi.second,
             simulated = false,
             officeId = office?.id,
+            mock = LocationFlags.isMock(loc),
         )
         // Weak GPS: record only. Do not treat as leave or change lastSampleOfficeId.
         if (weak) {
@@ -127,6 +128,7 @@ class PresenceService : Service() {
                 wifiSsid = wifi.first,
                 wifiBssid = wifi.second,
                 simulated = false,
+                mock = LocationFlags.isMock(loc),
             )
             prefs.cachedInOffice = false
             prefs.cachedSinceAt = ""
@@ -295,6 +297,8 @@ class PresenceService : Service() {
             val prefs = AppPrefs(context)
             // Real-user view-as: pause tracking on this phone.
             if (prefs.isViewAsReadonly) return
+            // No tracking until the privacy notice is accepted.
+            if (!prefs.hasTrackingConsent && !prefs.isViewAsActive) return
             val i = Intent(context, PresenceService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }

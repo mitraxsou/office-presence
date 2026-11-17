@@ -1,9 +1,12 @@
-export function isMonthLocked(dayKey: string, windowDays: number, now = new Date()): boolean {
+import { localDayBounds } from "./visit-calculator";
+
+/** Locked after the last second of the month plus windowDays, in the policy timezone. */
+export function isMonthLocked(dayKey: string, windowDays: number, now = new Date(), timezone = "UTC"): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return true;
   const [y, m] = dayKey.split("-").map(Number);
-  const lockAt = new Date(Date.UTC(y, m, 0, 23, 59, 59));
-  lockAt.setUTCDate(lockAt.getUTCDate() + windowDays);
-  return now.getTime() > lockAt.getTime();
+  const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const lockAt = localDayBounds(nextMonth, timezone).startMs + windowDays * 86_400_000 - 1000;
+  return now.getTime() > lockAt;
 }
 
 /** Sole active admin may decide their own correction requests. */

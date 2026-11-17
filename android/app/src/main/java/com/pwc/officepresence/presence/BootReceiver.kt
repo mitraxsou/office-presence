@@ -4,8 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.pwc.officepresence.data.AppPrefs
-import com.pwc.officepresence.notify.DailySummaryWorker
+import com.pwc.officepresence.notify.AppUpdateWorker
+import com.pwc.officepresence.notify.WeeklySummaryWorker
 import com.pwc.officepresence.notify.SyncRefreshWorker
+import com.pwc.officepresence.notify.TrackingHealthWorker
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -18,9 +20,13 @@ class BootReceiver : BroadcastReceiver() {
         }
         val prefs = AppPrefs(context)
         if (prefs.token.isNullOrBlank()) return
-        GeofenceHelper.registerAll(context, prefs.offices())
-        DailySummaryWorker.schedule(context)
+        WeeklySummaryWorker.schedule(context)
         SyncRefreshWorker.schedule(context)
+        TrackingHealthWorker.schedule(context)
+        AppUpdateWorker.schedule(context)
+        // No tracking until the privacy notice is accepted (onboarding on next open).
+        if (!prefs.hasTrackingConsent) return
+        GeofenceHelper.registerAll(context, prefs.offices())
         // If we were In when the process died, resume sampling.
         if (prefs.cachedInOffice || prefs.lastSampleOfficeId.isNotBlank()) {
             PresenceService.start(context)

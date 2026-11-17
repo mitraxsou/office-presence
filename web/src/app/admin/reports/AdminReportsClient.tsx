@@ -12,6 +12,10 @@ type Row = {
   officeName: string | null;
   officeLocationId: string | null;
   met?: boolean;
+  exceptionDays?: number;
+  exceptionPoints?: number;
+  leaveDays?: number;
+  holidays?: number;
 };
 
 type OfficeOpt = { id: string; name: string };
@@ -53,21 +57,29 @@ function MiniDays({ current, target }: { current: number; target: number }) {
 
 export default function AdminReportsClient({
   offices = [],
+  teams = [],
+  managers = [],
   initialMonth,
 }: {
   offices?: OfficeOpt[];
+  teams?: OfficeOpt[];
+  managers?: OfficeOpt[];
   initialMonth?: string;
 }) {
   const [month, setMonth] = useState(initialMonth || currentMonthKey());
   const [office, setOffice] = useState("");
+  const [team, setTeam] = useState("");
+  const [manager, setManager] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [pointsTarget, setPointsTarget] = useState(8);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const sp = new URLSearchParams();
+    const sp = new URLSearchParams({ records: "1" });
     if (office) sp.set("office", office);
+    if (team) sp.set("team", team);
+    if (manager) sp.set("manager", manager);
     const qs = sp.toString();
     const res = await fetch(`/api/admin/status${qs ? `?${qs}` : ""}`, { cache: "no-store" });
     if (res.ok) {
@@ -81,7 +93,7 @@ export default function AdminReportsClient({
       );
     }
     setLoading(false);
-  }, [office]);
+  }, [office, team, manager]);
 
   useEffect(() => {
     void load();
@@ -137,6 +149,27 @@ export default function AdminReportsClient({
               </option>
             ))}
           </select>
+          {teams.length ? (
+            <select className="op-sel" value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Team filter">
+              <option value="">All teams</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+              <option value="none">No team</option>
+            </select>
+          ) : null}
+          {managers.length ? (
+            <select className="op-sel" value={manager} onChange={(e) => setManager(e.target.value)} aria-label="Manager filter">
+              <option value="">All managers</option>
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <a className="btn btn-primary btn-sm" href={exportHref}>
             Export CSV
           </a>
@@ -169,8 +202,11 @@ export default function AdminReportsClient({
               <th>Person</th>
               <th>Office</th>
               <th className="r">Visits</th>
-              <th>Days counted</th>
+              <th>Points</th>
               <th>Month</th>
+              <th className="r">HR exception days</th>
+              <th className="r">Leave</th>
+              <th className="r">Holidays</th>
               <th className="r">Hours</th>
               <th />
             </tr>
@@ -179,14 +215,14 @@ export default function AdminReportsClient({
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i}>
-                  <td colSpan={7}>
+                  <td colSpan={10}>
                     <span className="op-sk" style={{ width: "100%", height: 16 }} />
                   </td>
                 </tr>
               ))
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={7} className="muted">
+                <td colSpan={10} className="muted">
                   No people yet.
                 </td>
               </tr>
@@ -209,6 +245,11 @@ export default function AdminReportsClient({
                         <span className="muted">{toGo} to go</span>
                       )}
                     </td>
+                    <td className="r" title={u.exceptionPoints ? `${u.exceptionPoints} points` : undefined}>
+                      {u.exceptionDays ?? 0}
+                    </td>
+                    <td className="r muted">{u.leaveDays ?? 0}</td>
+                    <td className="r muted">{u.holidays ?? 0}</td>
                     <td className="r muted">{Math.round(u.hoursToday)} h</td>
                     <td className="r">
                       <a className="btn btn-secondary btn-sm" href={`/admin/people/${u.id}`}>

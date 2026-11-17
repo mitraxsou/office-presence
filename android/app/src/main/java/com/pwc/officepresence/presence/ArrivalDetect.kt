@@ -27,6 +27,7 @@ object ArrivalDetect {
         }
         val prefs = AppPrefs(app)
         if (prefs.token.isNullOrBlank() || prefs.isViewAsReadonly) return
+        if (!prefs.hasTrackingConsent && !prefs.isViewAsActive) return
         if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -46,6 +47,7 @@ object ArrivalDetect {
         val app = context.applicationContext
         val prefs = AppPrefs(app)
         if (prefs.token.isNullOrBlank() || prefs.isViewAsReadonly) return
+        if (!prefs.hasTrackingConsent && !prefs.isViewAsActive) return
         if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -65,10 +67,11 @@ object ArrivalDetect {
                 }
                 thread {
                     val repo = PresenceRepository(app)
+                    val mock = LocationFlags.isMock(loc)
                     if (recordOutside) {
-                        repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble())
+                        repo.forceDetect(loc.latitude, loc.longitude, loc.accuracy.toDouble(), mock)
                     } else {
-                        repo.arriveIfInside(loc.latitude, loc.longitude, loc.accuracy.toDouble())
+                        repo.arriveIfInside(loc.latitude, loc.longitude, loc.accuracy.toDouble(), mock)
                     }
                 }
             }

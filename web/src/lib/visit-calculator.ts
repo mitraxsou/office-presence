@@ -17,6 +17,17 @@ export type PresenceRules = {
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
+  /** Ingest only: store mock GPS from real accounts untrusted. */
+  rejectMockLocations?: boolean;
+  /** Privacy: days before event coordinates are cleared, notice version, consent gate on ingest. */
+  rawLocationRetentionDays?: number;
+  privacyNoticeVersion?: string;
+  requireConsent?: boolean;
+  /** Leave and HR exceptions (records and grants). */
+  allowSelfLeave?: boolean;
+  allowExceptionsInClosedMonths?: boolean;
+  /** Managers may decide corrections for people in their scope. */
+  managersDecideCorrections?: boolean;
 };
 
 export type PresenceEventInput = {
@@ -28,6 +39,8 @@ export type PresenceEventInput = {
   simulated?: boolean;
   officeLocationId?: string | null;
   pointsPerVisitDay?: number | null;
+  /** Office points stored when the event was matched (PresenceEvent.pointsAtMatch). */
+  pointsAtMatch?: number | null;
 };
 
 export type AdminVisitInput = {
@@ -58,6 +71,14 @@ export function exclusionFlags(reason: string | null | undefined): {
   };
 }
 
+/** A stored HR exception day (PresenceExceptionDay of a grant that is not revoked). */
+export type ExceptionDayInput = {
+  dayKey: string;
+  points: number;
+  exceptionId: string;
+  officeLocationId?: string | null;
+};
+
 export type OfficeFenceInput = {
   id?: string;
   lat: number;
@@ -74,6 +95,8 @@ export type ComputedVisit = {
   officeLocationId?: string | null;
   pointsAwarded?: number;
   correctionId?: string | null;
+  /** Still inside, with the end set to the clock used for this compute. */
+  open?: boolean;
 };
 
 export type DayPointsResult = {
@@ -84,6 +107,8 @@ export type DayPointsResult = {
   firstIn: string | null;
   lastOut: string | null;
   officeLocationId: string | null;
+  /** HR exception that covers this day (highest points when several do). */
+  exception?: { id: string; points: number } | null;
 };
 
 export type ComputeResult = {
@@ -107,7 +132,80 @@ function hoursBetween(startMs: number, endMs: number): number {
   return Math.max(0, (endMs - startMs) / 3_600_000);
 }
 
-function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+type MsRange = { start: number; end: number };
+
+/** A correction's own visit, and an admin edit's visit, stay inside a matching exclusion. */
+function exclusionAppliesToVisit(visit: ComputedVisit, exclusion: ExclusionInput): boolean {
+  if (visit.correctionId && exclusion.correctionId === visit.correctionId) return false;
+  if (visit.source === "admin" && exclusion.adminDayEdit) return false;
+  return true;
+}
+
+function subtractRange(parts: MsRange[], cut: MsRange): MsRange[] {
+  const next: MsRange[] = [];
+  for (const part of parts) {
+    if (part.end <= cut.start || part.start >= cut.end) {
+      next.push(part);
+      continue;
+    }
+    if (part.start < cut.start) next.push({ start: part.start, end: Math.min(part.end, cut.start) });
+    if (part.end > cut.end) next.push({ start: Math.max(part.start, cut.end), end: part.end });
+  }
+  return next.filter((part) => part.end > part.start);
+}
+
+/** Hours in the union of ranges. Overlap counts once. */
+export function unionHours(parts: MsRange[]): number {
+  const sorted = parts
+    .filter((part) => part.end > part.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  let totalMs = 0;
+  let cur: MsRange | null = null;
+  for (const part of sorted) {
+    if (!cur || part.start > cur.end) {
+      if (cur) totalMs += cur.end - cur.start;
+      cur = { start: part.start, end: part.end };
+    } else if (part.end > cur.end) {
+      cur.end = part.end;
+    }
+  }
+  if (cur) totalMs += cur.end - cur.start;
+  return totalMs / 3_600_000;
+}
+
+/**
+ * One office on one day: first In to last Out, with should-not-count periods removed.
+ * A protected visit (the correction itself) is put back if a wider exclusion was cut out.
+ */
+function officeSpanParts(visits: ComputedVisit[], exclusions: ExclusionInput[]): MsRange[] {
+  if (!visits.length) return [];
+  let first = Number.POSITIVE_INFINITY;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const visit of visits) {
+    const start = toMs(visit.startAt);
+    const end = toMs(visit.endAt);
+    if (start < first) first = start;
+    if (end > last) last = end;
+  }
+  if (!Number.isFinite(first) || !(last > first)) return [];
+  let parts: MsRange[] = [{ start: first, end: last }];
+  for (const exclusion of exclusions) {
+    const cut = { start: toMs(exclusion.startAt), end: toMs(exclusion.endAt) };
+    if (!(cut.end > cut.start)) continue;
+    if (!visits.some((visit) => exclusionAppliesToVisit(visit, exclusion))) continue;
+    const protectedParts: MsRange[] = [];
+    for (const visit of visits) {
+      if (exclusionAppliesToVisit(visit, exclusion)) continue;
+      const start = toMs(visit.startAt);
+      const end = toMs(visit.endAt);
+      if (end > start) protectedParts.push({ start, end });
+    }
+    parts = subtractRange(parts, cut).concat(protectedParts);
+  }
+  return parts;
+}
+
+export function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(bLat - aLat);
@@ -229,6 +327,7 @@ function trimVisitAroundExclusions(
     startAt: new Date(segment.start).toISOString(),
     endAt: new Date(segment.end).toISOString(),
     hours: hoursBetween(segment.start, segment.end),
+    open: visit.open === true && segment.end === end ? true : undefined,
   }));
 }
 
@@ -309,6 +408,9 @@ export function computeVisits(args: {
   offices?: OfficeFenceInput[];
   /** Offices used for points lookup (defaults to offices). Lets deactivated sites keep past points. */
   pointOffices?: OfficeFenceInput[];
+  /** Clock for an open visit. Defaults to the current time. Tests pass a fixed instant. */
+  now?: number;
+  exceptionDays?: ExceptionDayInput[];
 }): ComputeResult {
   const rules = args.rules;
   const office = args.office ?? null;
@@ -363,6 +465,14 @@ export function computeVisits(args: {
   let lastGood: number | null = null;
   let openSource: "auto" | "manual" = "auto";
   let openOfficeId: string | null = null;
+  // Highest pointsAtMatch among the events of the open visit. Null when none has a snapshot.
+  let openSnapshot: number | null = null;
+  const snapshotOf = (event: PresenceEventInput): number | null =>
+    event.pointsAtMatch != null && Number.isFinite(event.pointsAtMatch) ? Math.max(0, Math.round(event.pointsAtMatch)) : null;
+  const addSnapshot = (event: PresenceEventInput) => {
+    const s = snapshotOf(event);
+    if (s != null) openSnapshot = openSnapshot == null ? s : Math.max(openSnapshot, s);
+  };
   // Geofence exit is often a bad fix. Keep the visit open until the gap passes
   // with no new inside evidence. A manual check_out still closes immediately.
   let pendingExit: number | null = null;
@@ -374,7 +484,9 @@ export function computeVisits(args: {
     closeOpen(atExit);
   };
 
-  const closeOpen = (endMs: number) => {
+  const closeOpen = (endMs: number, markOpen = false) => {
+    const snapshot = openSnapshot ?? undefined;
+    openSnapshot = null;
     if (openStart == null || lastGood == null) {
       openStart = null;
       lastGood = null;
@@ -397,6 +509,8 @@ export function computeVisits(args: {
           source: openSource,
           hours: 0,
           officeLocationId: openOfficeId,
+          pointsAwarded: snapshot,
+          open: markOpen ? true : undefined,
         });
       }
       openStart = null;
@@ -415,6 +529,8 @@ export function computeVisits(args: {
           source: openSource,
           hours: hoursBetween(ds.startMs, ds.endMs),
           officeLocationId: openOfficeId,
+          pointsAwarded: snapshot,
+          open: markOpen && ds.endMs === end ? true : undefined,
         });
       }
     }
@@ -473,6 +589,7 @@ export function computeVisits(args: {
       lastGood = at;
       openSource = event.type === "check_in" ? "manual" : "auto";
       openOfficeId = event.officeLocationId ?? matched?.id ?? office?.id ?? null;
+      addSnapshot(event);
       continue;
     }
 
@@ -482,6 +599,7 @@ export function computeVisits(args: {
       lastGood = at;
       openSource = event.type === "check_in" ? "manual" : "auto";
       openOfficeId = event.officeLocationId ?? matched?.id ?? office?.id ?? null;
+      addSnapshot(event);
       continue;
     }
 
@@ -492,15 +610,23 @@ export function computeVisits(args: {
       lastGood = at;
       openSource = event.type === "check_in" ? "manual" : "auto";
       openOfficeId = evOffice;
+      addSnapshot(event);
       continue;
     }
 
     lastGood = at;
     if (evOffice) openOfficeId = evOffice;
+    addSnapshot(event);
   }
 
-  if (pendingExit != null) flushPendingExit();
-  else if (openStart != null && lastGood != null) closeOpen(lastGood);
+  const now = args.now ?? Date.now();
+  if (pendingExit != null) {
+    if (now - pendingExit > gapMs) flushPendingExit();
+    else closeOpen(now, true);
+  } else if (openStart != null && lastGood != null) {
+    if (now - lastGood <= continueMs) closeOpen(now, true);
+    else closeOpen(lastGood);
+  }
 
   const visits = [...adminComputed, ...autoVisits]
     .flatMap((visit) => trimVisitAroundExclusions(visit, exclusions))
@@ -512,17 +638,18 @@ export function computeVisits(args: {
   for (const o of pointOffices) if (o.id) pointsByOffice.set(o.id, o.pointsPerVisitDay ?? 1);
   for (const v of visits) {
     if (v.source === "admin") {
-      // 0 stays 0 (day turned off). A positive stored award uses the office weight.
-      const officePoints = v.officeLocationId ? pointsByOffice.get(v.officeLocationId) : undefined;
-      v.pointsAwarded = adminVisitPoints(v.pointsAwarded ?? 0, officePoints);
+      // Stored award as is. 0 stays 0 (day turned off).
+      v.pointsAwarded = adminVisitPoints(v.pointsAwarded ?? 0);
       continue;
     }
-    v.pointsAwarded =
-      pointsByOffice.get(v.officeLocationId ?? "") ?? (v.pointsAwarded && v.pointsAwarded > 0 ? v.pointsAwarded : 1);
+    if (v.pointsAwarded != null) continue;
+    // Every event of this visit lacks pointsAtMatch: rows created before the snapshot
+    // migration. Only then fall back to the current office weight.
+    v.pointsAwarded = pointsByOffice.get(v.officeLocationId ?? "") ?? 1;
   }
 
-  const totalHours = visits.reduce((sum, v) => sum + v.hours, 0);
-  const days = computeDayPoints(visits, rules.timezone, pointOffices);
+  const days = computeDayPoints(visits, rules.timezone, pointOffices, exclusions, args.exceptionDays ?? []);
+  const totalHours = days.reduce((sum, day) => sum + day.hours, 0);
   const dayKeysVisited = days.filter((d) => d.visited).map((d) => d.dayKey);
   const totalPoints = days.reduce((s, d) => s + d.points, 0);
   const target = rules.monthlyPointsTarget ?? DEFAULT_POINTS_TARGET;
@@ -556,10 +683,62 @@ export function computeDayPoints(
   visits: ComputedVisit[],
   timezone: string,
   offices: OfficeFenceInput[],
+  exclusions: ExclusionInput[] = [],
+  exceptionDays: ExceptionDayInput[] = [],
+): DayPointsResult[] {
+  const visitDays = visitDayPoints(visits, timezone, offices, exclusions);
+  return mergeExceptionDays(visitDays, exceptionDays);
+}
+
+/** Day points = the higher of visit points and exception points. Several exceptions on one day count once. */
+export function mergeExceptionDays(
+  days: DayPointsResult[],
+  exceptionDays: ExceptionDayInput[],
+): DayPointsResult[] {
+  if (!exceptionDays.length) return days;
+  const best = new Map<string, ExceptionDayInput>();
+  for (const e of exceptionDays) {
+    const points = Math.max(0, Math.round(e.points));
+    const cur = best.get(e.dayKey);
+    if (!cur || points > cur.points) best.set(e.dayKey, { ...e, points });
+  }
+  const byKey = new Map(days.map((d) => [d.dayKey, d]));
+  for (const [dayKey, e] of best) {
+    const exception = { id: e.exceptionId, points: e.points };
+    const day = byKey.get(dayKey);
+    if (day) {
+      byKey.set(dayKey, { ...day, visited: true, points: Math.max(day.points, e.points), exception });
+    } else {
+      byKey.set(dayKey, {
+        dayKey,
+        visited: true,
+        points: e.points,
+        hours: 0,
+        firstIn: null,
+        lastOut: null,
+        officeLocationId: e.officeLocationId ?? null,
+        exception,
+      });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+}
+
+function visitDayPoints(
+  visits: ComputedVisit[],
+  timezone: string,
+  offices: OfficeFenceInput[],
+  exclusions: ExclusionInput[],
 ): DayPointsResult[] {
   const byDay = new Map<
     string,
-    { firstIn: number; lastOut: number; hours: number; maxPoints: number; officeId: string | null }
+    {
+      firstIn: number;
+      lastOut: number;
+      maxPoints: number;
+      officeId: string | null;
+      byOffice: Map<string, ComputedVisit[]>;
+    }
   >();
   const pointsByOffice = new Map<string, number>();
   for (const o of offices) {
@@ -574,42 +753,53 @@ export function computeDayPoints(
         ? [{ startMs: start, endMs: start, dayKey: dayKeyInTz(new Date(start), timezone) }]
         : splitAtLocalMidnights(start, end, timezone);
     for (const seg of segs) {
-      const officePoints = pointsByOffice.get(v.officeLocationId ?? "");
+      // The visit's own award. The office lookup is only for callers that never set one.
       const pts =
         v.source === "admin"
-          ? adminVisitPoints(v.pointsAwarded ?? 0, officePoints)
-          : v.pointsAwarded && v.pointsAwarded > 0
-            ? v.pointsAwarded
-            : officePoints ?? 1;
+          ? adminVisitPoints(v.pointsAwarded ?? 0)
+          : v.pointsAwarded != null
+            ? Math.max(0, Math.round(v.pointsAwarded))
+            : pointsByOffice.get(v.officeLocationId ?? "") ?? 1;
       const cur = byDay.get(seg.dayKey) ?? {
         firstIn: seg.startMs,
         lastOut: seg.endMs,
-        hours: 0,
         maxPoints: 0,
         officeId: v.officeLocationId ?? null,
+        byOffice: new Map(),
       };
       cur.firstIn = Math.min(cur.firstIn, seg.startMs);
       cur.lastOut = Math.max(cur.lastOut, seg.endMs);
-      cur.hours += hoursBetween(seg.startMs, seg.endMs);
       if (pts >= cur.maxPoints) {
         cur.maxPoints = pts;
         cur.officeId = v.officeLocationId ?? cur.officeId;
       }
+      const officeKey = v.officeLocationId ?? "";
+      const slices = cur.byOffice.get(officeKey) ?? [];
+      slices.push({
+        ...v,
+        startAt: new Date(seg.startMs).toISOString(),
+        endAt: new Date(seg.endMs).toISOString(),
+      });
+      cur.byOffice.set(officeKey, slices);
       byDay.set(seg.dayKey, cur);
     }
   }
 
   return [...byDay.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([dayKey, v]) => ({
-      dayKey,
-      visited: true,
-      points: v.maxPoints,
-      hours: v.hours,
-      firstIn: new Date(v.firstIn).toISOString(),
-      lastOut: new Date(v.lastOut).toISOString(),
-      officeLocationId: v.officeId,
-    }));
+    .map(([dayKey, v]) => {
+      const parts: MsRange[] = [];
+      for (const slices of v.byOffice.values()) parts.push(...officeSpanParts(slices, exclusions));
+      return {
+        dayKey,
+        visited: true,
+        points: v.maxPoints,
+        hours: unionHours(parts),
+        firstIn: new Date(v.firstIn).toISOString(),
+        lastOut: new Date(v.lastOut).toISOString(),
+        officeLocationId: v.officeId,
+      };
+    });
 }
 
 export const DEFAULT_RULES: PresenceRules = {

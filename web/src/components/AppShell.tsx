@@ -7,6 +7,8 @@ import { displayName, greetingName } from "@/lib/display-name";
 import { initials } from "@/lib/format";
 import { prisma } from "@/lib/db";
 import { getPendingCorrectionsCount } from "@/lib/pending-corrections-cache";
+import { getPolicy } from "@/lib/policy";
+import { isManager } from "@/lib/team-scope";
 import { redirect } from "next/navigation";
 
 async function signOut() {
@@ -32,6 +34,17 @@ export default async function AppShell({
   if (showAdmin) {
     pendingCorrections = await getPendingCorrectionsCount();
   }
+  const showHrExceptions =
+    !showAdmin &&
+    !viewingAs &&
+    Boolean(
+      session &&
+        (await prisma.user.findUnique({ where: { id: session.id }, select: { canGrantExceptions: true } }))
+          ?.canGrantExceptions,
+    );
+
+  const showTeam = Boolean(session && !viewingAs && (await isManager(session.id)));
+  const showTeamCorrections = showTeam && (await getPolicy()).managersDecideCorrections === true;
 
   let viewAsBanner: {
     sessionId: string;
@@ -104,15 +117,31 @@ export default async function AppShell({
         {link("/year", "My year")}
         {link("/colleagues", "Colleagues")}
         {link("/settings", "Settings")}
+        {showTeam ? (
+          <>
+            <div className="rail-section">My team</div>
+            {link("/team", "Team")}
+            {showTeamCorrections ? link("/team/corrections", "Team corrections") : null}
+          </>
+        ) : null}
         {showAdmin ? (
           <>
             <div className="rail-section">Admin</div>
             {link("/admin/roster", "Roster")}
             {link("/admin/corrections", "Corrections", pendingCorrections)}
             {link("/admin/users", "Users")}
+            {link("/admin/teams", "Teams")}
             {link("/admin/offices", "Offices")}
+            {link("/admin/holidays", "Holidays")}
+            {link("/admin/exceptions", "Exceptions")}
             {link("/admin/reports", "Reports")}
             {link("/admin/settings", "Rules")}
+          </>
+        ) : null}
+        {showHrExceptions ? (
+          <>
+            <div className="rail-section">HR</div>
+            {link("/admin/exceptions", "HR exceptions")}
           </>
         ) : null}
         <div className="op-rail-me">
@@ -139,6 +168,7 @@ export default async function AppShell({
       </div>
       <MobileBottomNav
         showAdmin={showAdmin}
+        showTeam={showTeam}
         pendingCorrections={pendingCorrections}
         name={name}
         email={email}

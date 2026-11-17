@@ -93,7 +93,7 @@ export async function POST(request: Request) {
   }
 
   const policy = await getPolicy();
-  if (isMonthLocked(dayKey, policy.correctionWindowDays ?? 5)) {
+  if (isMonthLocked(dayKey, policy.correctionWindowDays ?? 5, new Date(), policy.timezone)) {
     return NextResponse.json({ error: "This month is locked" }, { status: 400 });
   }
   const gate = await assertNoPendingCorrection(actor.user.id, dayKey);

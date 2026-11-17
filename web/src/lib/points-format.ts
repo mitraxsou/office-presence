@@ -37,16 +37,13 @@ export function pointsCellLabel(n: number): string {
 }
 
 /**
- * Points an admin visit counts as.
- * Stored 0 means the admin turned the day off.
- * A positive stored award uses the office weight when that office is known,
- * so a stored 1 does not override the office.
+ * Points an admin, correction, or Office Tracker visit counts as: the award stored when the
+ * visit was written. Stored 0 means the admin turned the day off. Later office edits do not
+ * change it.
  */
-export function adminVisitPoints(stored: number, officePoints: number | null | undefined): number {
+export function adminVisitPoints(stored: number): number {
   const storedPoints = Math.round(Number.isFinite(stored) ? stored : 0);
-  if (storedPoints <= 0) return 0;
-  if (officePoints == null || !Number.isFinite(officePoints)) return storedPoints;
-  return Math.max(0, Math.round(officePoints));
+  return Math.max(0, storedPoints);
 }
 
 /** Visit days are information only (SPEC §20). */

@@ -13,6 +13,7 @@ import { classifyCorrection, futureTimeError, type ClassifyResult, type VisitTim
 import { officeIdsOnRequest, pointsForCorrectionOffices } from "@/lib/correction-request";
 import { getPolicy } from "@/lib/policy";
 import { localDayBounds } from "@/lib/visit-calculator";
+import { pushCorrectionDecided } from "@/lib/firebase-admin";
 
 export type CorrectionIssue = "missing_visit" | "wrong_times" | "wrong_office" | "should_not_count";
 
@@ -308,6 +309,13 @@ export async function decideCorrection(opts: {
     },
   });
   if (decision === "approve") await recomputeUserPresence(row.userId);
+  if (!asAuto) {
+    await pushCorrectionDecided(row.userId, {
+      id: row.id,
+      dayKey: row.dayKey,
+      status: decision === "reject" ? "rejected" : "approved",
+    });
+  }
   return { request: updated, visitId };
 }
 
@@ -402,7 +410,7 @@ export async function undoOwnCorrection(row: VisitCorrectionRequest, actorId: st
     return { ok: false as const, error: "Not found", status: 404 };
   }
   const policy = await getPolicy();
-  if (isMonthLocked(row.dayKey, policy.correctionWindowDays ?? 5)) {
+  if (isMonthLocked(row.dayKey, policy.correctionWindowDays ?? 5, new Date(), policy.timezone)) {
     return { ok: false as const, error: "This month is locked", status: 400 };
   }
   if (await laterAppliedCorrection(row)) {
@@ -447,5 +455,6 @@ export async function revertCorrection(row: VisitCorrectionRequest, adminId: str
       message: `An admin reverted your correction for ${row.dayKey}. ${note.trim()}`,
     });
   }
+  await pushCorrectionDecided(row.userId, { id: row.id, dayKey: row.dayKey, status: "reverted" });
   return { ok: true as const, request: updated };
 }

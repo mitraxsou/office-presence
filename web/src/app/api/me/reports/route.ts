@@ -11,6 +11,7 @@ import {
 import { getPolicy } from "@/lib/policy";
 import { prisma } from "@/lib/db";
 import { dayKeyInTz } from "@/lib/visit-calculator";
+import { employeeMonthRecords, exceptionsAddedSince } from "@/lib/employee-records";
 
 export async function GET(request: Request) {
   const started = Date.now();
@@ -59,6 +60,13 @@ export async function GET(request: Request) {
   const todayKey = dayKeyInTz(new Date(), view.timezone);
   const todayDay = view.days.find((d) => d.dayKey === todayKey) ?? null;
 
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const [records, exceptionsAdded] = await Promise.all([
+    employeeMonthRecords(actor.user, [view.monthKey]),
+    exceptionsAddedSince(userId, since),
+  ]);
+  const exceptionDayCount = view.days.filter((d) => d.exception).length;
+
   recordApiActivity({
     userId,
     deviceTokenId: actor.device?.id,
@@ -99,8 +107,15 @@ export async function GET(request: Request) {
       officeName: d.officeName,
       offices: d.offices,
       travel_minutes: d.travel_minutes,
+      exception: d.exception ?? null,
     })),
     pagination: { page, pageSize, total: view.days.length },
+    exceptionDayCount,
+    allowSelfLeave: view.rules.allowSelfLeave !== false,
+    holidays: records.holidays,
+    leaveDays: records.leaveDays,
+    exceptionDays: records.exceptionDays,
+    exceptionsAdded,
   });
 }
 

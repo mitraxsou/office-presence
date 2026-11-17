@@ -7,6 +7,11 @@ Android phone app + portable Next.js backend for office hours tracking.
 - `android/` - Kotlin app (`com.pwc.officepresence`)
 - `web/` - Next.js API and admin dashboard
 - `shared/visit-cases.json` - shared visit math cases
+- `docs/OFFICE_PRESENCE_LIVING_DOC.md` - living product and KT document (product rules, user, admin and developer guides, gaps). The Android app is documented there too.
+
+## Android debug builds use staging
+
+Debug builds install as `com.pwc.officepresence.staging` and need `STAGING_API_BASE_URL` in `android/local.properties` (or `-PSTAGING_API_BASE_URL=...`). The build fails without it so debug never writes to production. See the living doc, section D12.
 
 ## Web local
 

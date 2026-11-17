@@ -60,7 +60,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pwc.officepresence.data.AppPrefs
-import com.pwc.officepresence.data.DebugTrace
 import com.pwc.officepresence.data.Office
 import com.pwc.officepresence.data.PresenceRepository
 import com.pwc.officepresence.data.ok
@@ -110,6 +109,7 @@ fun MonthScreen(
     prefs: AppPrefs,
     onOpenRequests: () -> Unit = {},
     initialMonthKey: String? = null,
+    initialDayKey: String? = null,
     onInitialMonthConsumed: () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
@@ -126,6 +126,9 @@ fun MonthScreen(
     var correcting by remember { mutableStateOf(false) }
     var correctionDay by remember { mutableStateOf<String?>(null) }
     var reportEpoch by remember { mutableIntStateOf(0) }
+    var leaveBusy by remember { mutableStateOf(false) }
+    var leaveError by remember { mutableStateOf<String?>(null) }
+    var opened by remember { mutableStateOf(false) }
 
     fun reload(month: String? = monthKey) {
         val targetMonth = month ?: monthKey
@@ -183,13 +186,37 @@ fun MonthScreen(
         }
     }
 
-    LaunchedEffect(initialMonthKey) {
-        val target = initialMonthKey ?: YearMonth.now().toString()
+    fun saveLeave(day: String, call: () -> JSONObject) {
+        leaveBusy = true
+        leaveError = null
+        thread {
+            val res = runCatching { call() }.getOrNull()
+            main.post {
+                leaveBusy = false
+                if (res?.ok() == true) {
+                    val dirty = prefs.dirtyMonthsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                    dirty.add(day.take(7))
+                    prefs.dirtyMonthsCsv = dirty.joinToString(",")
+                    reload(monthKey)
+                } else {
+                    leaveError = res?.optString("error")?.takeIf { it.isNotBlank() } ?: "Could not save leave. Try again."
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(initialMonthKey, initialDayKey) {
+        val focusMonth = initialDayKey?.takeIf { it.length >= 7 }?.take(7) ?: initialMonthKey
+        // Clearing the focus after it is consumed must not jump back to the current month.
+        if (focusMonth == null && opened) return@LaunchedEffect
+        opened = true
+        val target = focusMonth ?: YearMonth.now().toString()
         if (repo.shouldRefreshOnOpen()) {
             thread { repo.refreshIfNeeded() }
         }
         reload(target)
-        if (initialMonthKey != null) onInitialMonthConsumed()
+        if (initialDayKey != null && initialDayKey.length >= 10) selectedDay = initialDayKey
+        if (focusMonth != null) onInitialMonthConsumed()
     }
 
     if (correcting && correctionDay != null) {
@@ -271,10 +298,12 @@ fun MonthScreen(
                     val correctedCount = corrections.count {
                         (it.status == "approved" || it.status == "auto_approved") && it.dayKey.startsWith(mk)
                     }
+                    val records = MonthRecords.parse(data)
                     val footer = buildString {
                         append(PointsFormat.visitDaysFyi(visitDays))
                         if (pendingCount > 0) append(". $pendingCount day${if (pendingCount == 1) "" else "s"} pending review")
                         if (correctedCount > 0) append(". $correctedCount corrected")
+                        MonthLeaveRules.includesExceptions(records.exceptions.size)?.let { append(". $it") }
                         append(".")
                     }
                     Column {
@@ -290,6 +319,7 @@ fun MonthScreen(
                                 todayKey = LocalDate.now().toString(),
                                 selectedDay = selectedDay,
                                 onSelect = { selectedDay = it },
+                                records = records,
                             )
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -315,6 +345,7 @@ fun MonthScreen(
                                     }
                                 }
                             }
+                            MonthRecordsLegend(records)
                         }
                     }
                 }
@@ -348,7 +379,12 @@ fun MonthScreen(
             containerColor = p.surface,
             shape = OpShape.Sheet,
         ) {
-            DayDetailSheet(
+            val records = MonthRecords.parse(report)
+            val exception = records.exceptions[day]
+            val hasVisit = info?.intervals?.isNotEmpty() == true
+            if (exception != null && !hasVisit) {
+                ExceptionDayDetail(day, exception, prefs.timezone)
+            } else DayDetailSheet(
                 dayKey = day,
                 info = info,
                 pending = pending,
@@ -399,6 +435,37 @@ fun MonthScreen(
                     correctionDay = day
                     correcting = true
                 },
+                records = {
+                    if (hasVisit) {
+                        val lines = listOfNotNull(
+                            exception?.let {
+                                "HR exception for this day: ${PointsFormat.countsAs(it.points).replaceFirst("Counts as ", "")} " +
+                                    "(${MonthLeaveRules.exceptionOffice(it)}). The day counts the higher value."
+                            },
+                            records.holidays[day]?.let { "Holiday: $it. Info only." },
+                            records.leave[day]?.let { "${MonthLeaveRules.leaveLabel(it.kind)} is recorded. Info only." },
+                        )
+                        lines.forEach { Text(it, style = OpType.Meta, color = p.ink3, modifier = Modifier.padding(bottom = 8.dp)) }
+                    } else if (pending == null) {
+                        LeaveSection(
+                            holiday = records.holidays[day],
+                            leave = records.leave[day],
+                            canMark = MonthLeaveRules.canMarkLeave(
+                                day,
+                                records,
+                                hasVisit = false,
+                                currentMonth = report?.optString("currentMonth")?.takeIf { it.isNotBlank() }
+                                    ?: YearMonth.now().toString(),
+                                readonly = prefs.isViewAsReadonly,
+                            ),
+                            target = report?.optInt("pointsTarget")?.takeIf { it > 0 } ?: prefs.monthlyPointsTarget,
+                            busy = leaveBusy,
+                            error = leaveError,
+                            onSave = { kind, note -> saveLeave(day) { repo.api.markLeave(day, kind, note) } },
+                            onRemove = { saveLeave(day) { repo.api.removeLeave(day) } },
+                        )
+                    }
+                },
             )
         }
     }
@@ -433,6 +500,7 @@ private fun DayDetailSheet(
     onRequestAgain: () -> Unit,
     onCancelRequest: (String) -> Unit,
     onUndo: (String) -> Unit = {},
+    records: @Composable () -> Unit = {},
 ) {
     val p = LocalOpPalette.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
@@ -496,6 +564,7 @@ private fun DayDetailSheet(
             }
         }
         Spacer(Modifier.height(16.dp))
+        records()
 
         if (info != null && info.points > 0 && pending == null && decided?.status != "rejected") {
             val officeCount = info.intervals.map {
@@ -710,6 +779,7 @@ private fun CalendarGrid(
     todayKey: String,
     selectedDay: String?,
     onSelect: (String) -> Unit,
+    records: MonthRecords = MonthRecords(),
 ) {
     val p = LocalOpPalette.current
     val ym = YearMonth.parse(monthKey)
@@ -749,6 +819,8 @@ private fun CalendarGrid(
                                 today = today,
                                 selected = selected,
                                 onClick = { onSelect(key) },
+                                mark = records.markFor(key),
+                                hasVisit = info?.intervals?.isNotEmpty() == true,
                             )
                         }
                     }
@@ -760,7 +832,16 @@ private fun CalendarGrid(
 }
 
 @Composable
-private fun DayCell(day: Int, points: Int, pending: Boolean, today: Boolean, selected: Boolean, onClick: () -> Unit) {
+private fun DayCell(
+    day: Int,
+    points: Int,
+    pending: Boolean,
+    today: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    mark: DayMark? = null,
+    hasVisit: Boolean = points > 0,
+) {
     val p = LocalOpPalette.current
     val accent = OpColor.Accent
     Box(
@@ -783,6 +864,15 @@ private fun DayCell(day: Int, points: Int, pending: Boolean, today: Boolean, sel
                             ),
                             cornerRadius = CornerRadius(size.minDimension / 2),
                         )
+                    }
+                    Text("$day", color = p.ink, fontWeight = FontWeight.SemiBold)
+                }
+                mark != null && !(hasVisit && points > 0) -> {
+                    DayMarkBackdrop(mark)
+                    if (today || selected) {
+                        Canvas(Modifier.size(40.dp)) {
+                            drawCircle(color = p.ink, style = Stroke(width = 2.dp.toPx()))
+                        }
                     }
                     Text("$day", color = p.ink, fontWeight = FontWeight.SemiBold)
                 }
@@ -1085,23 +1175,6 @@ private fun CorrectionFlow(
                                     remove = remove,
                                 )
                             }.getOrNull()
-                            // #region agent log
-                            DebugTrace.write(
-                                "H5",
-                                "MonthScreen.kt:submitResult",
-                                "month correction server answer",
-                                mapOf(
-                                    "httpStatus" to (res?.optInt("_httpStatus") ?: -1),
-                                    "outcome" to (res?.optString("outcome") ?: ""),
-                                    "reason" to (res?.optString("reason") ?: ""),
-                                    "error" to (res?.optString("error") ?: ""),
-                                    "role" to prefs.role,
-                                    "day" to dayKey,
-                                    "issue" to issue,
-                                    "officeId" to officeId,
-                                ),
-                            )
-                            // #endregion
                             main.post {
                                 sending = false
                                 if (res?.ok() == true) {

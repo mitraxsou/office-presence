@@ -10,6 +10,7 @@ import {
   type DayPointsResult,
 } from "@/lib/visit-calculator";
 import { monthKeyInTz } from "@/lib/presence";
+import { exceptionDaysForUserRange } from "@/lib/exception-days";
 
 const MONTH_SHORT = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"] as const;
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
@@ -144,7 +145,9 @@ export async function monthContentVersion(userId: string, monthKey: string, time
       end: new Date(localDayBounds(`${next}-01`, timezone).startMs),
     };
   })();
-  const [visitTouch, corrTouch] = await Promise.all([
+  const firstDay = `${monthKey}-01`;
+  const lastDay = `${monthKey}-31`;
+  const [visitTouch, corrTouch, exceptionTouch, leaveTouch] = await Promise.all([
     prisma.visit.findFirst({
       where: { userId, startAt: { gte: start, lt: end } },
       orderBy: { updatedAt: "desc" },
@@ -155,9 +158,26 @@ export async function monthContentVersion(userId: string, monthKey: string, time
       orderBy: { updatedAt: "desc" },
       select: { updatedAt: true },
     }),
+    prisma.presenceException.findFirst({
+      where: { userId, startDay: { lte: lastDay }, endDay: { gte: firstDay } },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+    prisma.leaveDay.findFirst({
+      where: { userId, dayKey: { startsWith: monthKey } },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
   ]);
-  const ms = Math.max(visitTouch?.updatedAt.getTime() ?? 0, corrTouch?.updatedAt.getTime() ?? 0);
-  return String(ms);
+  const ms = Math.max(
+    visitTouch?.updatedAt.getTime() ?? 0,
+    corrTouch?.updatedAt.getTime() ?? 0,
+    exceptionTouch?.updatedAt.getTime() ?? 0,
+    leaveTouch?.updatedAt.getTime() ?? 0,
+  );
+  // Removing a leave day leaves no row to date, so the count changes the version instead.
+  const leaveCount = await prisma.leaveDay.count({ where: { userId, dayKey: { startsWith: monthKey } } });
+  return leaveCount ? `${ms}.${leaveCount}` : String(ms);
 }
 
 export async function computeUserYear(userId: string, year: number): Promise<YearPayload> {
@@ -231,7 +251,8 @@ export async function computeUserYear(userId: string, year: number): Promise<Yea
     });
   }
 
-  const days = computeDayPoints(computed, timezone, pointRows.map(toFence));
+  const exceptionDays = await exceptionDaysForUserRange(userId, `${year}-01-01`, `${year}-12-31`);
+  const days = computeDayPoints(computed, timezone, pointRows.map(toFence), [], exceptionDays);
   const dayByKey = new Map(days.map((d) => [d.dayKey, d]));
 
   const months: YearMonthRow[] = [];
@@ -309,10 +330,10 @@ export async function computeUserYear(userId: string, year: number): Promise<Yea
   }
   const usualArrivalMins = medianMinutes(arrivals);
   const usualLeavingMins = medianMinutes(leavings);
+  // Exception-only days have no visit, so they do not lower the average.
+  const daysWithVisits = days.filter((d) => d.visited && d.firstIn);
   const avgHours =
-    days.filter((d) => d.visited).length === 0
-      ? 0
-      : days.filter((d) => d.visited).reduce((s, d) => s + d.hours, 0) / days.filter((d) => d.visited).length;
+    daysWithVisits.length === 0 ? 0 : daysWithVisits.reduce((s, d) => s + d.hours, 0) / daysWithVisits.length;
 
   // Multi-office days: distinct offices on the same dayKey from visit rows.
   const officesByDay = new Map<string, Set<string>>();

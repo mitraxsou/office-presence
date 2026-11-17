@@ -25,6 +25,11 @@ object GeofenceHelper {
     @SuppressLint("MissingPermission")
     fun registerAll(context: Context, offices: List<Office>) {
         val prefs = AppPrefs(context)
+        if (!prefs.hasTrackingConsent && !prefs.isViewAsActive) {
+            prefs.geofenceStatus = "Geofences off until the privacy notice is accepted."
+            clear(context)
+            return
+        }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {

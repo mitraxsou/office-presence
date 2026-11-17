@@ -101,6 +101,22 @@ export async function requireRealAdminActor(request: Request): Promise<Actor | R
   return actor;
 }
 
+/**
+ * Admins, or users with canGrantExceptions (HR). Never during view-as.
+ * HR users get only the exceptions APIs: no roster, GPS or visit edits.
+ */
+export async function requireExceptionGranter(request: Request): Promise<Actor | Response> {
+  const actor = await resolveActor(request);
+  if (!actor) return unauthorized();
+  if (actor.viewAs) return forbidden();
+  if (actor.user.role !== "admin" && !actor.user.canGrantExceptions) return forbidden();
+  return actor;
+}
+
+export function canGrantExceptions(user: { role: string; canGrantExceptions?: boolean | null }): boolean {
+  return user.role === "admin" || user.canGrantExceptions === true;
+}
+
 /** Read-only view-as must not mutate presence, corrections, devices, or sharing. */
 export function rejectIfReadonlyViewAs(actor: Actor): Response | null {
   if (actor.viewAs?.mode === "readonly") {

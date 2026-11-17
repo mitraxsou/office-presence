@@ -19,6 +19,13 @@ type Policy = {
   appVersionCode?: number;
   appVersionName?: string;
   appApkUrl?: string | null;
+  rejectMockLocations?: boolean;
+  rawLocationRetentionDays?: number;
+  privacyNoticeVersion?: string;
+  requireConsent?: boolean;
+  allowSelfLeave?: boolean;
+  allowExceptionsInClosedMonths?: boolean;
+  managersDecideCorrections?: boolean;
 };
 
 const TIMEZONES = [
@@ -65,6 +72,13 @@ export default function SettingsClient({
         appVersionCode: data.policy.appVersionCode ?? 0,
         appVersionName: data.policy.appVersionName ?? "",
         appApkUrl: data.policy.appApkUrl ?? "",
+        rejectMockLocations: data.policy.rejectMockLocations !== false,
+        rawLocationRetentionDays: data.policy.rawLocationRetentionDays ?? 90,
+        privacyNoticeVersion: data.policy.privacyNoticeVersion ?? "1",
+        requireConsent: data.policy.requireConsent === true,
+        allowSelfLeave: data.policy.allowSelfLeave !== false,
+        allowExceptionsInClosedMonths: data.policy.allowExceptionsInClosedMonths !== false,
+        managersDecideCorrections: data.policy.managersDecideCorrections === true,
       });
       setMessage("Rules saved");
       setMessageKind("ok");
@@ -92,7 +106,7 @@ export default function SettingsClient({
         <div className="op-kv">
           <div className="k">
             <b>Monthly target</b>
-            <small>Office points needed each month</small>
+            <small>Same for everyone, every month. Leave and holidays are recorded only.</small>
           </div>
           <div className="v">
             <input
@@ -103,6 +117,44 @@ export default function SettingsClient({
               aria-label="Monthly target points"
             />
             <span>points</span>
+          </div>
+
+          <div className="k">
+            <b>Employees can mark their own leave</b>
+            <small>Admins can always add leave</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.allowSelfLeave !== false}
+              disabled={busy}
+              aria-label="Employees can mark their own leave"
+              onChange={(e) => setPolicy({ ...policy, allowSelfLeave: e.target.checked })}
+            />
+          </div>
+
+          <div className="k">
+            <b>HR exceptions</b>
+            <small>Admins, and people with HR access in Users. Each day counts the home office points.</small>
+          </div>
+          <div className="v">
+            <a className="op-ghost" href="/admin/exceptions">
+              Open Exceptions
+            </a>
+          </div>
+
+          <div className="k">
+            <b>Allow exceptions in closed months</b>
+            <small>Needs a reason. Always logged.</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.allowExceptionsInClosedMonths !== false}
+              disabled={busy}
+              aria-label="Allow exceptions in closed months"
+              onChange={(e) => setPolicy({ ...policy, allowExceptionsInClosedMonths: e.target.checked })}
+            />
           </div>
 
           <div className="k">
@@ -149,6 +201,68 @@ export default function SettingsClient({
               aria-label="Default office radius"
             />
             <span>m</span>
+          </div>
+
+          <div className="k">
+            <b>Ignore mock GPS for real accounts</b>
+            <small>Fixes from a mock location app do not count. Test accounts always count. Needs app 2.1.0.</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.rejectMockLocations !== false}
+              disabled={busy}
+              aria-label="Ignore mock GPS for real accounts"
+              onChange={(e) => setPolicy({ ...policy, rejectMockLocations: e.target.checked })}
+            />
+          </div>
+
+          <div className="k">
+            <b>Keep raw location for</b>
+            <small>Coordinates and Wi-Fi are then cleared. Office and points stay.</small>
+          </div>
+          <div className="v">
+            <input
+              type="number"
+              min={7}
+              max={3650}
+              value={policy.rawLocationRetentionDays ?? 90}
+              onChange={(e) => setPolicy({ ...policy, rawLocationRetentionDays: Number(e.target.value) })}
+              disabled={busy}
+              aria-label="Raw location retention days"
+            />
+            <span>days</span>
+          </div>
+
+          <div className="k">
+            <b>Privacy notice version</b>
+            <small>Change it after editing the notice so everyone accepts again</small>
+          </div>
+          <div className="v">
+            <input
+              type="text"
+              value={policy.privacyNoticeVersion ?? "1"}
+              onChange={(e) => setPolicy({ ...policy, privacyNoticeVersion: e.target.value })}
+              disabled={busy}
+              aria-label="Privacy notice version"
+            />
+            <a className="op-ghost" href="/privacy" target="_blank" rel="noreferrer">
+              Read the notice
+            </a>
+          </div>
+
+          <div className="k">
+            <b>Require consent</b>
+            <small>Turn on after most phones are on app 2.1.0, because older apps cannot show the consent screen.</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.requireConsent === true}
+              disabled={busy}
+              aria-label="Require consent"
+              onChange={(e) => setPolicy({ ...policy, requireConsent: e.target.checked })}
+            />
           </div>
 
           <div className="k">
@@ -253,6 +367,20 @@ export default function SettingsClient({
           </div>
 
           <div className="k">
+            <b>Managers can decide their team&apos;s corrections</b>
+            <small>Managers never decide their own. Approve or Not approved only, no edits.</small>
+          </div>
+          <div className="v">
+            <input
+              type="checkbox"
+              checked={policy.managersDecideCorrections === true}
+              disabled={busy}
+              aria-label="Managers can decide their team's corrections"
+              onChange={(e) => setPolicy({ ...policy, managersDecideCorrections: e.target.checked })}
+            />
+          </div>
+
+          <div className="k">
             <b>Who decides corrections</b>
             <small>Every decision is logged</small>
           </div>
@@ -283,7 +411,7 @@ export default function SettingsClient({
 
           <div className="k">
             <b>Android version code</b>
-            <small>Phones on an older version code get a notification to update.</small>
+            <small>Phones on an older version are notified once, then once a day until they install it. Opening the app asks them to open the download page.</small>
           </div>
           <div className="v">
             <input
@@ -311,7 +439,7 @@ export default function SettingsClient({
 
           <div className="k">
             <b>APK URL</b>
-            <small>Download file link. The notification opens the download page.</small>
+            <small>Download file link. The notification opens the download page, not this file directly.</small>
           </div>
           <div className="v">
             <input
